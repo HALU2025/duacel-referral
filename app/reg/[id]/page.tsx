@@ -3,6 +3,8 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+// 1. QRコードライブラリをインポート
+import { QRCodeCanvas } from 'qrcode.react'
 
 function RegisterContent() {
   const params = useParams()
@@ -14,7 +16,6 @@ function RegisterContent() {
   const [status, setStatus] = useState('')
   const [referralUrl, setReferralUrl] = useState('')
 
-  // 1. ページ読み込み時に店舗名を取得
   useEffect(() => {
     const fetchShopInfo = async () => {
       const { data } = await supabase
@@ -37,24 +38,20 @@ function RegisterContent() {
     setStatus('発行中...')
 
     try {
-      // 2. 全スタッフの中から最大のID番号を探して、絶対に被らないIDを作る
       const { data: allStaffs, error: fetchError } = await supabase
         .from('staffs')
         .select('id')
       
       if (fetchError) throw fetchError
 
-      // 既存のID（ST001等）から数字部分だけを取り出して最大値を計算
       const maxNum = allStaffs?.reduce((max, s) => {
         const num = parseInt(s.id.replace('ST', ''), 10)
         return !isNaN(num) && num > max ? num : max
       }, 0) || 0
       
-      // 次のID（例：ST006）を生成
       const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}`
       const referralCode = `${shopId}_${nextStaffId}`
 
-      // 3. staffsテーブルに保存（email列が必要です）
       const { error: insertError } = await supabase
         .from('staffs')
         .insert([{ 
@@ -67,7 +64,6 @@ function RegisterContent() {
 
       if (insertError) throw insertError
 
-      // 成功時の処理
       setReferralUrl(`${window.location.origin}/?r=${referralCode}`)
       setStatus('✅ 登録が完了しました！')
     } catch (err: any) {
@@ -119,18 +115,37 @@ function RegisterContent() {
         </form>
       ) : (
         <div style={{ padding: '25px', backgroundColor: '#f0fdf4', border: '1px solid #10b981', borderRadius: '15px', textAlign: 'center' }}>
-          <p style={{ fontSize: '40px', margin: '0 0 10px 0' }}>🎉</p>
-          <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#059669', marginBottom: '10px' }}>あなたの紹介用URL</p>
-          <div style={{ margin: '15px 0', padding: '15px', backgroundColor: 'white', border: '1px solid #dcfce7', borderRadius: '8px', wordBreak: 'break-all', fontWeight: 'bold', fontSize: '15px', color: '#059669' }}>
+          <p style={{ fontSize: '14px', fontWeight: 'bold', color: '#059669', marginBottom: '15px' }}>
+            登録完了！<br />こちらのQRをお客様に提示してください
+          </p>
+          
+          {/* QRコード表示エリア */}
+          <div style={{ 
+            backgroundColor: 'white', 
+            padding: '20px', 
+            borderRadius: '12px', 
+            display: 'inline-block', 
+            marginBottom: '20px',
+            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' 
+          }}>
+            <QRCodeCanvas 
+              value={referralUrl} 
+              size={180}
+              level={"H"}
+              includeMargin={true}
+            />
+          </div>
+
+          <div style={{ margin: '10px 0 20px 0', padding: '12px', backgroundColor: 'white', border: '1px solid #dcfce7', borderRadius: '8px', wordBreak: 'break-all', fontWeight: 'bold', fontSize: '13px', color: '#059669' }}>
             {referralUrl}
           </div>
+
           <button 
             onClick={() => { navigator.clipboard.writeText(referralUrl); alert('URLをコピーしました！'); }}
             style={{ padding: '12px 24px', backgroundColor: '#059669', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', width: '100%' }}
           >
             URLをコピーする
           </button>
-          <p style={{ fontSize: '12px', color: '#64748b', marginTop: '15px' }}>このURLをSNSやLINEでお客様に共有してください。</p>
         </div>
       )}
       
