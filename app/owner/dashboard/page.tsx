@@ -13,39 +13,48 @@ export default function OwnerDashboard() {
 
   useEffect(() => {
     const fetchOwnerData = async () => {
+      setLoading(true)
+      
       // 1. 現在ログインしているユーザーを取得
       const { data: { user } } = await supabase.auth.getUser()
 
       if (!user) {
+        console.log("ユーザーがログインしていません")
         router.push('/login')
         return
       }
 
-      // 2. shopsテーブルから、このユーザーがオーナーである店舗を検索
+      console.log("ログイン中のUUID:", user.id)
+
+      // 2. shopsテーブルから検索
+      // ここで owner_id が一致する店舗を探す
       const { data: shopData, error: shopError } = await supabase
         .from('shops')
         .select('*')
         .eq('owner_id', user.id)
-        .single()
+        .maybeSingle() // single()だとエラーで止まる場合があるのでmaybeSingleに
 
       if (shopError || !shopData) {
-        console.error('店舗情報の取得に失敗しました', shopError)
+        console.error('店舗が見つかりませんでした。DBのowner_idを確認してください', shopError)
         setLoading(false)
         return
       }
+      
+      console.log("取得できた店舗:", shopData.name, "ID:", shopData.id)
       setShop(shopData)
 
       // 3. 店舗全体の総紹介数を取得
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from('referral_logs')
         .select('*', { count: 'exact', head: true })
         .eq('shop_id', shopData.id)
       
+      if (countError) console.error("紹介数取得エラー:", countError)
       setTotalReferrals(count || 0)
 
-      // 4. 所属スタッフ一覧と、それぞれの紹介数を取得
-      // staffsテーブルにreferral_logsを結合してカウントを取得する（簡易版）
-      const { data: staffData } = await supabase
+      // 4. 所属スタッフ一覧（紹介数付き）
+      // リレーションが設定されている前提でカウントを結合
+      const { data: staffData, error: staffError } = await supabase
         .from('staffs')
         .select(`
           id,
@@ -54,13 +63,15 @@ export default function OwnerDashboard() {
         `)
         .eq('shop_id', shopData.id)
 
-      if (staffData) {
-        // countデータを扱いやすい形に整形
+      if (staffError) {
+        console.error("スタッフ取得エラー:", staffError)
+      } else if (staffData) {
         const formattedStaffs = staffData.map((s: any) => ({
           id: s.id,
           name: s.name,
-          count: s.referral_logs[0]?.count || 0
+          count: s.referral_logs ? (s.referral_logs[0]?.count || 0) : 0
         }))
+        console.log("整形後のスタッフデータ:", formattedStaffs)
         setStaffs(formattedStaffs)
       }
 
@@ -71,7 +82,15 @@ export default function OwnerDashboard() {
   }, [router])
 
   if (loading) return <div className="p-8">読み込み中...</div>
-  if (!shop) return <div className="p-8">店舗情報が見つかりません。</div>
+  
+  // 店舗が見つからなかった時の表示を少し親切に
+  if (!shop) return (
+    <div className="p-8 text-center">
+      <p className="mb-4">店舗情報が見つかりません。</p>
+      <p className="text-sm text-gray-500">ログイン中のIDがshopsテーブルのowner_idに登録されているか確認してください。</p>
+      <button onClick={() => router.push('/login')} className="mt-4 text-blue-600 underline">ログインし直す</button>
+    </div>
+  )
 
   return (
     <div className="p-8 max-w-4xl mx-auto bg-gray-50 min-h-screen">
