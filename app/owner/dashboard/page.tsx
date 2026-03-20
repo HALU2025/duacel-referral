@@ -54,7 +54,7 @@ export default function OwnerDashboard() {
           setHistory(historyWithNames)
           
           // 確定済み（confirmed）の件数をカウント
-          const confirmed = referralLogs.filter(log => log.status === 'confirmed').length
+          const confirmed = referralLogs.filter(log => log.status === 'confirmed' || log.status === 'issued').length
           setConfirmedCount(confirmed)
         }
       }
@@ -152,14 +152,16 @@ export default function OwnerDashboard() {
                       <td className="p-4 font-medium text-gray-800">{item.staffName}</td>
                       <td className="p-4 text-xs font-mono">{item.order_number}</td>
                       <td className="p-4">
-                        <span className={`px-2 py-1 rounded text-[10px] font-bold ${
-                          item.status === 'pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 
-                          item.status === 'confirmed' ? 'bg-green-50 text-green-700 border border-green-100' : 
-                          'bg-red-50 text-red-500'
-                        }`}>
-                          {item.status === 'pending' ? '仮計上' : item.status === 'confirmed' ? '報酬確定' : 'キャンセル'}
-                        </span>
-                      </td>
+  <span className={`px-2 py-1 rounded text-[10px] font-bold ${
+    item.status === 'pending' ? 'bg-amber-50 text-amber-600 border border-amber-100' : 
+    (item.status === 'confirmed' || item.status === 'issued') ? 'bg-green-50 text-green-700 border border-green-100' : 
+    'bg-red-50 text-red-500'
+  }`}>
+    {item.status === 'pending' ? '仮計上' : 
+     item.status === 'confirmed' ? '報酬確定' : 
+     item.status === 'issued' ? 'ギフト発行済' : 'キャンセル'}
+  </span>
+</td>
                     </tr>
                   ))}
                 </tbody>
