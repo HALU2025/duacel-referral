@@ -15,63 +15,56 @@ export default function OwnerDashboard() {
     const fetchOwnerData = async () => {
       setLoading(true)
       
-      // 1. 現在ログインしているユーザーを取得
       const { data: { user } } = await supabase.auth.getUser()
-
       if (!user) {
-        console.log("ユーザーがログインしていません")
         router.push('/login')
         return
       }
 
-      console.log("ログイン中のUUID:", user.id)
-
-      // 2. shopsテーブルから検索
-      // ここで owner_id が一致する店舗を探す
+      // 1. 店舗取得
       const { data: shopData, error: shopError } = await supabase
         .from('shops')
         .select('*')
         .eq('owner_id', user.id)
-        .maybeSingle() // single()だとエラーで止まる場合があるのでmaybeSingleに
+        .maybeSingle()
 
       if (shopError || !shopData) {
-        console.error('店舗が見つかりませんでした。DBのowner_idを確認してください', shopError)
         setLoading(false)
         return
       }
-      
-      console.log("取得できた店舗:", shopData.name, "ID:", shopData.id)
       setShop(shopData)
 
-      // 3. 店舗全体の総紹介数を取得
-      const { count, error: countError } = await supabase
+      // 2. 店舗全体の紹介数（ここは今のままでOK）
+      const { count } = await supabase
         .from('referral_logs')
         .select('*', { count: 'exact', head: true })
         .eq('shop_id', shopData.id)
       
-      if (countError) console.error("紹介数取得エラー:", countError)
       setTotalReferrals(count || 0)
 
-      // 4. 所属スタッフ一覧（紹介数付き）
-      // リレーションが設定されている前提でカウントを結合
-      const { data: staffData, error: staffError } = await supabase
+      // 3. スタッフ一覧と紹介実績の取得（エラーが出ない書き方に修正）
+      // まずスタッフ一覧をシンプルに取る
+      const { data: staffList, error: staffError } = await supabase
         .from('staffs')
-        .select(`
-          id,
-          name,
-          referral_logs(count)
-        `)
+        .select('*')
         .eq('shop_id', shopData.id)
 
       if (staffError) {
         console.error("スタッフ取得エラー:", staffError)
-      } else if (staffData) {
-        const formattedStaffs = staffData.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-          count: s.referral_logs ? (s.referral_logs[0]?.count || 0) : 0
+      } else if (staffList) {
+        // 各スタッフの紹介数を個別にカウント（確実な方法）
+        const formattedStaffs = await Promise.all(staffList.map(async (s: any) => {
+          const { count: staffCount } = await supabase
+            .from('referral_logs')
+            .select('*', { count: 'exact', head: true })
+            .eq('staff_id', s.id)
+          
+          return {
+            id: s.id,
+            name: s.name,
+            count: staffCount || 0
+          }
         }))
-        console.log("整形後のスタッフデータ:", formattedStaffs)
         setStaffs(formattedStaffs)
       }
 
@@ -82,15 +75,7 @@ export default function OwnerDashboard() {
   }, [router])
 
   if (loading) return <div className="p-8">読み込み中...</div>
-  
-  // 店舗が見つからなかった時の表示を少し親切に
-  if (!shop) return (
-    <div className="p-8 text-center">
-      <p className="mb-4">店舗情報が見つかりません。</p>
-      <p className="text-sm text-gray-500">ログイン中のIDがshopsテーブルのowner_idに登録されているか確認してください。</p>
-      <button onClick={() => router.push('/login')} className="mt-4 text-blue-600 underline">ログインし直す</button>
-    </div>
-  )
+  if (!shop) return <div className="p-8">店舗情報が見つかりません。</div>
 
   return (
     <div className="p-8 max-w-4xl mx-auto bg-gray-50 min-h-screen">
@@ -107,19 +92,17 @@ export default function OwnerDashboard() {
         </button>
       </header>
 
-      {/* サマリーカード */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
           <p className="text-sm font-medium text-gray-500 mb-1">総紹介件数（累計）</p>
           <p className="text-4xl font-bold text-blue-600">{totalReferrals}<span className="text-lg ml-1 text-gray-400">件</span></p>
         </div>
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
           <p className="text-sm font-medium text-gray-500 mb-1">登録スタッフ数</p>
           <p className="text-4xl font-bold text-gray-800">{staffs.length}<span className="text-lg ml-1 text-gray-400">名</span></p>
         </div>
       </div>
 
-      {/* スタッフ別実績テーブル */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
         <div className="p-4 border-b bg-gray-50">
           <h2 className="font-bold text-gray-700">スタッフ別実績</h2>
@@ -152,21 +135,14 @@ export default function OwnerDashboard() {
         </table>
       </div>
 
-      {/* オーナーメニュー */}
       <div className="bg-indigo-900 p-6 rounded-xl shadow-lg text-white">
         <h2 className="font-bold mb-4 flex items-center">
           <span className="mr-2">🛠️</span> オーナー専用ツール
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-          <button className="bg-white/10 hover:bg-white/20 p-3 rounded-lg transition text-left border border-white/10">
-            QRコードダウンロード
-          </button>
-          <button className="bg-white/10 hover:bg-white/20 p-3 rounded-lg transition text-left border border-white/10">
-            紹介用バナー素材
-          </button>
-          <button className="bg-white/10 hover:bg-white/20 p-3 rounded-lg transition text-left border border-white/10">
-            報酬レポート (CSV)
-          </button>
+          <button className="bg-white/10 hover:bg-white/20 p-3 rounded-lg transition text-left border border-white/10">QRコードダウンロード</button>
+          <button className="bg-white/10 hover:bg-white/20 p-3 rounded-lg transition text-left border border-white/10">紹介用バナー素材</button>
+          <button className="bg-white/10 hover:bg-white/20 p-3 rounded-lg transition text-left border border-white/10">報酬レポート (CSV)</button>
         </div>
       </div>
     </div>
