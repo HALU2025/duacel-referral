@@ -468,7 +468,7 @@ const handleSaveAllSettings = async () => {
                         )}
                       </td>
                       <td style={{ padding: '15px' }}>
-                        <span style={{ padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', backgroundColor: status?.bgColor, color: status?.color, opacity: isIssued ? 0.8 : 1 }}>
+                        <span style={{ padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', backgroundColor: status?.bgColor, color: status?.color, opacity: isIssued ? 0.6 : 1 }}>
                           {status?.label}
                         </span>
                       </td>

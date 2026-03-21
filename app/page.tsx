@@ -119,6 +119,13 @@ export default function Home() {
         </div>
       )}
 
+
+<br />
+テスト用<br />
+<a href="https://duacel-referral.vercel.app/admin" target="_blank"><u>システム管理画面</u></a>　|　<a href="https://duacel-referral.vercel.app/login" target="_blank"><u>ショップオーナー管理画面</u></a>
+
+
+
       <footer style={{ marginTop: '60px', borderTop: '1px solid #e2e8f0', paddingTop: '20px' }}>
         <p style={{ fontSize: '12px', color: '#94a3b8' }}>
           ※このボタンを押すと、Supabaseへの記録と同時にMakeへ通知が飛びます。

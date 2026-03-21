@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+// QRコードライブラリをインポート
+import { QRCodeCanvas } from 'qrcode.react'
 
 export default function ShopJoinPage() {
   const [shopName, setShopName] = useState('')
@@ -81,7 +83,7 @@ export default function ShopJoinPage() {
   return (
     <main style={{ padding: '40px 20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif', color: '#334155' }}>
       <header style={{ textAlign: 'center', marginBottom: '40px' }}>
-        <h1 style={{ color: '#2563eb', margin: '0 0 10px 0' }}>Duacel パートナー登録</h1>
+        <h1 style={{ color: '#2563eb', margin: '0 0 10px 0' }}>Duacel紹介プログラム登録</h1>
         <p style={{ color: '#64748b', margin: 0 }}>サロン情報を入力して、管理アカウントを作成します。</p>
       </header>
 
@@ -90,7 +92,7 @@ export default function ShopJoinPage() {
           <div>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>店舗名</label>
             <input 
-              placeholder="例: サロン・ド・デュアセル 渋谷店"
+              placeholder="例: ABCサロン"
               value={shopName} 
               onChange={(e) => setShopName(e.target.value)} 
               required 
@@ -99,7 +101,7 @@ export default function ShopJoinPage() {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>ログイン用メールアドレス</label>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>メールアドレス</label>
             <input 
               type="email" 
               placeholder="owner@example.com"
@@ -112,7 +114,7 @@ export default function ShopJoinPage() {
 
           {/* --- パスワード入力欄を追加 --- */}
           <div>
-            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>ログインパスワード設定</label>
+            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>パスワード</label>
             <input 
               type="password" 
               placeholder="6文字以上のパスワード"
@@ -132,14 +134,31 @@ export default function ShopJoinPage() {
           {status && <p style={{ textAlign: 'center', fontSize: '14px', color: '#ef4444', margin: 0 }}>{status}</p>}
         </form>
       ) : (
-        // --- 登録完了画面（変更なし） ---
+        // --- 登録完了画面 ---
         <div style={{ padding: '30px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', textAlign: 'center', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}>
           <div style={{ fontSize: '50px', marginBottom: '10px' }}>✨</div>
           <h2 style={{ color: '#166534', margin: '0 0 10px 0' }}>オーナー登録完了！</h2>
           <p style={{ color: '#64748b', margin: '0 0 20px 0', fontSize: '15px' }}>設定したメールアドレスとパスワードでログイン可能です。</p>
           
+          {/* --- スタッフ用URL表示エリア --- */}
           <div style={{ margin: '0 0 20px 0', padding: '15px', backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', wordBreak: 'break-all', fontWeight: 'bold', color: '#0369a1', fontSize: '17px' }}>
-             スタッフ用URL: {generatedUrl}
+            スタッフ登録用URL:
+            <a href={generatedUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'block', color: '#2563eb', fontSize: '16px', textDecoration: 'underline', lineHeight: '1.5' }}>
+              {generatedUrl}
+            </a>
+          </div>
+
+          {/* QRコード表示エリア */}
+          <div style={{ margin: '30px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <div style={{ padding: '12px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'inline-block' }}>
+              <QRCodeCanvas 
+                value={generatedUrl} 
+                size={180}
+                level={"H"}
+                includeMargin={false}
+              />
+            </div>
+            <p style={{ fontSize: '13px', color: '#64748b', fontWeight: 'bold' }}>スマホで読み取ってスタッフ登録</p>
           </div>
 
           <div style={{ maxWidth: '400px', margin: '30px auto 0 auto', borderTop: '1px solid #e2e8f0', paddingTop: '30px' }}>

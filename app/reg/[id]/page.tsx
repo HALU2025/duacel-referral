@@ -161,8 +161,10 @@ function RegisterContent() {
             />
           </div>
 
-          <div style={{ margin: '0 0 25px 0', padding: '12px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', wordBreak: 'break-all', fontWeight: 'bold', fontSize: '14px', color: '#059669' }}>
-            {referralUrl}
+          <div style={{ margin: '0 0 25px 0', padding: '12px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', wordBreak: 'break-all', fontWeight: 'bold', fontSize: '14px' }}>
+            <a href={referralUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#059669', textDecoration: 'underline', display: 'block' }}>
+              {referralUrl}
+            </a>
           </div>
 
           {/* 共有・保存アクション */}
