@@ -21,7 +21,6 @@ export default function AdminDashboard() {
 
   useEffect(() => { fetchData() }, [])
 
-  // ステータス定義
   const STATUS_OPTIONS = [
     { value: 'pending', label: '仮計上', color: '#92400e', bgColor: '#fef3c7' },
     { value: 'confirmed', label: '報酬確定', color: '#065f46', bgColor: '#d1fae5' },
@@ -29,11 +28,41 @@ export default function AdminDashboard() {
     { value: 'cancel', label: 'キャンセル', color: '#991b1b', bgColor: '#fee2e2' },
   ]
 
-  const updateStatus = async (id: string, newStatus: string) => {
-    const { error } = await supabase.from('referrals').update({ status: newStatus }).eq('id', id)
-    if (!error) fetchData()
+  // ポイント発行用の共通ロジック
+  const issuePoints = async (referral: any) => {
+    const rewardPoints = 5000 // スモールスタート用固定値
+    const { error } = await supabase.from('point_transactions').insert([{
+      shop_id: referral.shop_id,
+      referral_id: referral.id,
+      points: rewardPoints,
+      reason: '商品A紹介報酬',
+      status: 'confirmed',
+      metadata: { order_number: referral.order_number }
+    }])
+    if (error) console.error('ポイント発行失敗:', error)
   }
 
+  // 個別更新
+  const updateStatus = async (id: string, newStatus: string) => {
+    // 1. 対象データを取得
+    const target = referrals.find(r => r.id === id)
+    if (!target) return
+
+    // 2. ステータス更新
+    const { error } = await supabase.from('referrals').update({ status: newStatus }).eq('id', id)
+    
+    if (!error) {
+      // 3. 報酬確定になった場合のみポイント発行
+      if (newStatus === 'confirmed') {
+        await issuePoints(target)
+      }
+      fetchData()
+    } else {
+      alert('更新に失敗しました')
+    }
+  }
+
+  // 一括更新
   const handleBulkExecute = async () => {
     if (!bulkStatus) return alert('変更後のステータスを選択してください')
     if (selectedIds.length === 0) return alert('対象を選択してください')
@@ -41,11 +70,22 @@ export default function AdminDashboard() {
     const label = STATUS_OPTIONS.find(s => s.value === bulkStatus)?.label
     if (!confirm(`${selectedIds.length}件を「${label}」に一括変更しますか？`)) return
 
+    // ステータス一括更新
     const { error } = await supabase.from('referrals').update({ status: bulkStatus }).in('id', selectedIds)
+    
     if (!error) {
+      // 報酬確定への一括変更だった場合、各件に対してポイント発行処理を行う
+      if (bulkStatus === 'confirmed') {
+        const targetReferrals = referrals.filter(r => selectedIds.includes(r.id))
+        // 並列でポイント発行（件数が多い場合は制限が必要ですが、まずはこれで）
+        await Promise.all(targetReferrals.map(r => issuePoints(r)))
+      }
+      
       setSelectedIds([])
       setBulkStatus('')
       fetchData()
+    } else {
+      alert('一括更新に失敗しました')
     }
   }
 
@@ -64,14 +104,12 @@ export default function AdminDashboard() {
         <button onClick={fetchData} style={{ padding: '8px 16px', backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer' }}>最新に更新</button>
       </header>
 
-      {/* --- 一括操作パネル（固定） --- */}
+      {/* 一括操作パネル */}
       <div style={{ 
         backgroundColor: '#fff', padding: '15px 20px', borderRadius: '12px', border: '1px solid #e2e8f0', 
         marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
       }}>
-        <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#64748b' }}>
-          ラベル：一括操作
-        </div>
+        <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#64748b' }}>ラベル：一括操作</div>
         <select 
           value={bulkStatus} 
           onChange={(e) => setBulkStatus(e.target.value)}
@@ -97,7 +135,7 @@ export default function AdminDashboard() {
         )}
       </div>
 
-      {/* --- 詳細テーブル --- */}
+      {/* 詳細テーブル */}
       <div style={{ backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
