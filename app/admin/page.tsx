@@ -7,161 +7,153 @@ export default function AdminDashboard() {
   const [referrals, setReferrals] = useState<any[]>([])
   const [shops, setShops] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedIds, setSelectedIds] = useState<string[]>([]) // チェックボックス管理
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [bulkStatus, setBulkStatus] = useState('') // 一括操作用
 
   const fetchData = async () => {
     setLoading(true)
-    // 紹介実績の取得
-    const { data: refData } = await supabase
-      .from('referrals')
-      .select('*')
-      .order('created_at', { ascending: false })
-    
-    // 店舗情報の取得
+    const { data: refData } = await supabase.from('referrals').select('*').order('created_at', { ascending: false })
     const { data: shopData } = await supabase.from('shops').select('*')
-
     if (refData) setReferrals(refData)
     if (shopData) setShops(shopData)
     setLoading(false)
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
-  // ステータス表示設定
-  const STATUS_CONFIG: { [key: string]: { label: string; color: string; bgColor: string } } = {
-    pending: { label: '仮計上', color: '#92400e', bgColor: '#fef3c7' },
-    confirmed: { label: '報酬確定', color: '#065f46', bgColor: '#d1fae5' },
-    issued: { label: 'ギフト発行済', color: '#1e40af', bgColor: '#dbeafe' },
-    cancel: { label: 'キャンセル', color: '#991b1b', bgColor: '#fee2e2' },
-  }
+  // ステータス定義
+  const STATUS_OPTIONS = [
+    { value: 'pending', label: '仮計上', color: '#92400e', bgColor: '#fef3c7' },
+    { value: 'confirmed', label: '報酬確定', color: '#065f46', bgColor: '#d1fae5' },
+    { value: 'issued', label: 'ギフト発行済', color: '#1e40af', bgColor: '#dbeafe' },
+    { value: 'cancel', label: 'キャンセル', color: '#991b1b', bgColor: '#fee2e2' },
+  ]
 
-  // 単一更新
   const updateStatus = async (id: string, newStatus: string) => {
     const { error } = await supabase.from('referrals').update({ status: newStatus }).eq('id', id)
-    if (error) alert('更新に失敗しました')
-    else fetchData()
+    if (!error) fetchData()
   }
 
-  // 一括更新
-  const handleBulkUpdate = async (newStatus: string) => {
-    if (selectedIds.length === 0) return
-    const { error } = await supabase.from('referrals').update({ status: newStatus }).in('id', selectedIds)
-    if (error) {
-      alert('一括更新に失敗しました')
-    } else {
+  const handleBulkExecute = async () => {
+    if (!bulkStatus) return alert('変更後のステータスを選択してください')
+    if (selectedIds.length === 0) return alert('対象を選択してください')
+    
+    const label = STATUS_OPTIONS.find(s => s.value === bulkStatus)?.label
+    if (!confirm(`${selectedIds.length}件を「${label}」に一括変更しますか？`)) return
+
+    const { error } = await supabase.from('referrals').update({ status: bulkStatus }).in('id', selectedIds)
+    if (!error) {
       setSelectedIds([])
+      setBulkStatus('')
       fetchData()
     }
   }
 
-  // チェックボックス操作
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id])
-  }
-
   const toggleSelectAll = () => {
-    if (selectedIds.length === referrals.length) {
-      setSelectedIds([])
-    } else {
-      setSelectedIds(referrals.map(r => r.id))
-    }
+    setSelectedIds(selectedIds.length === referrals.length ? [] : referrals.map(r => r.id))
   }
 
-  if (loading) return <div style={{ padding: '40px', textAlign: 'center' }}>データを集計中...</div>
+  if (loading) return <div style={{ padding: '40px', textAlign: 'center' }}>集計中...</div>
 
   return (
-    <main style={{ padding: '40px', maxWidth: '1400px', margin: '0 auto', fontFamily: 'sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh' }}>
-      <header style={{ marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+    <main style={{ padding: '20px 40px', maxWidth: '1600px', margin: '0 auto', fontFamily: 'sans-serif', backgroundColor: '#f8fafc', minHeight: '100vh' }}>
+      <header style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ color: '#1e293b', fontSize: '28px', margin: 0 }}>Duacel 管理者ダッシュボード</h1>
-          <p style={{ color: '#64748b', margin: '5px 0 0' }}>成果の承認・一括ステータス管理</p>
+          <h1 style={{ fontSize: '24px', fontWeight: 'bold', color: '#1e293b', margin: 0 }}>Duacel 成果管理システム</h1>
         </div>
-        <button onClick={fetchData} style={{ padding: '10px 20px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>最新に更新</button>
+        <button onClick={fetchData} style={{ padding: '8px 16px', backgroundColor: '#fff', border: '1px solid #cbd5e1', borderRadius: '6px', cursor: 'pointer' }}>最新に更新</button>
       </header>
 
-      {/* --- 一括操作バー (選択中のみ表示) --- */}
+      {/* --- 一括操作パネル（固定） --- */}
       <div style={{ 
-        position: 'sticky', top: '20px', zIndex: 10, marginBottom: '20px', padding: '15px 25px', 
-        backgroundColor: '#1e293b', borderRadius: '12px', display: selectedIds.length > 0 ? 'flex' : 'none', 
-        justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', color: '#fff'
+        backgroundColor: '#fff', padding: '15px 20px', borderRadius: '12px', border: '1px solid #e2e8f0', 
+        marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '20px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
       }}>
-        <div><span style={{ fontWeight: 'bold', fontSize: '18px', color: '#38bdf8' }}>{selectedIds.length}</span> 件を選択中</div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={() => handleBulkUpdate('confirmed')} style={{ padding: '8px 16px', backgroundColor: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>一括で報酬確定</button>
-          <button onClick={() => handleBulkUpdate('issued')} style={{ padding: '8px 16px', backgroundColor: '#3b82f6', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>一括でギフト発行済</button>
-          <button onClick={() => handleBulkUpdate('cancel')} style={{ padding: '8px 16px', backgroundColor: '#ef4444', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>一括キャンセル</button>
+        <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#64748b' }}>
+          ラベル：一括操作
         </div>
+        <select 
+          value={bulkStatus} 
+          onChange={(e) => setBulkStatus(e.target.value)}
+          style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', backgroundColor: selectedIds.length > 0 ? '#fff' : '#f1f5f9' }}
+          disabled={selectedIds.length === 0}
+        >
+          <option value="">変更なし</option>
+          {STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+        </select>
+        <button 
+          onClick={handleBulkExecute}
+          disabled={selectedIds.length === 0 || !bulkStatus}
+          style={{ 
+            padding: '8px 24px', borderRadius: '6px', border: 'none', fontWeight: 'bold', fontSize: '14px', cursor: 'pointer',
+            backgroundColor: (selectedIds.length > 0 && bulkStatus) ? '#2563eb' : '#cbd5e1',
+            color: '#fff', transition: '0.2s'
+          }}
+        >
+          実行する ({selectedIds.length}件)
+        </button>
+        {selectedIds.length > 0 && (
+          <button onClick={() => setSelectedIds([])} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: '12px', cursor: 'pointer' }}>選択を解除</button>
+        )}
       </div>
 
-      {/* --- メインテーブル --- */}
-      <section style={{ backgroundColor: '#fff', padding: '0', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
+      {/* --- 詳細テーブル --- */}
+      <div style={{ backgroundColor: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
-            <tr style={{ textAlign: 'left', backgroundColor: '#f1f5f9', color: '#64748b' }}>
-              <th style={{ padding: '15px 20px', width: '40px' }}>
-                <input type="checkbox" checked={selectedIds.length === referrals.length && referrals.length > 0} onChange={toggleSelectAll} style={{ cursor: 'pointer' }} />
+            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#64748b', fontSize: '12px' }}>
+              <th style={{ padding: '15px 20px', width: '50px' }}>
+                <input type="checkbox" checked={selectedIds.length === referrals.length && referrals.length > 0} onChange={toggleSelectAll} />
               </th>
-              <th style={{ padding: '15px' }}>発生日時</th>
-              <th style={{ padding: '15px' }}>店舗名 / ID</th>
-              <th style={{ padding: '15px' }}>受注番号 / コード</th>
-              <th style={{ padding: '15px' }}>現在のステータス</th>
-              <th style={{ padding: '15px', textAlign: 'right' }}>個別操作</th>
+              <th style={{ padding: '15px', width: '160px' }}>発生日時</th>
+              <th style={{ padding: '15px', width: '200px' }}>店舗名</th>
+              <th style={{ padding: '15px', width: '180px' }}>受注番号</th>
+              <th style={{ padding: '15px', width: '150px' }}>紹介コード</th>
+              <th style={{ padding: '15px', width: '180px' }}>ステータス（個別変更）</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody style={{ fontSize: '14px' }}>
             {referrals.map(ref => {
               const shop = shops.find(s => String(s.id) === String(ref.shop_id));
-              const status = STATUS_CONFIG[ref.status] || { label: ref.status, color: '#64748b', bgColor: '#f1f5f9' };
-              const isSelected = selectedIds.includes(ref.id);
-
+              const currentStatus = STATUS_OPTIONS.find(opt => opt.value === ref.status);
+              
               return (
-                <tr key={ref.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isSelected ? '#f0f9ff' : 'transparent' }}>
+                <tr key={ref.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: selectedIds.includes(ref.id) ? '#f0f9ff' : 'transparent' }}>
                   <td style={{ padding: '15px 20px' }}>
-                    <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(ref.id)} style={{ cursor: 'pointer' }} />
+                    <input 
+                      type="checkbox" 
+                      checked={selectedIds.includes(ref.id)} 
+                      onChange={() => setSelectedIds(prev => prev.includes(ref.id) ? prev.filter(i => i !== ref.id) : [...prev, ref.id])} 
+                    />
                   </td>
                   <td style={{ padding: '15px', color: '#94a3b8', fontSize: '12px' }}>
                     {new Date(ref.created_at).toLocaleString('ja-JP')}
                   </td>
+                  <td style={{ padding: '15px', fontWeight: 'bold' }}>{shop?.name || <span style={{color: '#ccc'}}>未紐付け</span>}</td>
+                  <td style={{ padding: '15px', fontFamily: 'monospace' }}>{ref.order_number}</td>
+                  <td style={{ padding: '15px', color: '#6366f1', fontSize: '12px' }}>{ref.referral_code}</td>
                   <td style={{ padding: '15px' }}>
-                    <div style={{ fontWeight: 'bold', color: '#1e293b' }}>{shop?.name || '不明な店舗'}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8' }}>ID: {ref.shop_id}</div>
-                  </td>
-                  <td style={{ padding: '15px' }}>
-                    <div style={{ fontWeight: 'bold', color: '#475569' }}>{ref.order_number}</div>
-                    <div style={{ fontSize: '11px', color: '#6366f1' }}>Code: {ref.referral_code}</div>
-                  </td>
-                  <td style={{ padding: '15px' }}>
-                    <span style={{ 
-                      padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', border: `1px solid ${status.color}`,
-                      backgroundColor: status.bgColor, color: status.color
-                    }}>
-                      {status.label}
-                    </span>
-                  </td>
-                  <td style={{ padding: '15px', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end' }}>
-                      {ref.status === 'pending' && (
-                        <button onClick={() => updateStatus(ref.id, 'confirmed')} style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd', borderRadius: '4px', cursor: 'pointer' }}>確定</button>
-                      )}
-                      {(ref.status === 'confirmed' || ref.status === 'pending') && (
-                        <button onClick={() => updateStatus(ref.id, 'issued')} style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: '4px', cursor: 'pointer' }}>発行完了</button>
-                      )}
-                      {ref.status !== 'cancel' && (
-                        <button onClick={() => updateStatus(ref.id, 'cancel')} style={{ padding: '4px 8px', fontSize: '11px', backgroundColor: '#fee2e2', color: '#b91c1c', border: '1px solid #fecaca', borderRadius: '4px', cursor: 'pointer' }}>却下</button>
-                      )}
-                    </div>
+                    <select 
+                      value={ref.status} 
+                      onChange={(e) => updateStatus(ref.id, e.target.value)}
+                      style={{ 
+                        padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer',
+                        backgroundColor: currentStatus?.bgColor || '#f1f5f9',
+                        color: currentStatus?.color || '#64748b',
+                        border: `1px solid ${currentStatus?.color || '#cbd5e1'}`
+                      }}
+                    >
+                      {STATUS_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
                   </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
-        {referrals.length === 0 && (
-          <div style={{ padding: '60px', textAlign: 'center', color: '#94a3b8' }}>紹介実績がまだありません。</div>
-        )}
-      </section>
+      </div>
     </main>
   )
 }
