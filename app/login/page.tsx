@@ -153,7 +153,7 @@ export default function LoginPage() {
           </button>
 
           <p className="text-center text-[11px] text-gray-400 pt-2">
-            店舗・事業者アカウントの作成は<a href="/reg" className="text-gray-900 font-bold ml-1 hover:underline">こちら</a>
+            店舗・事業者アカウントの作成は<a href="/join" className="text-gray-900 font-bold ml-1 hover:underline">こちら</a>
           </p>
         </form>
       </div>

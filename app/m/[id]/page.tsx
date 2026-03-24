@@ -30,7 +30,7 @@ export default function MemberMagicPage() {
   const [emailSentMsg, setEmailSentMsg] = useState('')
 
   // ★ 公開用のURLは DB の referral_code（例: S001_ST001）を使う！
-  const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/?r=${staff.referral_code}` : ''
+  const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code}` : ''
   const lineShareText = `【${shop?.name || 'おすすめ'}】おすすめなのでぜひチェックしてみて！ここから予約・購入できます👇\n${referralUrl}`
 
   useEffect(() => {

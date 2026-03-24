@@ -33,16 +33,19 @@ export default function ShopJoinPage() {
   const [activeModal, setActiveModal] = useState<'qr' | 'invite' | null>(null)
   const [copiedType, setCopiedType] = useState('') 
 
+  const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
+
   const router = useRouter()
   const shareText = "Duacelパートナー登録が完了しました！メンバーの皆さんは、以下のURLから自分の専用ページを発行してください。";
 
-  const handleRegisterShop = async (e: React.FormEvent) => {
+const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setErrorMessage('')
 
     const finalShopName = shopName.trim() !== '' ? shopName.trim() : ownerName.trim()
 
+    // 1. Supabase Authでアカウント作成
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
     if (authError) {
       setErrorMessage('アカウント作成エラー: ' + authError.message)
@@ -51,58 +54,66 @@ export default function ShopJoinPage() {
 
     const userId = authData.user?.id
 
-    const { data: existingShops, error: countError } = await supabase.from('shops').select('id')
-    if (countError) {
-      setErrorMessage('エラー: データ取得に失敗しました')
-      setIsLoading(false); return;
-    }
-    const nextNumber = (existingShops?.length || 0) + 1
-    const newShopId = `S${nextNumber.toString().padStart(3, '0')}`
+    // 2. ★ 店舗の新規登録（IDは一旦仮で作成し、DBの自動採番を発動させる）
+    // 数えるための SELECT文 はもう不要なので削除しました
+    const tempId = `TEMP_${Date.now()}`; 
 
-    const { error: insertError } = await supabase.from('shops').insert([{ 
-      id: newShopId, name: finalShopName, owner_email: email, owner_id: userId 
-    }])
+    const { data: newShop, error: insertError } = await supabase
+      .from('shops')
+      .insert([{ 
+        id: tempId, 
+        name: finalShopName, 
+        owner_email: email, 
+        owner_id: userId 
+      }])
+      .select('shop_number') // ★ SQLで追加した「自動採番(1, 2, 3...)」を受け取る
+      .single()
 
     if (insertError) {
       setErrorMessage('店舗登録エラー: ' + insertError.message)
       setIsLoading(false); return;
     }
 
-    const { data: allStaffs, error: fetchStaffError } = await supabase.from('staffs').select('id')
-    if (fetchStaffError) {
-      setErrorMessage('エラー: スタッフ情報の取得に失敗しました')
+    // 3. ★ DBがくれた番号から正式なID「S001」などを組み立てる
+    const formattedShopId = `S${newShop.shop_number.toString().padStart(3, '0')}`;
+
+    // 4. ★ shopテーブルのIDを「TEMP_...」から「S001」に更新する
+    const { error: updateError } = await supabase
+      .from('shops')
+      .update({ id: formattedShopId })
+      .eq('shop_number', newShop.shop_number);
+
+    if (updateError) {
+      setErrorMessage('店舗ID確定エラー: ' + updateError.message)
       setIsLoading(false); return;
     }
 
-    const maxNum = allStaffs?.reduce((max, s) => {
-      const num = parseInt(s.id.replace('ST', ''), 10)
-      return !isNaN(num) && num > max ? num : max
-    }, 0) || 0
-    const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}` 
-
-    // ★ 修正：公開用IDと秘密の鍵（シークレットトークン）を分ける
+    // 5. 管理者スタッフの登録
+    // ★ スタッフIDも重複しにくいように、ランダムトークンを混ぜる形にしました
+    const nextStaffId = `ST${generateSecureToken().toUpperCase()}` 
     const secureToken = generateSecureToken()
 
-    const { data: staffData, error: staffError } = await supabase.from('staffs').insert([{
+    const { error: staffError } = await supabase.from('staffs').insert([{
       id: nextStaffId, 
-      shop_id: newShopId, 
+      shop_id: formattedShopId, 
       name: ownerName, 
       email: email,
-      referral_code: `${newShopId}_${nextStaffId}`, // 公開用 (例: S001_ST001)
-      secret_token: secureToken,                    // 秘密用 (例: dLUa)
+      referral_code: `${formattedShopId}_${nextStaffId}`,
+      secret_token: secureToken,
       is_deleted: false
-    }]).select('id').single()
+    }])
 
     if (staffError) {
       setErrorMessage('管理者情報の初期設定に失敗しました: ' + staffError.message)
       setIsLoading(false); return;
     }
 
+    // 6. 完了後の表示セット
     setShopName(finalShopName)
 
     setTimeout(() => {
-      setStaffInviteUrl(`${window.location.origin}/reg/${newShopId}`)
-      setOwnerMagicUrl(`${window.location.origin}/m/${secureToken}`) // ★ 自身のマイページURL
+      setStaffInviteUrl(`${window.location.origin}/reg/${formattedShopId}`)
+      setOwnerMagicUrl(`${window.location.origin}/m/${secureToken}`)
       setIsLoading(false)
     }, 800)
   }
