@@ -11,6 +11,12 @@ import {
   QrCode, Trash2, Coins, Smartphone, ClipboardList, X, Ban, Trophy, Calendar
 } from 'lucide-react'
 
+// ★ ランダムトークン生成関数
+const generateSecureToken = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
 const STATUS_MAP: any = {
   pending: { label: '仮計上', color: 'bg-amber-50 text-amber-700 border-amber-100', icon: <Clock className="w-3 h-3" /> },
   confirmed: { label: '確定(未入金)', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
@@ -24,7 +30,6 @@ export default function OwnerDashboard() {
   const [staffs, setStaffs] = useState<any[]>([])
   const [referralHistory, setReferralHistory] = useState<any[]>([])
   
-  // ★ デフォルトは「すべて」ではなく、空文字（全表示）
   const [filterStatus, setFilterStatus] = useState('') 
   const [visibleCount, setVisibleCount] = useState(15) 
 
@@ -65,10 +70,12 @@ export default function OwnerDashboard() {
     
     setShop(shopData)
     setRank(shopData.shop_ranks)
-    const rewardPoints = shopData.shop_ranks?.reward_points || 5000
+
+    // ★ 修正ポイント: ここで rewardPoints を計算しておく（map内で使うため）
+    const currentRewardPoints = shopData.shop_ranks?.reward_points || 5000
 
     const [staffRes, refRes, txRes] = await Promise.all([
-      supabase.from('staffs').select('id, name, email, is_deleted').eq('shop_id', shopData.id),
+      supabase.from('staffs').select('id, name, email, is_deleted, secret_token').eq('shop_id', shopData.id),
       supabase.from('referrals').select('*').eq('shop_id', shopData.id).order('created_at', { ascending: false }),
       supabase.from('point_transactions').select('*').eq('shop_id', shopData.id)
     ])
@@ -90,7 +97,8 @@ export default function OwnerDashboard() {
         ...log,
         staffName: staffList.find(s => s.id === log.staff_id)?.name || '不明',
         staffNthCount: staffCounters[log.staff_id],
-        totalPoints: log.status === 'pending' ? rewardPoints : totalPoints,
+        // ★ 修正: 事前に定義した currentRewardPoints を使用
+        totalPoints: log.status === 'pending' ? currentRewardPoints : totalPoints,
         hasBonus
       }
     }).reverse();
@@ -110,7 +118,8 @@ export default function OwnerDashboard() {
         count: staffRefs.filter(r => r.status !== 'cancel').length,
         pendingPts, unpaidToStaffPts, pendingFromAdminPts, paidToStaffPts,
         hasUnpaid: unpaidToStaffPts > 0,
-        isOwner
+        isOwner,
+        secret_token: s.secret_token
       }
     })
     setStaffs(staffsWithFinance)
@@ -155,9 +164,13 @@ export default function OwnerDashboard() {
       return !isNaN(num) && num > max ? num : max
     }, 0)
     const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}`
-    
+    const secureToken = generateSecureToken()
+
     const { error } = await supabase.from('staffs').insert([{ 
-      id: nextStaffId, shop_id: shop.id, name: newStaffName, email: newStaffEmail, referral_code: `${shop.id}_${nextStaffId}`, is_deleted: false 
+      id: nextStaffId, shop_id: shop.id, name: newStaffName, email: newStaffEmail, 
+      referral_code: `${shop.id}_${nextStaffId}`, 
+      secret_token: secureToken,
+      is_deleted: false 
     }])
     if (error) { alert('スタッフの追加に失敗しました。'); return; }
     setNewStaffName(''); setNewStaffEmail(''); setIsStaffModalOpen(false);
@@ -200,28 +213,24 @@ export default function OwnerDashboard() {
     alert('紹介用URLをコピーしました！')
   }
 
-  // ★ 履歴のフィルタリング（サマリークリック連動）
   const filteredHistory = useMemo(() => {
     return referralHistory.filter(item => {
-      // is_staff_rewarded が true のものは、実質的に「清算済(rewarded)」ステータスとして扱うためのロジック
       const effectiveStatus = item.is_staff_rewarded ? 'rewarded' : item.status;
-      
-      if (filterStatus === '') return true; // すべて表示
+      if (filterStatus === '') return true;
       return effectiveStatus === filterStatus;
     })
   }, [referralHistory, filterStatus])
   
   const displayedHistory = filteredHistory.slice(0, visibleCount)
 
+  // ★ 派生 state は render の直前で行う
+  const ownerStaff = staffs.find(s => s.isOwner);
+
   if (loading) return <div className="p-12 text-center text-gray-500 text-sm flex items-center justify-center gap-2"><RefreshCw className="w-4 h-4 animate-spin" /> データを読み込み中...</div>
   if (!shop) return <div className="p-12 text-center text-red-500">店舗情報が見つかりません。</div>
 
-  const rewardPoints = rank?.reward_points || 5000
-
   return (
     <div className="p-6 md:p-10 max-w-screen-2xl mx-auto bg-gray-50 min-h-screen text-gray-800 relative">
-      
-      {/* 1. ヘッダー (累計・月次獲得額を統合！) */}
       <header className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 border-b border-gray-200 pb-6 mb-8 bg-white p-6 rounded-2xl shadow-sm">
         <div>
           <div className="flex items-center gap-3 mb-1">
@@ -229,9 +238,18 @@ export default function OwnerDashboard() {
             {rank && <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-bold rounded-full">{rank.label}会員</span>}
           </div>
           <p className="text-xs text-gray-400 font-mono">Shop ID: {shop.id}</p>
+          
+          {/* ★ 修正: ownerStaff が存在し、かつ secret_token がある場合のみボタンを表示 */}
+          {ownerStaff?.secret_token && (
+            <button 
+              onClick={() => window.open(`/m/${ownerStaff.secret_token}`, '_blank')}
+              className="mt-3 text-xs px-3 py-1.5 bg-indigo-50 text-indigo-700 font-bold rounded-lg border border-indigo-100 hover:bg-indigo-100 transition flex items-center gap-1 w-max"
+            >
+              <Smartphone className="w-3 h-3" /> 接客用マイページ（自身のQR）を開く
+            </button>
+          )}
         </div>
         
-        {/* 獲得報酬サマリーをヘッダーに配置 */}
         <div className="flex flex-wrap items-center gap-4 xl:gap-8 bg-gray-50 p-3 rounded-xl border border-gray-100">
           <div className="flex items-center gap-3 pr-4 xl:pr-8 border-r border-gray-200">
             <div className="p-2 bg-indigo-100 text-indigo-600 rounded-lg"><Trophy className="w-6 h-6" /></div>
@@ -255,13 +273,10 @@ export default function OwnerDashboard() {
         </div>
       </header>
 
-      {/* 2. メイン１：紹介アクション履歴 ＆ インタラクティブサマリー (フルワイド) */}
       <div className="mb-12">
         <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><ClipboardList className="w-5 h-5" /> 紹介アクション明細</h2>
         
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          
-          {/* テーブル上部のサマリー兼フィルタータブ */}
           <div className="bg-gray-50/50 border-b border-gray-200 p-2 flex flex-wrap gap-2">
             <button onClick={() => setFilterStatus('')} className={`flex-1 min-w-[120px] p-3 rounded-xl border text-left transition-all ${filterStatus === '' ? 'bg-white border-gray-300 shadow-sm ring-1 ring-gray-200' : 'border-transparent hover:bg-gray-100'}`}>
               <p className="text-[10px] font-bold text-gray-500 mb-1">すべて表示</p>
@@ -285,7 +300,6 @@ export default function OwnerDashboard() {
             </button>
           </div>
 
-          {/* 履歴テーブル */}
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -300,26 +314,39 @@ export default function OwnerDashboard() {
                 {displayedHistory.map(item => {
                   const status = STATUS_MAP[item.status] || { label: item.status, color: 'bg-gray-100', icon: null };
                   return (
-                    <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={item.id} className={`hover:bg-gray-50 transition-colors ${item.status === 'cancel' ? 'opacity-60 bg-red-50/30' : ''}`}>
                       <td className="p-4">
                         <p className="text-[11px] text-gray-500 font-mono">{new Date(item.created_at).toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                         <p className="text-[10px] text-indigo-600 font-bold mt-0.5">{item.staffNthCount}回目の紹介</p>
                       </td>
                       <td className="p-4 font-bold text-gray-800 text-sm">{item.staffName}</td>
                       <td className="p-4 text-right">
-                        <p className="font-extrabold text-gray-900 text-sm">+{item.totalPoints.toLocaleString()} <span className="text-[10px] font-normal text-gray-400">pt</span></p>
-                        {item.hasBonus && <p className="text-[9px] text-emerald-600 font-bold">(初回ボーナス)</p>}
+                        {item.status === 'cancel' ? (
+                          <p className="font-extrabold text-gray-400 text-sm line-through">0 pt</p>
+                        ) : (
+                          <>
+                            <p className="font-extrabold text-gray-900 text-sm">+{item.totalPoints.toLocaleString()} <span className="text-[10px] font-normal text-gray-400">pt</span></p>
+                            {item.hasBonus && <p className="text-[9px] text-emerald-600 font-bold">(初回ボーナス)</p>}
+                          </>
+                        )}
                       </td>
                       <td className="p-4 text-center">
-                        {item.is_staff_rewarded ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-500 border border-gray-200">
-                            <CheckCheck className="w-3 h-3" /> 清算済
-                          </span>
-                        ) : (
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${status.color}`}>
-                            {status.icon} {status.label}
-                          </span>
-                        )}
+                        <div className="flex flex-col items-center justify-center gap-1">
+                          {item.is_staff_rewarded ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-gray-100 text-gray-500 border border-gray-200">
+                              <CheckCheck className="w-3 h-3" /> 清算済
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${status.color}`}>
+                              {status.icon} {status.label}
+                            </span>
+                          )}
+                          {item.status === 'cancel' && item.cancel_reason && (
+                            <span className="text-[9px] text-red-500 font-bold max-w-[120px] text-center leading-tight">
+                              理由: {item.cancel_reason}
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -342,7 +369,6 @@ export default function OwnerDashboard() {
         </div>
       </div>
 
-      {/* 3. メイン２：スタッフ精算＆管理パネル (フルワイドグリッド) */}
       <div className="mb-8">
         <div className="flex flex-col sm:flex-row justify-between items-end mb-4 gap-4">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Users className="w-5 h-5" /> スタッフ別 精算・管理</h2>
@@ -380,7 +406,7 @@ export default function OwnerDashboard() {
                 <div className={`flex justify-between items-center p-3 rounded-xl border mb-3 ${s.hasUnpaid ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-100'}`}>
                   <div>
                     <p className={`text-[10px] font-bold mb-0.5 flex items-center gap-1 ${s.hasUnpaid ? 'text-blue-700' : 'text-gray-500'}`}>
-                      <Coins className="w-3 h-3" /> {s.hasUnpaid ? '今すぐ清算できる金額' : '清算待ち（現在なし）'}
+                      <Coins className="w-3 h-3" /> {s.hasUnpaid ? '今すぐ精算できる金額' : '清算待ち（現在なし）'}
                     </p>
                     <p className={`text-xl font-extrabold tabular-nums ${s.hasUnpaid ? 'text-blue-700' : 'text-gray-400'}`}>{s.unpaidToStaffPts.toLocaleString()}<span className="text-xs ml-1 font-bold">pt</span></p>
                   </div>
@@ -399,11 +425,7 @@ export default function OwnerDashboard() {
         </div>
       </div>
       
-      {/* =========================================
-          モーダル群 (Dialogs) 
-      ========================================= */}
-
-      {/* 1. スタッフ詳細＆設定モーダル */}
+      {/* モーダル群 */}
       {detailStaff && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4" onClick={() => setDetailStaff(null)}>
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
@@ -424,7 +446,7 @@ export default function OwnerDashboard() {
                   {referralHistory.filter(r => r.staff_id === detailStaff.id).map(item => {
                     const status = STATUS_MAP[item.status] || { label: item.status, color: 'bg-gray-100' }
                     return (
-                      <div key={item.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-lg hover:bg-gray-50">
+                      <div key={item.id} className={`flex justify-between items-center p-3 border border-gray-100 rounded-lg hover:bg-gray-50 ${item.status === 'cancel' ? 'opacity-60 bg-red-50/30' : ''}`}>
                         <div>
                           <p className="text-[10px] text-gray-400 mb-0.5">{new Date(item.created_at).toLocaleDateString()} <span className="ml-2 text-indigo-600 font-bold">{item.staffNthCount}回目</span></p>
                           <div className="flex items-center gap-2">
@@ -434,10 +456,19 @@ export default function OwnerDashboard() {
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${status.color} flex items-center gap-1`}>{status.icon} {status.label}</span>
                             )}
                           </div>
+                          {item.status === 'cancel' && item.cancel_reason && (
+                            <p className="text-[9px] text-red-500 font-bold mt-1">理由: {item.cancel_reason}</p>
+                          )}
                         </div>
                         <div className="text-right">
-                          <p className="font-extrabold text-gray-900 text-sm">+{item.totalPoints.toLocaleString()} pt</p>
-                          {item.hasBonus && <p className="text-[9px] text-emerald-600 font-bold">(初回ボーナス)</p>}
+                          {item.status === 'cancel' ? (
+                            <p className="font-extrabold text-gray-400 text-sm line-through">0 pt</p>
+                          ) : (
+                            <>
+                              <p className="font-extrabold text-gray-900 text-sm">+{item.totalPoints.toLocaleString()} pt</p>
+                              {item.hasBonus && <p className="text-[9px] text-emerald-600 font-bold">(初回ボーナス)</p>}
+                            </>
+                          )}
                         </div>
                       </div>
                     )
@@ -483,7 +514,6 @@ export default function OwnerDashboard() {
         </div>
       )}
 
-      {/* 2. スタッフ追加モーダル */}
       {isStaffModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
@@ -500,7 +530,6 @@ export default function OwnerDashboard() {
         </div>
       )}
 
-      {/* 3. QR表示モーダル */}
       {isQrModalOpen && selectedStaff && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4" onClick={() => setIsQrModalOpen(false)}>
           <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-xl text-center" onClick={e => e.stopPropagation()}>
@@ -514,7 +543,6 @@ export default function OwnerDashboard() {
         </div>
       )}
 
-      {/* 4. スタッフ招待QRモーダル */}
       {isInviteModalOpen && shop && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm p-4" onClick={() => setIsInviteModalOpen(false)}>
           <div className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-xl text-center" onClick={e => e.stopPropagation()}>

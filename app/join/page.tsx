@@ -3,204 +3,262 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { QRCodeCanvas } from 'qrcode.react'
+import { useRouter } from 'next/navigation'
+
+import { 
+  Building2, User, Mail, Lock, ArrowRight, 
+  QrCode, UserPlus, CheckCircle2, Copy, Share2, 
+  Loader2, X, Sparkles, Eye, EyeOff
+} from 'lucide-react'
+
+// ランダムな4文字の英数字を生成する関数
+const generateSecureToken = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
 
 export default function ShopJoinPage() {
   const [shopName, setShopName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('') 
-  const [status, setStatus] = useState('')
+  
+  const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
+  const [showPassword, setShowPassword] = useState(false) 
   
   const [staffInviteUrl, setStaffInviteUrl] = useState('')
-  const [ownerReferralUrl, setOwnerReferralUrl] = useState('')
-  
-  const shareText = "Duacelパートナー登録が完了しました！スタッフの皆さんは、以下のURLから自分の専用ページを発行してください。";
+  const [ownerMagicUrl, setOwnerMagicUrl] = useState('')
+
+  const [activeModal, setActiveModal] = useState<'qr' | 'invite' | null>(null)
+  const [copiedType, setCopiedType] = useState('') 
+
+  const router = useRouter()
+  const shareText = "Duacelパートナー登録が完了しました！メンバーの皆さんは、以下のURLから自分の専用ページを発行してください。";
 
   const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault()
-    setStatus('アカウントと店舗環境を構築中...')
+    setIsLoading(true)
+    setErrorMessage('')
 
-    // 1. Supabase Auth でユーザーを作成
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    })
+    const finalShopName = shopName.trim() !== '' ? shopName.trim() : ownerName.trim()
 
+    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
     if (authError) {
-      setStatus('アカウント作成エラー: ' + authError.message)
-      return
+      setErrorMessage('アカウント作成エラー: ' + authError.message)
+      setIsLoading(false); return;
     }
 
     const userId = authData.user?.id
 
-    // 2. 新しい店舗IDを生成
     const { data: existingShops, error: countError } = await supabase.from('shops').select('id')
     if (countError) {
-      setStatus('エラー: データ取得に失敗しました')
-      return
+      setErrorMessage('エラー: データ取得に失敗しました')
+      setIsLoading(false); return;
     }
     const nextNumber = (existingShops?.length || 0) + 1
     const newShopId = `S${nextNumber.toString().padStart(3, '0')}`
 
-    // 3. 店舗を登録
-    const { error: insertError } = await supabase
-      .from('shops')
-      .insert([{ 
-        id: newShopId, 
-        name: shopName, 
-        owner_email: email,
-        owner_id: userId 
-      }])
+    const { error: insertError } = await supabase.from('shops').insert([{ 
+      id: newShopId, name: finalShopName, owner_email: email, owner_id: userId 
+    }])
 
     if (insertError) {
-      setStatus('店舗登録エラー: ' + insertError.message)
-      return
+      setErrorMessage('店舗登録エラー: ' + insertError.message)
+      setIsLoading(false); return;
     }
 
-    // 4. 【修正】現在のスタッフIDの最大値を取得して、次のIDを生成する
     const { data: allStaffs, error: fetchStaffError } = await supabase.from('staffs').select('id')
     if (fetchStaffError) {
-      setStatus('エラー: スタッフ情報の取得に失敗しました')
-      return
+      setErrorMessage('エラー: スタッフ情報の取得に失敗しました')
+      setIsLoading(false); return;
     }
 
     const maxNum = allStaffs?.reduce((max, s) => {
       const num = parseInt(s.id.replace('ST', ''), 10)
       return !isNaN(num) && num > max ? num : max
     }, 0) || 0
-    
-    const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}` // ST001固定ではなく動的に！
+    const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}` 
 
-    // 5. 代表者を最初のスタッフとして自動登録
-    const { data: staffData, error: staffError } = await supabase
-      .from('staffs')
-      .insert([{
-        id: nextStaffId, // 生成した次のIDを使用
-        shop_id: newShopId,
-        name: ownerName, 
-        email: email,
-        referral_code: `${newShopId}_${nextStaffId}`,
-        is_deleted: false
-      }])
-      .select('id')
-      .single()
+    // ★ 修正：公開用IDと秘密の鍵（シークレットトークン）を分ける
+    const secureToken = generateSecureToken()
+
+    const { data: staffData, error: staffError } = await supabase.from('staffs').insert([{
+      id: nextStaffId, 
+      shop_id: newShopId, 
+      name: ownerName, 
+      email: email,
+      referral_code: `${newShopId}_${nextStaffId}`, // 公開用 (例: S001_ST001)
+      secret_token: secureToken,                    // 秘密用 (例: dLUa)
+      is_deleted: false
+    }]).select('id').single()
 
     if (staffError) {
-      setStatus('オーナー情報の初期設定に失敗しました: ' + staffError.message)
-      return
+      setErrorMessage('管理者情報の初期設定に失敗しました: ' + staffError.message)
+      setIsLoading(false); return;
     }
 
-    // 6. 完了処理
-    setStatus(`✅ 「${shopName}」の環境構築が完了しました！`)
-    setStaffInviteUrl(`${window.location.origin}/reg/${newShopId}`)
-    setOwnerReferralUrl(`${window.location.origin}/?r=${newShopId}_${staffData.id}`) 
+    setShopName(finalShopName)
+
+    setTimeout(() => {
+      setStaffInviteUrl(`${window.location.origin}/reg/${newShopId}`)
+      setOwnerMagicUrl(`${window.location.origin}/m/${secureToken}`) // ★ 自身のマイページURL
+      setIsLoading(false)
+    }, 800)
+  }
+
+  const handleCopy = (text: string, type: string) => {
+    navigator.clipboard.writeText(text)
+    setCopiedType(type)
+    setTimeout(() => setCopiedType(''), 2000)
   }
 
   const handleWebShare = async () => {
     if (navigator.share) {
-      try {
-        await navigator.share({ title: 'Duacelスタッフ登録', text: shareText, url: staffInviteUrl });
-      } catch (error) { console.log('Error sharing', error); }
+      try { await navigator.share({ title: 'Duacelスタッフ登録', text: shareText, url: staffInviteUrl }); } 
+      catch (error) { console.log('Error sharing', error); }
     } else {
-      navigator.clipboard.writeText(`${shareText}\n${staffInviteUrl}`);
-      alert('URLをコピーしました。');
+      handleCopy(`${shareText}\n${staffInviteUrl}`, 'invite')
     }
-  };
+  }
 
   return (
-    <main style={{ padding: '40px 20px', maxWidth: '600px', margin: '0 auto', fontFamily: 'sans-serif', color: '#334155' }}>
-      <header style={{ textAlign: 'center', marginBottom: '40px' }}>
-        <h1 style={{ color: '#2563eb', margin: '0 0 10px 0' }}>Duacel紹介プログラム登録</h1>
-        <p style={{ color: '#64748b', margin: 0 }}>サロン情報を入力して、管理アカウントを作成します。</p>
-      </header>
-
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-800 selection:bg-indigo-100 selection:text-indigo-900">
+      
       {!staffInviteUrl ? (
-        <form onSubmit={handleRegisterShop} style={{ display: 'flex', flexDirection: 'column', gap: '20px', backgroundColor: '#fff', padding: '30px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>店舗名</label>
-            <input placeholder="例: ABCサロン" value={shopName} onChange={(e) => setShopName(e.target.value)} required style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box' }} />
-          </div>
-          
-          <div>
-            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>代表者名（ご自身のお名前）</label>
-            <input placeholder="例: 山田 太郎" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} required style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box' }} />
-            <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '5px' }}>※このお名前で、あなた専用の紹介用URLが即座に発行されます。</p>
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 text-white mb-4 shadow-lg shadow-indigo-200">
+              <Sparkles className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">Duacel パートナー登録</h1>
+            <p className="text-sm text-gray-500 mt-2">事業情報を入力して、環境を構築しましょう。</p>
           </div>
 
-          <div>
-            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>ログイン用メールアドレス</label>
-            <input type="email" placeholder="owner@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box' }} />
-          </div>
-          
-          <div>
-            <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', marginBottom: '8px' }}>パスワード</label>
-            <input type="password" placeholder="6文字以上のパスワード" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} required style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '16px', boxSizing: 'border-box' }} />
-            <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '5px' }}>※登録後、この情報でダッシュボードにログインできます。</p>
-          </div>
-          
-          <button type="submit" style={{ padding: '16px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}>
-            アカウントを作成して環境を構築
-          </button>
-          {status && <p style={{ textAlign: 'center', fontSize: '14px', color: '#ef4444', margin: 0 }}>{status}</p>}
-        </form>
-      ) : (
-        <div style={{ padding: '30px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', textAlign: 'center', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}>
-          <div style={{ fontSize: '50px', marginBottom: '10px' }}>✨</div>
-          <h2 style={{ color: '#166534', margin: '0 0 10px 0' }}>環境構築が完了しました！</h2>
-          <p style={{ color: '#64748b', margin: '0 0 30px 0', fontSize: '14px' }}>
-            設定したメールアドレスとパスワードで、いつでもダッシュボードにログイン可能です。
-          </p>
-          
-          <div style={{ marginBottom: '30px', padding: '20px', backgroundColor: '#ecfdf5', border: '2px solid #34d399', borderRadius: '12px' }}>
-            <h3 style={{ margin: '0 0 10px 0', color: '#065f46', fontSize: '16px' }}>🚀 あなたの紹介専用URL（すぐ使えます）</h3>
-            <div style={{ margin: '0 0 15px 0', padding: '12px', backgroundColor: '#fff', border: '1px solid #a7f3d0', borderRadius: '8px', wordBreak: 'break-all', fontWeight: 'bold', fontSize: '14px' }}>
-              <a href={ownerReferralUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#059669', textDecoration: 'underline', display: 'block' }}>
-                {ownerReferralUrl}
-              </a>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <div style={{ padding: '10px', backgroundColor: '#fff', border: '1px solid #a7f3d0', borderRadius: '8px' }}>
-                <QRCodeCanvas value={ownerReferralUrl} size={120} level={"H"} includeMargin={false} />
+          <form onSubmit={handleRegisterShop} className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 space-y-5">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">
+                  店舗・屋号・チーム名 <span className="text-indigo-500 ml-1">(任意)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Building2 className="w-5 h-5" /></div>
+                  <input placeholder="空欄の場合はお名前が登録されます" value={shopName} onChange={e => setShopName(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none placeholder:text-xs" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">
+                  管理者名（ご自身のお名前） <span className="text-red-500 ml-1">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><User className="w-5 h-5" /></div>
+                  <input required placeholder="例: 山田 太郎 / アカウント名" value={ownerName} onChange={e => setOwnerName(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">
+                  ログイン用メールアドレス <span className="text-red-500 ml-1">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Mail className="w-5 h-5" /></div>
+                  <input required type="email" placeholder="admin@example.com" value={email} onChange={e => setEmail(e.target.value)}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">
+                  パスワード (6文字以上) <span className="text-red-500 ml-1">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Lock className="w-5 h-5" /></div>
+                  <input required type={showPassword ? "text" : "password"} minLength={6} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)}
+                    className="w-full pl-11 pr-12 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
+                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                </div>
               </div>
             </div>
-            <p style={{ fontSize: '12px', color: '#065f46', marginTop: '10px', fontWeight: 'bold' }}>
-              ↑ お客様にこのQRを読み取ってもらうだけで紹介完了です！
-            </p>
-          </div>
 
-          <hr style={{ border: 'none', borderTop: '2px dashed #e2e8f0', margin: '30px 0' }} />
-
-          <div>
-            <h3 style={{ margin: '0 0 10px 0', color: '#1e293b', fontSize: '16px' }}>👥 他のスタッフを招待する</h3>
-            <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '15px' }}>
-              従業員がいる場合は、以下のURLをLINE等で送って専用URLを発行してもらってください。
-            </p>
-            <div style={{ margin: '0 0 20px 0', padding: '15px', backgroundColor: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: '8px', wordBreak: 'break-all', fontWeight: 'bold', color: '#0369a1', fontSize: '14px' }}>
-              <a href={staffInviteUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'block', color: '#2563eb', textDecoration: 'underline' }}>
-                {staffInviteUrl}
-              </a>
-            </div>
-            
-            <div style={{ margin: '20px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
-              <div style={{ padding: '12px', backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'inline-block' }}>
-                <QRCodeCanvas value={staffInviteUrl} size={120} level={"H"} includeMargin={false} />
+            {errorMessage && (
+              <div className="p-3 bg-red-50 text-red-600 border border-red-100 rounded-xl text-xs font-bold flex items-start gap-2">
+                <X className="w-4 h-4 shrink-0" /> {errorMessage}
               </div>
-              <p style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>スマホで読み取ってスタッフ登録</p>
-            </div>
+            )}
 
-            <button onClick={handleWebShare} style={{ width: '100%', padding: '14px', backgroundColor: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-              📲 スタッフ招待URLを共有する
+            <button type="submit" disabled={isLoading} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-indigo-200 flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'アカウントを作成する'}
             </button>
-          </div>
+            <p className="text-center text-[10px] text-gray-400">すでにアカウントをお持ちの場合は<a href="/login" className="text-indigo-600 font-bold ml-1 hover:underline">ログイン</a></p>
+          </form>
+        </div>
 
-          <div style={{ marginTop: '30px', paddingTop: '20px', borderTop: '1px solid #e2e8f0' }}>
-            <p style={{ fontSize: '13px', color: '#64748b' }}>
-              オーナー用ダッシュボード：<br/>
-              <a href="/login" style={{ color: '#2563eb', fontWeight: 'bold' }}>ログイン画面へ進む</a>
-            </p>
+      ) : (
+        <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl shadow-emerald-100/50 border border-emerald-100 text-center relative overflow-hidden">
+            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-gradient-to-b from-emerald-50 to-transparent pointer-events-none" />
+            <div className="relative z-10">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 mb-5 ring-8 ring-emerald-50">
+                <CheckCircle2 className="w-10 h-10" />
+              </div>
+              <h2 className="text-2xl font-extrabold text-gray-900 mb-2">準備が整いました！</h2>
+              <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+                「{shopName}」の環境構築が完了しました。<br/>
+                さっそくダッシュボードにログインして、<br/>現在の設定を確認してみましょう。
+              </p>
+
+              <button onClick={() => router.push('/login')} className="w-full py-4 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold text-base transition-all shadow-lg hover:shadow-xl flex justify-center items-center gap-2 group">
+                ダッシュボードへ進む 
+                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
+
+              <div className="flex items-center gap-4 my-6">
+                <div className="flex-1 h-px bg-gray-100" />
+                <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">or</span>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <button onClick={() => router.push(ownerMagicUrl)} className="flex flex-col items-center justify-center gap-2 p-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-2xl transition-colors">
+                  <div className="p-2 bg-white rounded-full shadow-sm text-indigo-600"><QrCode className="w-5 h-5" /></div>
+                  <span className="text-[11px] font-bold text-gray-600">自分の接客用QR</span>
+                </button>
+                <button onClick={() => setActiveModal('invite')} className="flex flex-col items-center justify-center gap-2 p-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-2xl transition-colors">
+                  <div className="p-2 bg-white rounded-full shadow-sm text-indigo-600"><UserPlus className="w-5 h-5" /></div>
+                  <span className="text-[11px] font-bold text-indigo-700">メンバーを招待</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
-    </main>
+
+      {/* モーダル群 */}
+      {activeModal === 'invite' && (
+        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setActiveModal(null)}>
+          <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center relative" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-full"><X className="w-5 h-5" /></button>
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 mb-3"><UserPlus className="w-6 h-6" /></div>
+            <h3 className="text-lg font-bold text-gray-900 mb-1">メンバーの招待</h3>
+            <p className="text-xs text-gray-500 mb-6 leading-relaxed">メンバーのスマホでQRを読み取ってもらうか、<br/>URLをLINE等で送信してください。</p>
+            <div className="bg-white p-3 inline-block border-2 border-indigo-50 rounded-2xl mb-6"><QRCodeCanvas value={staffInviteUrl} size={140} level={"H"} fgColor="#4f46e5" /></div>
+            <div className="space-y-3">
+              <button onClick={handleWebShare} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-indigo-200 flex items-center justify-center gap-2">
+                <Share2 className="w-4 h-4" /> 招待URLをシェアする
+              </button>
+              <button onClick={() => handleCopy(staffInviteUrl, 'invite')} className="w-full py-3.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2">
+                {copiedType === 'invite' ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                {copiedType === 'invite' ? 'コピーしました！' : 'URLのみコピー'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
