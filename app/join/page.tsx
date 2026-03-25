@@ -10,7 +10,7 @@ import {
   Building2, User, Mail, Lock, ArrowRight, 
   QrCode, UserPlus, CheckCircle2, Copy, Share2, 
   Loader2, X, Sparkles, Eye, EyeOff, Smartphone, 
-  ChevronRight, Apple, Share, Trophy, Coins, Zap, Star, LayoutDashboard
+  ChevronRight, ArrowLeft, Apple, Share, Trophy, Coins, Zap, Star, LayoutDashboard
 } from 'lucide-react'
 
 const generateSecureToken = () => {
