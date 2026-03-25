@@ -230,17 +230,22 @@ export default function ShopJoinPage() {
               key={onboardingStep}
               drag="x"
               dragConstraints={{ left: 0, right: 0 }}
-              dragElastic={0.2}
-              onDragEnd={(e, { offset }) => {
-                const swipeThreshold = 50
-                if (offset.x < -swipeThreshold && onboardingStep < TOTAL_STEPS) setOnboardingStep(s => s + 1)
-                else if (offset.x > swipeThreshold && onboardingStep > 1) setOnboardingStep(s => s - 1)
+              dragElastic={0.8} // ★ 0.2から0.8に変更（指の動きにピタッとついてくる）
+              onDragEnd={(e, { offset, velocity }) => {
+                // ★ 判定を50から20に下げ、さらに「スワイプの勢い（velocity）」も加味する
+                const swipeThreshold = 20; 
+                if ((offset.x < -swipeThreshold || velocity.x < -500) && onboardingStep < TOTAL_STEPS) {
+                  setOnboardingStep(s => s + 1)
+                } else if ((offset.x > swipeThreshold || velocity.x > 500) && onboardingStep > 1) {
+                  setOnboardingStep(s => s - 1)
+                }
               }}
               initial={{ x: 300, opacity: 0, scale: 0.95 }}
               animate={{ x: 0, opacity: 1, scale: 1 }}
               exit={{ x: -300, opacity: 0, scale: 0.95 }}
-              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }} // ★ 少し柔らかく調整
               className="absolute inset-0 flex flex-col items-center justify-center p-8 cursor-grab active:cursor-grabbing h-full"
+              style={{ touchAction: "pan-y" }} // ★ スマホ特有の縦スクロール干渉を防ぐおまじない
             >
               
               {/* --- 1枚目: ようこそ --- */}
