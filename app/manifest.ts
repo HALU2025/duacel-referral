@@ -3,11 +3,11 @@ import { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Duacel - 美容師報酬管理',
+    name: 'Duacel',
     short_name: 'Duacel',
-    description: '美容師さんのための紹介報酬管理ツール',
-    start_url: '/dashboard', // ホーム画面から起動した時のページ
-    display: 'standalone',   // URLバーを隠す設定
+    description: '美容師紹介報酬管理システム',
+    start_url: '/',
+    display: 'standalone',
     background_color: '#ffffff',
     theme_color: '#4338ca',
     icons: [
