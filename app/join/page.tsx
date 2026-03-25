@@ -1,14 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useRouter } from 'next/navigation'
 
 import { 
-  Building2, User, Mail, Lock, ArrowRight, 
+  Building2, User, Mail, Lock, ArrowRight, ArrowLeft,
   QrCode, UserPlus, CheckCircle2, Copy, Share2, 
-  Loader2, X, Sparkles, Eye, EyeOff
+  Loader2, X, Sparkles, Eye, EyeOff, Smartphone, 
+  MonitorSmartphone, ChevronRight, Apple, Share
 } from 'lucide-react'
 
 // ランダムな4文字の英数字を生成する関数
@@ -33,12 +34,22 @@ export default function ShopJoinPage() {
   const [activeModal, setActiveModal] = useState<'qr' | 'invite' | null>(null)
   const [copiedType, setCopiedType] = useState('') 
 
-  const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false);
+  // ★ オンボーディング（スワイプ画面）用のステート
+  const [onboardingStep, setOnboardingStep] = useState(1)
+  const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop')
 
   const router = useRouter()
-  const shareText = "Duacelパートナー登録が完了しました！メンバーの皆さんは、以下のURLから自分の専用ページを発行してください。";
+  const shareText = "Duacelパートナー登録が完了しました！メンバーの皆さんは、以下のURLから自分の専用ページを発行してください。"
 
-const handleRegisterShop = async (e: React.FormEvent) => {
+  // 端末判別ロジック
+  useEffect(() => {
+    const ua = navigator.userAgent.toLowerCase()
+    if (/iphone|ipad|ipod/.test(ua)) setDeviceType('ios')
+    else if (/android/.test(ua)) setDeviceType('android')
+    else setDeviceType('desktop')
+  }, [])
+
+  const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setErrorMessage('')
@@ -53,20 +64,13 @@ const handleRegisterShop = async (e: React.FormEvent) => {
     }
 
     const userId = authData.user?.id
+    const tempId = `TEMP_${Date.now()}`
 
-    // 2. ★ 店舗の新規登録（IDは一旦仮で作成し、DBの自動採番を発動させる）
-    // 数えるための SELECT文 はもう不要なので削除しました
-    const tempId = `TEMP_${Date.now()}`; 
-
+    // 2. 店舗の新規登録
     const { data: newShop, error: insertError } = await supabase
       .from('shops')
-      .insert([{ 
-        id: tempId, 
-        name: finalShopName, 
-        owner_email: email, 
-        owner_id: userId 
-      }])
-      .select('shop_number') // ★ SQLで追加した「自動採番(1, 2, 3...)」を受け取る
+      .insert([{ id: tempId, name: finalShopName, owner_email: email, owner_id: userId }])
+      .select('shop_number')
       .single()
 
     if (insertError) {
@@ -74,33 +78,22 @@ const handleRegisterShop = async (e: React.FormEvent) => {
       setIsLoading(false); return;
     }
 
-    // 3. ★ DBがくれた番号から正式なID「S001」などを組み立てる
-    const formattedShopId = `S${newShop.shop_number.toString().padStart(3, '0')}`;
-
-    // 4. ★ shopテーブルのIDを「TEMP_...」から「S001」に更新する
-    const { error: updateError } = await supabase
-      .from('shops')
-      .update({ id: formattedShopId })
-      .eq('shop_number', newShop.shop_number);
+    // 3. 正式なID組み立てと更新
+    const formattedShopId = `S${newShop.shop_number.toString().padStart(3, '0')}`
+    const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
 
     if (updateError) {
       setErrorMessage('店舗ID確定エラー: ' + updateError.message)
       setIsLoading(false); return;
     }
 
-    // 5. 管理者スタッフの登録
-    // ★ スタッフIDも重複しにくいように、ランダムトークンを混ぜる形にしました
+    // 4. 管理者スタッフの登録
     const nextStaffId = `ST${generateSecureToken().toUpperCase()}` 
     const secureToken = generateSecureToken()
 
     const { error: staffError } = await supabase.from('staffs').insert([{
-      id: nextStaffId, 
-      shop_id: formattedShopId, 
-      name: ownerName, 
-      email: email,
-      referral_code: `${formattedShopId}_${nextStaffId}`,
-      secret_token: secureToken,
-      is_deleted: false
+      id: nextStaffId, shop_id: formattedShopId, name: ownerName, email: email,
+      referral_code: `${formattedShopId}_${nextStaffId}`, secret_token: secureToken, is_deleted: false
     }])
 
     if (staffError) {
@@ -108,9 +101,8 @@ const handleRegisterShop = async (e: React.FormEvent) => {
       setIsLoading(false); return;
     }
 
-    // 6. 完了後の表示セット
+    // 5. 完了
     setShopName(finalShopName)
-
     setTimeout(() => {
       setStaffInviteUrl(`${window.location.origin}/reg/${formattedShopId}`)
       setOwnerMagicUrl(`${window.location.origin}/m/${secureToken}`)
@@ -134,10 +126,12 @@ const handleRegisterShop = async (e: React.FormEvent) => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-800 selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-800 selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
       
+      {/* 登録前：いつものフォーム */}
       {!staffInviteUrl ? (
         <div className="w-full max-w-md">
+          {/* (既存のフォーム部分：省略せずにそのまま維持) */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-indigo-600 text-white mb-4 shadow-lg shadow-indigo-200">
               <Sparkles className="w-8 h-8" />
@@ -210,48 +204,141 @@ const handleRegisterShop = async (e: React.FormEvent) => {
         </div>
 
       ) : (
-        <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl shadow-emerald-100/50 border border-emerald-100 text-center relative overflow-hidden">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-32 bg-gradient-to-b from-emerald-50 to-transparent pointer-events-none" />
-            <div className="relative z-10">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-emerald-100 text-emerald-600 mb-5 ring-8 ring-emerald-50">
-                <CheckCircle2 className="w-10 h-10" />
+
+        // ★ 登録完了後：アプリ化オンボーディング（スワイプ風UI）
+        <div className="w-full max-w-sm h-[600px] flex flex-col relative overflow-hidden bg-white rounded-[2.5rem] shadow-2xl border-[8px] border-gray-900/5">
+          
+          {/* プログレスバー（上部） */}
+          <div className="absolute top-6 left-0 right-0 flex justify-center gap-2 z-20 px-8">
+            {[1, 2, 3].map(step => (
+              <div key={step} className={`h-1.5 rounded-full flex-1 transition-all duration-500 ${onboardingStep >= step ? 'bg-indigo-600' : 'bg-gray-200'}`} />
+            ))}
+          </div>
+
+          {/* 各ステップのカード */}
+          <div className="flex-1 relative">
+            
+            {/* Step 1: 完了とアプリ化の推奨 */}
+            <div className={`absolute inset-0 p-8 flex flex-col items-center justify-center text-center transition-all duration-500 transform ${onboardingStep === 1 ? 'translate-x-0 opacity-100' : '-translate-x-full opacity-0 pointer-events-none'}`}>
+              <div className="w-24 h-24 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mb-6 ring-8 ring-emerald-50 animate-bounce">
+                <CheckCircle2 className="w-12 h-12" />
               </div>
-              <h2 className="text-2xl font-extrabold text-gray-900 mb-2">準備が整いました！</h2>
-              <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-                「{shopName}」の環境構築が完了しました。<br/>
-                さっそくダッシュボードにログインして、<br/>現在の設定を確認してみましょう。
+              <h2 className="text-2xl font-black text-gray-900 mb-3">準備完了！</h2>
+              <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
+                「{shopName}」の環境ができました。<br/>
+                Duacelは<strong className="text-indigo-600">スマホアプリ</strong>として<br/>使うのが一番便利です。
+              </p>
+              
+              <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 w-full mb-8 text-left">
+                <p className="text-xs font-bold text-gray-600 mb-2 flex items-center gap-1.5"><MonitorSmartphone className="w-4 h-4 text-indigo-500"/> アプリ化のメリット</p>
+                <ul className="text-[11px] text-gray-500 space-y-2">
+                  <li className="flex items-center gap-2">✅ <span className="flex-1">ブラウザの枠が消えて全画面に</span></li>
+                  <li className="flex items-center gap-2">✅ <span className="flex-1">QRコードが1秒で出せるように</span></li>
+                  <li className="flex items-center gap-2">✅ <span className="flex-1">ログイン状態が保持されやすい</span></li>
+                </ul>
+              </div>
+
+              <button onClick={() => setOnboardingStep(2)} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 active:scale-95 transition-transform">
+                次へ進む <ArrowRight className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Step 2: ホーム画面追加ガイド */}
+            <div className={`absolute inset-0 p-8 flex flex-col items-center justify-center text-center transition-all duration-500 transform ${onboardingStep === 2 ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}>
+              <div className="w-20 h-20 bg-blue-50 text-blue-500 rounded-2xl flex items-center justify-center mb-6">
+                <Smartphone className="w-10 h-10" />
+              </div>
+              <h2 className="text-xl font-black text-gray-900 mb-2">ホーム画面に追加</h2>
+              <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">
+                以下の手順で、この画面を<br/>スマホのホームに保存してください。
               </p>
 
-              <button onClick={() => router.push('/login')} className="w-full py-4 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl font-bold text-base transition-all shadow-lg hover:shadow-xl flex justify-center items-center gap-2 group">
-                ダッシュボードへ進む 
-                <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-              </button>
+              {deviceType === 'ios' ? (
+                <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 mb-8">
+                  <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Apple className="w-4 h-4" /> iPhone の場合</p>
+                  <ol className="text-[11px] text-gray-600 space-y-3 font-medium">
+                    <li className="flex items-center gap-3">
+                      <span className="w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 shadow-sm"><Share className="w-3 h-3" /></span>
+                      画面下の「共有」ボタンをタップ
+                    </li>
+                    <li className="flex items-center gap-3">
+                      <span className="w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 font-bold shadow-sm">+</span>
+                      「ホーム画面に追加」を選択
+                    </li>
+                  </ol>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 mb-8">
+                  <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Smartphone className="w-4 h-4" /> Android / PC の場合</p>
+                  <p className="text-[11px] text-gray-600 font-medium">
+                    ブラウザ右上のメニュー（︙）から<br/>
+                    <strong className="text-gray-800">「アプリをインストール」</strong><br/>
+                    または<strong className="text-gray-800">「ホーム画面に追加」</strong>を選択。
+                  </p>
+                </div>
+              )}
 
-              <div className="flex items-center gap-4 my-6">
-                <div className="flex-1 h-px bg-gray-100" />
-                <span className="text-xs font-bold text-gray-300 uppercase tracking-widest">or</span>
-                <div className="flex-1 h-px bg-gray-100" />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <button onClick={() => router.push(ownerMagicUrl)} className="flex flex-col items-center justify-center gap-2 p-4 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-2xl transition-colors">
-                  <div className="p-2 bg-white rounded-full shadow-sm text-indigo-600"><QrCode className="w-5 h-5" /></div>
-                  <span className="text-[11px] font-bold text-gray-600">自分の接客用QR</span>
+              <div className="flex w-full gap-3 mt-auto">
+                <button onClick={() => setOnboardingStep(1)} className="p-4 bg-gray-100 text-gray-600 rounded-2xl font-bold active:scale-95 transition-transform">
+                  <ArrowLeft className="w-5 h-5" />
                 </button>
-                <button onClick={() => setActiveModal('invite')} className="flex flex-col items-center justify-center gap-2 p-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 rounded-2xl transition-colors">
-                  <div className="p-2 bg-white rounded-full shadow-sm text-indigo-600"><UserPlus className="w-5 h-5" /></div>
-                  <span className="text-[11px] font-bold text-indigo-700">メンバーを招待</span>
+                <button onClick={() => setOnboardingStep(3)} className="flex-1 py-4 bg-gray-900 text-white rounded-2xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform">
+                  確認しました <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
             </div>
+
+            {/* Step 3: 最終アクションの選択 */}
+            <div className={`absolute inset-0 p-8 flex flex-col items-center justify-center text-center transition-all duration-500 transform ${onboardingStep === 3 ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0 pointer-events-none'}`}>
+              <h2 className="text-xl font-black text-gray-900 mb-6 mt-8">さあ、始めましょう！</h2>
+              
+              <div className="w-full space-y-4 mb-auto">
+                {/* 管理者ログインボタン */}
+                <button onClick={() => window.location.href = '/login'} className="w-full p-4 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl text-left transition-all shadow-lg group relative overflow-hidden">
+                  <div className="relative z-10 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-400 font-bold mb-1 uppercase tracking-wider">For Owner</p>
+                      <p className="font-bold text-lg">ダッシュボードを開く</p>
+                    </div>
+                    <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white/20 transition-colors">
+                      <ChevronRight className="w-5 h-5" />
+                    </div>
+                  </div>
+                </button>
+
+                {/* 接客用マイページボタン */}
+                <button onClick={() => window.open(ownerMagicUrl, '_blank')} className="w-full p-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-indigo-900 rounded-2xl text-left transition-all group">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[10px] text-indigo-500 font-bold mb-1 uppercase tracking-wider flex items-center gap-1"><QrCode className="w-3 h-3"/> 自分も紹介する</p>
+                      <p className="font-bold text-sm">接客用マイページを開く</p>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-indigo-400 group-hover:text-indigo-600 transition-colors" />
+                  </div>
+                </button>
+
+                {/* メンバー招待ボタン */}
+                <button onClick={() => setActiveModal('invite')} className="w-full p-4 bg-white border border-gray-200 text-gray-700 rounded-2xl text-left hover:bg-gray-50 transition-all flex items-center justify-between group">
+                  <div>
+                    <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-wider flex items-center gap-1"><UserPlus className="w-3 h-3"/> チーム作り</p>
+                    <p className="font-bold text-sm">メンバーを招待する</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 transition-colors" />
+                </button>
+              </div>
+
+              <button onClick={() => setOnboardingStep(2)} className="mt-6 text-xs text-gray-400 font-bold underline underline-offset-4">
+                ホーム画面への追加方法をもう一度見る
+              </button>
+            </div>
+
           </div>
         </div>
       )}
 
-      {/* モーダル群 */}
+      {/* 招待モーダル (既存のものを流用) */}
       {activeModal === 'invite' && (
-        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-50 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setActiveModal(null)}>
+        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-[100] backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setActiveModal(null)}>
           <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center relative" onClick={e => e.stopPropagation()}>
             <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-full"><X className="w-5 h-5" /></button>
             <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 mb-3"><UserPlus className="w-6 h-6" /></div>

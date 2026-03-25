@@ -7,12 +7,12 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: 'Duacel',
     description: '美容師さんのための紹介報酬管理ツール',
     start_url: '/dashboard', // ホーム画面から起動した時のページ
-    display: 'standalone',   // ★ これがURLバーを隠す設定！
+    display: 'standalone',   // URLバーを隠す設定
     background_color: '#ffffff',
     theme_color: '#4338ca',
     icons: [
       {
-        src: '/icon-192x192.png', // 後で適当なロゴ画像を置いてください
+        src: '/icon-192x192.png',
         sizes: '192x192',
         type: 'image/png',
       },
