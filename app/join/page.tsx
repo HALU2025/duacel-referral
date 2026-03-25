@@ -4,16 +4,15 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { QRCodeCanvas } from 'qrcode.react'
 import { useRouter } from 'next/navigation'
-import { motion, AnimatePresence } from 'framer-motion' // ★ Framer Motion
+import { motion, AnimatePresence } from 'framer-motion' 
 
 import { 
-  Building2, User, Mail, Lock, ArrowRight, ArrowLeft,
+  Building2, User, Mail, Lock, ArrowRight, 
   QrCode, UserPlus, CheckCircle2, Copy, Share2, 
   Loader2, X, Sparkles, Eye, EyeOff, Smartphone, 
-  MonitorSmartphone, ChevronRight, Apple, Share, Trophy, Coins, Zap, Star
+  ChevronRight, Apple, Share, Trophy, Coins, Zap, Star, LayoutDashboard
 } from 'lucide-react'
 
-// ランダムな4文字の英数字を生成する関数
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -35,15 +34,14 @@ export default function ShopJoinPage() {
   const [activeModal, setActiveModal] = useState<'invite' | null>(null)
   const [copiedType, setCopiedType] = useState('') 
 
-  // ★ オンボーディング（スワイプ画面）用のステートと設定
   const [onboardingStep, setOnboardingStep] = useState(1)
   const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop')
-  const TOTAL_STEPS = 5 // ステップ数を5に増やします
+  const TOTAL_STEPS = 5 
 
   const router = useRouter()
   const shareText = "Duacelアンバサダープログラムへようこそ！メンバーの皆さんは、以下のURLから自分の接客用ページを発行してください。"
 
-  // --- 1. LocalStorageによる復元ロジック ---
+  // --- LocalStorageによる復元 ---
   useEffect(() => {
     const savedData = localStorage.getItem('duacel_onboarding_data');
     if (savedData) {
@@ -55,7 +53,7 @@ export default function ShopJoinPage() {
     }
   }, []);
 
-  // 端末判別ロジック
+  // --- デバイス判定 ---
   useEffect(() => {
     const ua = navigator.userAgent.toLowerCase()
     if (/iphone|ipad|ipod/.test(ua)) setDeviceType('ios')
@@ -63,7 +61,7 @@ export default function ShopJoinPage() {
     else setDeviceType('desktop')
   }, [])
 
-  // ★ 2. スワイプするたびに「現在のステップ」をLocalStorageに保存
+  // --- ステップの保存 ---
   useEffect(() => {
     if (staffInviteUrl) {
       const savedData = localStorage.getItem('duacel_onboarding_data');
@@ -75,7 +73,7 @@ export default function ShopJoinPage() {
     }
   }, [onboardingStep, staffInviteUrl]);
 
-  // ★ 3. 登録成功時にLocalStorageに保存する関数を修正
+  // --- 登録処理 ---
   const handleRegisterShop = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -83,7 +81,6 @@ export default function ShopJoinPage() {
 
     const finalShopName = shopName.trim() !== '' ? shopName.trim() : ownerName.trim()
 
-    // --- 登録処理 (以前のまま維持) ---
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
     if (authError) { setErrorMessage('アカウント作成エラー: ' + authError.message); setIsLoading(false); return; }
 
@@ -106,9 +103,7 @@ export default function ShopJoinPage() {
       referral_code: `${formattedShopId}_${nextStaffId}`, secret_token: secureToken, is_deleted: false
     }])
     if (staffError) { setErrorMessage('管理者情報の初期設定に失敗しました: ' + staffError.message); setIsLoading(false); return; }
-    // ---------------------------------
 
-    // ★ 登録完了後の処理
     const onboardingData = {
       shopName: finalShopName,
       staffInviteUrl: `${window.location.origin}/reg/${formattedShopId}`,
@@ -116,22 +111,13 @@ export default function ShopJoinPage() {
       onboardingStep: 1
     };
     
-    // LocalStorageに保存！
     localStorage.setItem('duacel_onboarding_data', JSON.stringify(onboardingData));
 
     setShopName(onboardingData.shopName);
     setStaffInviteUrl(onboardingData.staffInviteUrl);
     setOwnerMagicUrl(onboardingData.ownerMagicUrl);
     
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 800)
-  }
-
-  // ★ 4. 「ダッシュボードへ進む」時にLocalStorageを消す
-  const goToDashboard = () => {
-    localStorage.removeItem('duacel_onboarding_data');
-    router.push('/login');
+    setTimeout(() => setIsLoading(false), 800)
   }
 
   const handleCopy = (text: string, type: string) => {
@@ -152,7 +138,7 @@ export default function ShopJoinPage() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-800 selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden relative">
       
-      {/* 登録前：いつものフォーム部分 (省略せずに維持) */}
+      {/* 登録前：いつものフォーム */}
       {!staffInviteUrl ? (
         <div className="w-full max-w-md animate-in fade-in duration-500">
           <div className="text-center mb-8">
@@ -164,6 +150,7 @@ export default function ShopJoinPage() {
           </div>
 
           <form onSubmit={handleRegisterShop} className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 space-y-5">
+            {/* フォーム内容は省略せずに維持 */}
             <div className="space-y-4">
               <div>
                 <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">
@@ -228,164 +215,157 @@ export default function ShopJoinPage() {
 
       ) : (
 
-        // ★ 登録完了後：Proモード・オンボーディング（スワイプ実装版）
-        <div className="w-full max-w-sm h-[640px] bg-white rounded-[2.5rem] shadow-2xl relative overflow-hidden border-[8px] border-gray-900/5 select-none animate-in fade-in duration-500">
+        // ★ 登録完了後：Proモード オンボーディング
+        <div className="w-full max-w-sm h-[660px] bg-white rounded-[2.5rem] shadow-2xl relative overflow-hidden border-[8px] border-gray-900/5 select-none animate-in fade-in duration-500">
           
-          {/* インジケーター (上部) */}
+          {/* プログレスインジケーター */}
           <div className="absolute top-6 left-0 right-0 flex justify-center gap-1.5 z-30 px-10">
             {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-              <div key={i} className={`h-1.5 rounded-full flex-1 transition-all duration-500 ${onboardingStep >= i + 1 ? 'bg-indigo-600' : 'bg-gray-100'}`} />
+              <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${onboardingStep === i + 1 ? 'w-8 bg-indigo-600' : onboardingStep > i + 1 ? 'w-4 bg-indigo-300' : 'w-4 bg-gray-100'}`} />
             ))}
           </div>
 
           <AnimatePresence mode="wait">
             <motion.div
               key={onboardingStep}
-              drag="x" // 横スワイプを有効化
-              dragConstraints={{ left: 0, right: 0 }} // 戻る力を設定
-              dragElastic={0.2} // 引っ張った時の弾力
-              onDragEnd={(e, { offset, velocity }) => {
-                // 左右に一定以上スワイプしたらページをめくる
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.2}
+              onDragEnd={(e, { offset }) => {
                 const swipeThreshold = 50
-                if (offset.x < -swipeThreshold && onboardingStep < TOTAL_STEPS) {
-                  setOnboardingStep(s => s + 1)
-                } else if (offset.x > swipeThreshold && onboardingStep > 1) {
-                  setOnboardingStep(s => s - 1)
-                }
+                if (offset.x < -swipeThreshold && onboardingStep < TOTAL_STEPS) setOnboardingStep(s => s + 1)
+                else if (offset.x > swipeThreshold && onboardingStep > 1) setOnboardingStep(s => s - 1)
               }}
-              initial={{ x: 300, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -300, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              initial={{ x: 300, opacity: 0, scale: 0.95 }}
+              animate={{ x: 0, opacity: 1, scale: 1 }}
+              exit={{ x: -300, opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", stiffness: 400, damping: 35 }}
               className="absolute inset-0 flex flex-col items-center justify-center p-8 cursor-grab active:cursor-grabbing h-full"
             >
               
-              {/* --- Step 1: ようこそ (Welcome) --- */}
+              {/* --- 1枚目: ようこそ --- */}
               {onboardingStep === 1 && (
-                <div className="flex flex-col items-center text-center h-full pt-10">
+                <div className="flex flex-col items-center text-center h-full pt-16">
                   <div className="relative mb-12">
-                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: "linear" }} className="absolute -inset-4 bg-gradient-to-tr from-indigo-100 to-emerald-100 rounded-full opacity-60 blur-xl" />
-                    <div className="relative w-28 h-28 bg-white border border-gray-100 rounded-3xl flex items-center justify-center shadow-xl">
-                      <Sparkles className="w-16 h-16 text-indigo-500" />
+                    <motion.div animate={{ rotate: 360 }} transition={{ duration: 15, repeat: Infinity, ease: "linear" }} className="absolute -inset-6 bg-gradient-to-tr from-indigo-200 to-emerald-200 rounded-full opacity-50 blur-2xl" />
+                    <div className="relative w-32 h-32 bg-white border border-gray-50 rounded-[2rem] flex items-center justify-center shadow-2xl">
+                      <Sparkles className="w-16 h-16 text-indigo-600" />
                     </div>
                   </div>
-                  <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-2">Welcome to</p>
-                  <h2 className="text-3xl font-black text-gray-900 leading-tight mb-4">Duacel<br/><span className="text-2xl text-gray-600">アンバサダープログラムへ</span></h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-12">
-                    美容師としての新しい価値を。<br/>
-                    サロンワークに、もう一つの収入源と、<br/>お客様への「美」の提案を。
+                  <p className="text-xs font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-emerald-500 uppercase tracking-[0.2em] mb-3">Welcome to</p>
+                  <h2 className="text-3xl font-black text-gray-900 leading-tight mb-6">Duacel<br/><span className="text-2xl text-gray-500">紹介プログラムへ</span></h2>
+                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-auto">
+                    サロンワークの価値を最大化する、<br/>
+                    新しいプロモーションの形が始まります。
                   </p>
-                  <div className="mt-auto flex items-center gap-2 text-[11px] font-bold text-gray-400 animate-pulse">
-                    スワイプして次へ <ArrowRight className="w-3.5 h-3.5" />
-                  </div>
                 </div>
               )}
 
-              {/* --- Step 2: プログラム説明 (What is) --- */}
+              {/* --- 2枚目: プログラム概要 --- */}
               {onboardingStep === 2 && (
-                <div className="flex flex-col items-center text-center h-full pt-10">
-                  <div className="flex items-center gap-4 mb-10 p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                    <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl"><Trophy className="w-7 h-7" /></div>
-                    <ArrowRight className="w-6 h-6 text-gray-300" />
-                    <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl"><Coins className="w-7 h-7" /></div>
+                <div className="flex flex-col items-center text-center h-full pt-16">
+                  <div className="flex items-center gap-3 mb-10 p-5 bg-white shadow-xl shadow-gray-200/50 rounded-3xl border border-gray-100">
+                    <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><Trophy className="w-8 h-8" /></div>
+                    <motion.div animate={{ x: [0, 5, 0] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                      <ArrowRight className="w-6 h-6 text-gray-300" />
+                    </motion.div>
+                    <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl"><Coins className="w-8 h-8" /></div>
                   </div>
-                  <h3 className="text-xl font-black text-gray-900 mb-4">施術とプロダクトのシナジー</h3>
+                  <h3 className="text-2xl font-black text-gray-900 mb-5">施術とプロダクトの<br/>美しいシナジー</h3>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                    お店で行う発毛促進・髪質改善コースを<br/>
-                    プロモーションしていただきます。<br/>
-                    <strong className="text-gray-800">お客様の購入件数に応じたインセンティブ</strong>を<br/>
+                    お店の「発毛促進・髪質改善コース」を<br/>
+                    お客様へプロモーションしてください。<br/><br/>
+                    <strong className="text-gray-900 bg-indigo-50 px-2 py-1 rounded">購入件数に応じたインセンティブ</strong>を<br/>
                     お支払いするプログラムです。
                   </p>
-                  <div className="p-4 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-2xl text-[11px] font-bold text-left space-y-1 w-full">
-                     <p>✅ 施術効果を自宅でも維持（LTV向上）</p>
-                     <p>✅ 在庫リスク・販売の手間なし</p>
-                     <p>✅ サロンワークの隙間時間で報酬獲得</p>
-                  </div>
                 </div>
               )}
 
-              {/* --- Step 3: 紹介方法 (How to) --- */}
+              {/* --- 3枚目: 紹介はQRだけ --- */}
               {onboardingStep === 3 && (
-                <div className="flex flex-col items-center text-center h-full pt-10">
+                <div className="flex flex-col items-center text-center h-full pt-16">
                   <div className="relative mb-10">
-                    <QRCodeCanvas value={`${window.location.origin}/welcome/S000_Demo`} size={120} level="H" fgColor="#4f46e5" className="p-2 bg-white border-2 border-indigo-100 rounded-2xl shadow-lg" />
-                    <div className="absolute -bottom-3 -right-3 p-2 bg-white rounded-full shadow-lg border border-gray-100 text-emerald-500"><CheckCircle2 className="w-6 h-6" /></div>
+                    <QRCodeCanvas value={`${window.location.origin}/welcome/S000_Demo`} size={140} level="H" fgColor="#4338ca" className="p-3 bg-white border border-gray-100 rounded-[2rem] shadow-2xl" />
+                    <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.3, type: "spring" }} className="absolute -bottom-4 -right-4 p-3 bg-emerald-500 rounded-full shadow-lg border-4 border-white text-white">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </motion.div>
                   </div>
-                  <h3 className="text-xl font-black text-gray-900 mb-4">紹介は、QRを提示するだけ</h3>
+                  <h3 className="text-2xl font-black text-gray-900 mb-4">紹介は、<br/>QRをご提示するだけ。</h3>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                    購入希望のお客様に、<strong className="text-indigo-600">自分のQRコード</strong>を<br/>
-                    スマホでスキャンしてもらうだけ。<br/>
-                    複雑な操作は一切ありません。
+                    購入希望のお客様に、<br/>スマホでサッとQRを見せるだけ。
                   </p>
-                  <div className="flex items-center gap-3 p-4 bg-indigo-50 border border-indigo-100 rounded-2xl w-full">
+                  <div className="flex items-center gap-3 p-4 bg-indigo-50/80 border border-indigo-100 rounded-2xl w-full">
                     <Zap className="w-8 h-8 text-indigo-500 shrink-0" />
-                    <p className="text-xs text-indigo-900 font-bold text-left">お客様も、<strong className="text-indigo-700">紹介特別価格（10%OFF*）</strong>で<br/>ご購入いただけるため、提案しやすい設計です。</p>
+                    <p className="text-[11px] text-indigo-900 font-bold text-left leading-relaxed">
+                      お客様も<strong className="text-indigo-700 text-xs">「紹介特別価格」</strong>で<br/>ご購入いただける、喜ばれる仕組みです。
+                    </p>
                   </div>
                 </div>
               )}
 
-              {/* --- Step 4: PWAインストールガイド (Appify) --- */}
+              {/* --- 4枚目: PWAインストール --- */}
               {onboardingStep === 4 && (
-                <div className="flex flex-col items-center text-center h-full pt-6">
-                  <div className="w-20 h-20 bg-gray-900 text-white rounded-3xl flex items-center justify-center mb-6 shadow-xl relative">
-                    <QrCode className="w-10 h-10" />
-                    <Star className="w-5 h-5 text-yellow-400 absolute top-2 right-2 animate-pulse" />
+                <div className="flex flex-col items-center text-center h-full pt-16">
+                  <div className="w-24 h-24 bg-gray-900 text-white rounded-[2rem] flex items-center justify-center mb-8 shadow-2xl relative">
+                    <QrCode className="w-12 h-12" />
+                    <Star className="w-6 h-6 text-yellow-400 absolute -top-2 -right-2 animate-pulse drop-shadow-lg" />
                   </div>
-                  <h3 className="text-lg font-black text-gray-900 mb-2">3秒でQRを表示するために</h3>
-                  <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">
-                    接客の流れを止めないよう、<br/>
-                    Duacelを<strong className="text-indigo-600">スマホのホーム画面</strong>に追加して、<br/>
-                    アプリのように使えるようにしましょう。
+                  <h3 className="text-xl font-black text-gray-900 mb-4">アプリとして追加する</h3>
+                  <p className="text-xs text-gray-500 font-medium leading-relaxed mb-8">
+                    紹介QRをいつでも・一瞬で提示できるよう<br/>
+                    <strong className="text-indigo-600">スマートフォンのホーム画面</strong>に<br/>
+                    Duacelを追加することをお勧めします。
                   </p>
 
                   {deviceType === 'ios' ? (
-                    <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 mb-6">
-                      <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Apple className="w-4 h-4" /> iPhone の場合</p>
+                    <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 shadow-inner mb-auto">
+                      <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Apple className="w-4 h-4" /> やり方 (iPhone)</p>
                       <ol className="text-[11px] text-gray-600 space-y-3 font-medium">
                         <li className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 shadow-sm"><Share className="w-3.5 h-3.5" /></span>
-                          Safariの「共有」ボタンをタップ
+                          <span className="w-7 h-7 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-500 shadow-sm"><Share className="w-4 h-4" /></span>
+                          Safari下の「共有」ボタンをタップ
                         </li>
                         <li className="flex items-center gap-3">
-                          <span className="w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-400 font-bold shadow-sm">+</span>
+                          <span className="w-7 h-7 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-500 font-bold shadow-sm">+</span>
                           「ホーム画面に追加」を選択
                         </li>
                       </ol>
                     </div>
                   ) : (
-                    <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 mb-6">
-                      <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Smartphone className="w-4 h-4" /> Android / Chrome の場合</p>
+                    <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 shadow-inner mb-auto">
+                      <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Smartphone className="w-4 h-4" /> やり方 (Android / PC)</p>
                       <p className="text-[11px] text-gray-600 font-medium leading-relaxed">
-                        ブラウザのメニュー（︙）から<br/>
-                        <strong className="text-gray-800">「アプリをインストール」</strong>または<br/>
-                        <strong className="text-gray-800">「ホーム画面に追加」</strong>を選択。
+                        ブラウザのメニュー（︙）を開き、<br/>
+                        <strong className="text-gray-900">「アプリをインストール」</strong> または<br/>
+                        <strong className="text-gray-900">「ホーム画面に追加」</strong> を選択してください。
                       </p>
                     </div>
                   )}
-                  <p className="text-[10px] text-gray-400 font-medium">※ホーム画面に追加してから、ログインしてください。</p>
                 </div>
               )}
 
-              {/* --- Step 5: 開始 (Get Started) --- */}
+              {/* --- 5枚目: さあ、はじめましょう --- */}
               {onboardingStep === TOTAL_STEPS && (
-                <div className="flex flex-col items-center text-center h-full pt-10">
-                  <div className="w-24 h-24 bg-gradient-to-tr from-indigo-600 to-emerald-500 rounded-full flex items-center justify-center mb-8 shadow-2xl relative">
-                    <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 bg-white/20 rounded-full" />
-                    <CheckCircle2 className="w-12 h-12 text-white relative z-10" />
+                <div className="flex flex-col items-center text-center h-full pt-16">
+                  <div className="w-28 h-28 bg-gradient-to-tr from-indigo-600 to-emerald-500 rounded-full flex items-center justify-center mb-8 shadow-2xl relative">
+                    <motion.div animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0, 0.5] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 bg-white rounded-full" />
+                    <CheckCircle2 className="w-14 h-14 text-white relative z-10" />
                   </div>
-                  <h2 className="text-2xl font-black text-gray-900 mb-3">準備は万全です。</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-12">
-                    アンバサダーとして、<br/>
-                    サロンワークの新しい可能性を切り拓きましょう。
+                  <h2 className="text-3xl font-black text-gray-900 mb-3">準備完了！</h2>
+                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-10">
+                    それでは、はじめましょう。
                   </p>
                   
-                  <div className="w-full space-y-4">
-                    {/* 管理者ログインボタン */}
-                    <button onClick={() => window.location.href = '/login'} className="w-full p-4 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl text-left transition-all shadow-lg group relative overflow-hidden active:scale-95">
+                  <div className="w-full space-y-4 mb-auto">
+                    {/* ★ オーナー向けの最強導線：ダッシュボード */}
+                    <button 
+                      onClick={() => { localStorage.removeItem('duacel_onboarding_data'); router.push('/login'); }} 
+                      className="w-full p-5 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl text-left transition-all shadow-xl group relative overflow-hidden active:scale-95"
+                    >
                       <div className="relative z-10 flex items-center justify-between">
                         <div>
-                          <p className="text-xs text-gray-400 font-bold mb-1 uppercase tracking-wider">For Owner</p>
-                          <p className="font-bold text-lg">ダッシュボードへログイン</p>
+                          <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-widest flex items-center gap-1"><LayoutDashboard className="w-3 h-3"/> 管理者・オーナー用</p>
+                          <p className="font-bold text-lg">ダッシュボードにログイン</p>
                         </div>
                         <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white/20 transition-colors">
                           <ChevronRight className="w-5 h-5" />
@@ -393,12 +373,15 @@ export default function ShopJoinPage() {
                       </div>
                     </button>
 
-                    {/* 接客用マイページボタン */}
-                    <button onClick={() => window.open(ownerMagicUrl, '_blank')} className="w-full p-4 bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 text-indigo-900 rounded-2xl text-left transition-all group active:scale-95">
+                    {/* ★ プレイヤーとしての導線：マイページ */}
+                    <button 
+                      onClick={() => { localStorage.removeItem('duacel_onboarding_data'); window.open(ownerMagicUrl, '_blank'); }} 
+                      className="w-full p-5 bg-white border-2 border-indigo-100 text-indigo-900 rounded-2xl text-left transition-all hover:bg-indigo-50 group active:scale-95"
+                    >
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-[10px] text-indigo-500 font-bold mb-1 uppercase tracking-wider flex items-center gap-1"><QrCode className="w-3 h-3"/> For Staff</p>
-                          <p className="font-bold text-sm">自分の接客用ページを開く</p>
+                          <p className="text-[10px] text-indigo-500 font-bold mb-1 uppercase tracking-widest flex items-center gap-1"><QrCode className="w-3 h-3"/> プレイヤー用</p>
+                          <p className="font-bold text-sm">自分のマイページを開く</p>
                         </div>
                         <ChevronRight className="w-4 h-4 text-indigo-400 group-hover:text-indigo-600 transition-colors" />
                       </div>
@@ -410,36 +393,15 @@ export default function ShopJoinPage() {
             </motion.div>
           </AnimatePresence>
 
-          {/* 中央下のスワイプ誘導バー (全画面QRモードを参考に) */}
+          {/* 中央下のスワイプ誘導バー */}
           {onboardingStep < TOTAL_STEPS && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1.5 p-2 bg-gray-900/5 rounded-full z-20 pointer-events-none">
-              <div className="w-6 h-1 bg-gray-200 rounded-full" />
-              <div className="w-1.5 h-1.5 bg-gray-200 rounded-full" />
-              <div className="w-1.5 h-1.5 bg-gray-200 rounded-full" />
-            </div>
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}
+              className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 text-[10px] font-bold text-gray-400 tracking-widest uppercase pointer-events-none"
+            >
+              <ArrowLeft className="w-3 h-3 animate-pulse" /> Swipe <ArrowRight className="w-3 h-3 animate-pulse" />
+            </motion.div>
           )}
-        </div>
-      )}
-
-      {/* 招待モーダル (既存のまま維持) */}
-      {activeModal === 'invite' && (
-        <div className="fixed inset-0 bg-gray-900/60 flex items-center justify-center z-[100] backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setActiveModal(null)}>
-          <div className="bg-white rounded-3xl p-8 w-full max-w-sm shadow-2xl text-center relative" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 bg-gray-50 rounded-full"><X className="w-5 h-5" /></button>
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 mb-3"><UserPlus className="w-6 h-6" /></div>
-            <h3 className="text-lg font-bold text-gray-900 mb-1">メンバーの招待</h3>
-            <p className="text-xs text-gray-500 mb-6 leading-relaxed">メンバーのスマホでQRを読み取ってもらうか、<br/>URLをLINE等で送信してください。</p>
-            <div className="bg-white p-3 inline-block border-2 border-indigo-50 rounded-2xl mb-6"><QRCodeCanvas value={staffInviteUrl} size={140} level={"H"} fgColor="#4f46e5" /></div>
-            <div className="space-y-3">
-              <button onClick={handleWebShare} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-indigo-200 flex items-center justify-center gap-2">
-                <Share2 className="w-4 h-4" /> 招待URLをシェアする
-              </button>
-              <button onClick={() => handleCopy(staffInviteUrl, 'invite')} className="w-full py-3.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-700 font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2">
-                {copiedType === 'invite' ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                {copiedType === 'invite' ? 'コピーしました！' : 'URLのみコピー'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </div>
