@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   RefreshCw, LogOut, Clock, CheckCircle2, Wallet, 
   CheckCheck, Users, Plus, Crown, Settings, Link as LinkIcon, 
-  QrCode, Trash2, Coins, Smartphone, ClipboardList, X, Ban, Trophy, Calendar, LayoutDashboard, Share, Edit2
+  QrCode, Trash2, Coins, Smartphone, ClipboardList, X, Ban, Trophy, Calendar, LayoutDashboard, Share, Edit2, Loader2
 } from 'lucide-react'
 
 const generateSecureToken = () => {
