@@ -19,7 +19,7 @@ const generateSecureToken = () => {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-// ★ 追加：推測不可能な招待URL用のトークン（8桁）
+// ★ 推測不可能な招待URL用のトークン（8桁）
 const generateInviteToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -49,8 +49,9 @@ export default function ShopJoinPage() {
   const [shopName, setShopName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('') // ★ 電話番号のステートを追加
+  const [phone, setPhone] = useState('') 
   const [password, setPassword] = useState('') 
+  const [pin, setPin] = useState('') // ★ PINのステートを追加
   
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
@@ -106,6 +107,13 @@ export default function ShopJoinPage() {
     setIsLoading(true)
     setErrorMessage('')
 
+    // ★ 4桁のPINチェック
+    if (pin.length !== 4) {
+      setErrorMessage('マイページ用暗証番号は4桁の数字で入力してください。')
+      setIsLoading(false)
+      return
+    }
+
     const finalShopName = shopName.trim() !== '' ? shopName.trim() : ownerName.trim()
 
     // 1. Supabase Auth への登録
@@ -114,17 +122,17 @@ export default function ShopJoinPage() {
 
     const userId = authData.user?.id
     const tempId = `TEMP_${Date.now()}`
-    const inviteToken = generateInviteToken() // ★ 推測不可能な招待トークンを生成
+    const inviteToken = generateInviteToken()
 
-    // 2. 店舗情報の登録（電話番号と招待トークンを追加）
+    // 2. 店舗情報の登録
     const { data: newShop, error: insertError } = await supabase
       .from('shops').insert([{ 
         id: tempId, 
         name: finalShopName, 
         owner_email: email, 
-        phone: phone, // ★追加
+        phone: phone, 
         owner_id: userId,
-        invite_token: inviteToken // ★追加
+        invite_token: inviteToken 
       }])
       .select('shop_number').single()
     
@@ -134,19 +142,20 @@ export default function ShopJoinPage() {
     const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
     if (updateError) { setErrorMessage('店舗ID確定エラー: ' + updateError.message); setIsLoading(false); return; }
 
-    // 3. オーナーを「最初のスタッフ」として登録（オーナーなのでPINは不要としてnullまたは設定なしで保存）
+    // 3. オーナーを「最初のスタッフ」として登録（★ security_pin に 4桁のPINを保存！）
     const nextStaffId = `ST${generateSecureToken().toUpperCase()}` 
     const secureToken = generateSecureToken()
     const { error: staffError } = await supabase.from('staffs').insert([{
       id: nextStaffId, shop_id: formattedShopId, name: ownerName, email: email,
-      referral_code: `${formattedShopId}_${nextStaffId}`, secret_token: secureToken, is_deleted: false
+      referral_code: `${formattedShopId}_${nextStaffId}`, secret_token: secureToken, 
+      security_pin: pin, // 👈 追加
+      is_deleted: false
     }])
     if (staffError) { setErrorMessage('管理者情報の初期設定に失敗しました: ' + staffError.message); setIsLoading(false); return; }
 
     // 4. 次の画面へ渡すデータの整理
     const onboardingData = {
       shopName: finalShopName,
-      // ★ 招待URLを shopId (S001等) から inviteToken に変更！
       staffInviteUrl: `${window.location.origin}/reg/${inviteToken}`,
       ownerMagicUrl: `${window.location.origin}/m/${secureToken}`,
       onboardingStep: 1
@@ -197,7 +206,6 @@ export default function ShopJoinPage() {
                 </div>
               </div>
 
-              {/* ★ 追加：店舗の電話番号 */}
               <div>
                 <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">店舗の電話番号 <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
@@ -215,6 +223,7 @@ export default function ShopJoinPage() {
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
               </div>
+              
               <div>
                 <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">ログイン用メールアドレス <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
@@ -223,8 +232,9 @@ export default function ShopJoinPage() {
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
               </div>
+
               <div>
-                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">パスワード (6文字以上) <span className="text-red-500 ml-1">*</span></label>
+                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">管理用パスワード (6文字以上) <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Lock className="w-5 h-5" /></div>
                   <input required type={showPassword ? "text" : "password"} minLength={6} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} disabled={isLoading}
@@ -234,6 +244,21 @@ export default function ShopJoinPage() {
                   </button>
                 </div>
               </div>
+
+              {/* ★ 追加：マイページ用PIN入力フィールド */}
+              <div>
+                <div className="flex justify-between items-end mb-1.5">
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider">マイページ用 暗証番号（数字4桁） <span className="text-red-500 ml-1">*</span></label>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Smartphone className="w-5 h-5" /></div>
+                  <input required type="password" inputMode="numeric" maxLength={4} placeholder="••••" 
+                    value={pin} onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-lg tracking-[0.5em] font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1.5">※現場用のマイページを開く際に使用します</p>
+              </div>
+
             </div>
 
             {errorMessage && (
@@ -242,7 +267,7 @@ export default function ShopJoinPage() {
               </div>
             )}
 
-            <button type="submit" disabled={isLoading} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-indigo-200 flex justify-center items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed">
+            <button type="submit" disabled={isLoading} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-indigo-200 flex justify-center items-center gap-2 mt-2 disabled:opacity-70 disabled:cursor-not-allowed active:scale-95">
               {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'アカウントを作成する'}
             </button>
             <p className="text-center text-[10px] text-gray-400">すでにアカウントをお持ちの場合は<a href="/login" className="text-indigo-600 font-bold ml-1 hover:underline">ログイン</a></p>
@@ -251,7 +276,7 @@ export default function ShopJoinPage() {
 
       ) : (
 
-        // オンボーディング画面 (変更点は direction 加味とゆらゆら防止)
+        // オンボーディング画面
         <div className="w-full max-w-sm h-[80vh] min-h-[500px] max-h-[680px] bg-white rounded-[2.5rem] shadow-2xl relative overflow-hidden border-[8px] border-gray-900/5 select-none animate-in fade-in zoom-in-95 duration-500">
           
           <div className="absolute top-6 left-0 right-0 flex justify-center gap-1.5 z-30 px-10">
@@ -385,7 +410,7 @@ export default function ShopJoinPage() {
                 </div>
               )}
 
-              {/* --- 5枚目 --- */}
+              {/* --- 5枚目 (★変更: マイページへの案内だけに統一) --- */}
               {onboardingStep === TOTAL_STEPS && (
                 <div className="flex flex-col items-center text-center h-full pt-16">
                   <div className="w-24 h-24 bg-gradient-to-tr from-indigo-600 to-emerald-500 rounded-full flex items-center justify-center mb-8 shadow-2xl relative">
@@ -397,34 +422,20 @@ export default function ShopJoinPage() {
                     それでは、はじめましょう。
                   </p>
                   
-                  <div className="w-full space-y-3 mb-auto">
+                  <div className="w-full mt-auto">
                     <button 
-                      onClick={() => { localStorage.removeItem('duacel_onboarding_data'); router.push('/login'); }} 
-                      className="w-full p-4 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl text-left transition-all shadow-xl group relative overflow-hidden active:scale-95"
+                      onClick={() => { localStorage.removeItem('duacel_onboarding_data'); window.location.href = ownerMagicUrl; }} 
+                      className="w-full p-5 bg-gray-900 hover:bg-gray-800 text-white rounded-2xl text-left transition-all shadow-xl group relative overflow-hidden active:scale-95 flex items-center justify-between"
                     >
-                      <div className="relative z-10 flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-widest flex items-center gap-1"><LayoutDashboard className="w-3 h-3"/> 管理者・オーナー用</p>
-                          <p className="font-bold text-base">ダッシュボードにログイン</p>
-                        </div>
-                        <div className="w-8 h-8 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                          <ChevronRight className="w-4 h-4" />
-                        </div>
+                      <div>
+                        <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-widest flex items-center gap-1"><User className="w-3 h-3"/> Player's Page</p>
+                        <p className="font-bold text-lg">マイページを開く</p>
+                      </div>
+                      <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white/20 transition-colors">
+                        <ChevronRight className="w-5 h-5" />
                       </div>
                     </button>
-
-                    <button 
-                      onClick={() => { localStorage.removeItem('duacel_onboarding_data'); window.open(ownerMagicUrl, '_blank'); }} 
-                      className="w-full p-4 bg-white border-2 border-indigo-100 text-indigo-900 rounded-2xl text-left transition-all hover:bg-indigo-50 group active:scale-95"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-[10px] text-indigo-500 font-bold mb-1 uppercase tracking-widest flex items-center gap-1"><QrCode className="w-3 h-3"/> プレイヤー用</p>
-                          <p className="font-bold text-sm">自分のマイページを開く</p>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-indigo-400 group-hover:text-indigo-600 transition-colors" />
-                      </div>
-                    </button>
+                    <p className="text-[10px] text-gray-400 font-medium mt-4">※ホーム画面に追加してから開くのがおすすめです</p>
                   </div>
                 </div>
               )}
