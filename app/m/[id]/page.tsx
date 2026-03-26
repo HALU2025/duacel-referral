@@ -2,14 +2,14 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation' // ★ useRouterを追加
 import { QRCodeCanvas } from 'qrcode.react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 import { 
   QrCode, Copy, MessageCircle, Wallet, Gift, Clock, History, 
-  Settings, Mail, User, CheckCircle2, ShieldCheck, Loader2, Ban, Sun, 
-  Edit2, Lock, X, Smartphone
+  Settings, Mail, User, CheckCircle2, ShieldCheck, Loader2, Ban, 
+  Edit2, Lock, X, Smartphone, Crown, LayoutDashboard, ChevronRight // ★ アイコン追加
 } from 'lucide-react'
 
 const getGradient = (name: string) => {
@@ -24,6 +24,7 @@ const getGradient = (name: string) => {
 export default function MemberMagicPage() {
   const params = useParams()
   const magicToken = params.id as string 
+  const router = useRouter() // ★ 追加
 
   const [activeTab, setActiveTab] = useState<'qr' | 'wallet' | 'settings'>('qr')
   const [loading, setLoading] = useState(true)
@@ -46,6 +47,9 @@ export default function MemberMagicPage() {
   const [isSaving, setIsSaving] = useState(false)
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code}` : ''
+  
+  // ★ 追加：このユーザーがオーナーかどうかを判定
+  const isOwner = shop?.owner_email === staff?.email
 
   useEffect(() => {
     const fetchMemberData = async () => {
@@ -91,7 +95,6 @@ export default function MemberMagicPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // ★ 変更点1：本物のPINチェックロジック
   const handlePinChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return; 
     
@@ -104,11 +107,9 @@ export default function MemberMagicPage() {
       pinInputRefs[index + 1].current?.focus()
     }
 
-    // 4桁埋まったら自動判定
     if (index === 3 && value) {
       const enteredPin = newPin.join('')
       
-      // ★ データベースの security_pin と照合（オーナー等でPIN未設定の場合はそのまま通す）
       if (!staff.security_pin || enteredPin === staff.security_pin) { 
         setTimeout(() => {
           setShowPinModal(false)
@@ -170,12 +171,12 @@ export default function MemberMagicPage() {
             {activeTab === 'qr' && (
               <div className="flex flex-col items-center max-w-sm mx-auto h-full">
                  <div className="w-full bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col items-center relative overflow-hidden mb-6">
-                  <div className="bg-amber-50 text-amber-600 px-4 py-1.5 rounded-full text-[10px] font-bold mb-8 flex items-center gap-1.5 border border-amber-100">
-                    <Sun className="w-3.5 h-3.5" /> 画面を明るくしてご提示ください
+                  
+                  {/* ★ 変更点1: 注意書き削除 & パディング(p-6)・サイズ(190)調整で角の欠けを防止 */}
+                  <div className="p-6 bg-white rounded-[2rem] shadow-lg border-4 border-indigo-50/80 mb-6 flex items-center justify-center">
+                    <QRCodeCanvas value={referralUrl} size={190} level={"H"} fgColor="#1e1b4b" />
                   </div>
-                  <div className="p-4 bg-white rounded-[2rem] shadow-xl border-4 border-indigo-50/50 mb-8 relative">
-                    <QRCodeCanvas value={referralUrl} size={200} level={"H"} fgColor="#1e1b4b" />
-                  </div>
+                  
                   <p className="text-base font-mono font-black text-gray-800 tracking-wider bg-gray-50 px-6 py-2 rounded-xl border border-gray-100">
                     {staff.referral_code}
                   </p>
@@ -189,7 +190,7 @@ export default function MemberMagicPage() {
               </div>
             )}
 
-            {/* 📊 TAB 2: ウォレット (★変更点2：実績リストのUI構築) */}
+            {/* 📊 TAB 2: ウォレット */}
             {activeTab === 'wallet' && (
                <div className="max-w-md mx-auto space-y-6">
                  {/* サマリーカード */}
@@ -353,10 +354,29 @@ export default function MemberMagicPage() {
                 </div>
                 
                 {!isEditMode && (
-                  <p className="text-[10px] text-gray-400 text-center mt-6">
+                  <p className="text-[10px] text-gray-400 text-center mt-6 mb-2">
                     セキュリティのため、情報の変更には<br/>登録時に設定した4桁のPINコードが必要です。
                   </p>
                 )}
+
+                {/* ★ 変更点3: オーナー専用メニュー */}
+                {isOwner && !isEditMode && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-8 bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 shadow-sm">
+                    <h3 className="text-xs font-black text-indigo-800 mb-4 flex items-center gap-2">
+                      <Crown className="w-4 h-4 text-amber-500" /> オーナー専用メニュー
+                    </h3>
+                    <div className="space-y-3">
+                      <button 
+                        onClick={() => router.push('/dashboard')}
+                        className="w-full py-4 bg-white text-indigo-700 font-bold rounded-xl shadow-sm flex items-center justify-between px-5 active:scale-95 transition-all hover:bg-gray-50 border border-indigo-100/50"
+                      >
+                        <span className="flex items-center gap-2"><LayoutDashboard className="w-4 h-4"/> 管理ダッシュボードを開く</span>
+                        <ChevronRight className="w-4 h-4 text-indigo-300" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
               </div>
             )}
             
