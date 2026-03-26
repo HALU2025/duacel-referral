@@ -2,18 +2,21 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { 
+  CheckSquare, CreditCard, Settings, AlertTriangle, 
+  CheckCircle2, X, AlertCircle, RefreshCw, Loader2 
+} from 'lucide-react'
 
 // ==========================================
 // 1. 定数・型定義
 // ==========================================
 const STATUS_OPTIONS = [
-  { value: 'pending', label: '仮計上', color: '#92400e', bgColor: '#fef3c7' },
-  { value: 'confirmed', label: '報酬確定', color: '#065f46', bgColor: '#d1fae5' },
-  { value: 'issued', label: 'ギフト発行済', color: '#1e40af', bgColor: '#dbeafe' },
-  { value: 'cancel', label: 'キャンセル', color: '#991b1b', bgColor: '#fee2e2' },
+  { value: 'pending', label: '仮計上', color: 'text-amber-700', bgColor: 'bg-amber-100', border: 'border-amber-200' },
+  { value: 'confirmed', label: '報酬確定', color: 'text-emerald-700', bgColor: 'bg-emerald-100', border: 'border-emerald-200' },
+  { value: 'issued', label: 'ギフト発行済', color: 'text-blue-700', bgColor: 'bg-blue-100', border: 'border-blue-200' },
+  { value: 'cancel', label: 'キャンセル', color: 'text-red-700', bgColor: 'bg-red-100', border: 'border-red-200' },
 ]
 
-// ★ 追加：キャンセル事由の選択肢
 const CANCEL_REASONS = [
   'お客様都合によるキャンセル・返品',
   'いたずら・不正な申し込み',
@@ -32,15 +35,14 @@ export default function AdminDashboard() {
   const [ranks, setRanks] = useState<any[]>([])
   const [pointTransactions, setPointTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [isProcessing, setIsProcessing] = useState(false)
 
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [isAllSelected, setIsAllSelected] = useState(false)
 
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
-  const [isShopModalOpen, setIsShopModalOpen] = useState(false)
-  const [editingShop, setEditingShop] = useState<any>(null)
-
+  
   const [editingRanks, setEditingRanks] = useState<any[]>([])
   const [rewardRules, setRewardRules] = useState<any[]>([])
   const [editingRules, setEditingRules] = useState<any[]>([])
@@ -83,9 +85,7 @@ export default function AdminDashboard() {
   // 4. ポイント・報酬連動ロジック
   // ==========================================
   const removePoints = async (referralId: string) => {
-    const { error } = await supabase.from('point_transactions')
-      .delete()
-      .eq('referral_id', referralId)
+    const { error } = await supabase.from('point_transactions').delete().eq('referral_id', referralId)
     if (error) console.error("ポイント削除エラー:", error)
   }
 
@@ -93,10 +93,7 @@ export default function AdminDashboard() {
     const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
     if (existing && existing.length > 0) return
 
-    const { data: pastTxs } = await supabase
-      .from('point_transactions')
-      .select('metadata')
-      .eq('shop_id', referral.shop_id)
+    const { data: pastTxs } = await supabase.from('point_transactions').select('metadata').eq('shop_id', referral.shop_id)
 
     const hasReceivedBonus = pastTxs?.some(tx => tx.metadata?.is_bonus === true) || false;
     const isFirstTime = !hasReceivedBonus;
@@ -139,7 +136,6 @@ export default function AdminDashboard() {
   // ==========================================
   // 5. アクションハンドラー
   // ==========================================
-
   const handleToggleAll = () => {
     if (isAllSelected) {
       setSelectedIds([])
@@ -163,9 +159,10 @@ export default function AdminDashboard() {
   const handleBulkConfirm = async () => {
     if (selectedIds.length === 0) return
     if (!confirm(`選択した ${selectedIds.length} 件の紹介を「報酬確定」にしますか？`)) return
-
+    
+    setIsProcessing(true)
     const { error } = await supabase.from('referrals').update({ status: 'confirmed' }).in('id', selectedIds)
-    if (error) { alert('エラーが発生しました'); return; }
+    if (error) { alert('エラーが発生しました'); setIsProcessing(false); return; }
     
     const targets = referrals.filter(r => selectedIds.includes(r.id))
     for (const target of targets) {
@@ -177,18 +174,17 @@ export default function AdminDashboard() {
     setSelectedIds([])
     setIsAllSelected(false)
     await fetchData()
+    setIsProcessing(false)
   }
 
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
     
-    // 変更がない場合はそのまま閉じる
     if (originalRef?.status === updatedRef.status && originalRef?.cancel_reason === updatedRef.cancel_reason) {
       setIsRefModalOpen(false)
       return
     }
 
-    // ★追加：キャンセルの場合は事由の選択を必須にする
     if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) {
       alert('キャンセル事由を選択してください。')
       return
@@ -204,7 +200,7 @@ export default function AdminDashboard() {
       if (!confirm(msg)) return;
     }
 
-    // ★修正：キャンセル事由もDBに保存する（キャンセル以外になったらnullでクリアする）
+    setIsProcessing(true)
     await supabase.from('referrals').update({ 
       status: updatedRef.status,
       cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null 
@@ -218,17 +214,18 @@ export default function AdminDashboard() {
     
     setIsRefModalOpen(false)
     await fetchData()
+    setIsProcessing(false)
   }
 
   const handlePaymentComplete = async (shopId: string) => {
     if (!confirm('支払いを完了（ギフト発行済）にしますか？\n成果一覧のステータスも「発行済」に更新されます。')) return
-    setLoading(true)
+    setIsProcessing(true)
 
     try {
       const { data: targetTxs, error: fetchError } = await supabase.from('point_transactions').select('referral_id').eq('shop_id', shopId).eq('status', 'confirmed')
       if (fetchError || !targetTxs || targetTxs.length === 0) {
         alert('支払い対象のデータが見つかりませんでした。')
-        setLoading(false); return;
+        setIsProcessing(false); return;
       }
 
       const targetRefIds = Array.from(new Set(targetTxs.map(tx => tx.referral_id)))
@@ -244,76 +241,112 @@ export default function AdminDashboard() {
       console.error('支払い処理エラー:', err)
       alert('エラーが発生しました。詳細はコンソールを確認してください。')
     } finally {
-      setLoading(false)
+      setIsProcessing(false)
     }
-  }
-
-  const handleShopSave = async (shop: any) => {
-    await supabase.from('shops').update({ email: shop.email, rank_id: shop.rank_id }).eq('id', shop.id)
-    setIsShopModalOpen(false)
-    await fetchData()
   }
 
   const handleRankChange = (id: string, field: string, value: string | number) => {
     setEditingRanks(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
   }
+  
   const handleRuleChange = (id: string, field: string, value: string | number) => {
     setEditingRules(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
   }
 
   const handleSaveAllSettings = async () => {
     if (!confirm('マスタ設定を変更しますか？')) return
-    setLoading(true)
+    setIsProcessing(true)
     for (const rank of editingRanks) { await supabase.from('shop_ranks').update({ label: rank.label, reward_points: rank.reward_points }).eq('id', rank.id) }
     for (const rule of editingRules) { await supabase.from('reward_rules').update({ label: rule.label, base_points: rule.base_points }).eq('id', rule.id) }
     await fetchData()
-    setLoading(false)
+    setIsProcessing(false)
     alert('すべての設定を保存しました！')
   }
 
-  if (loading) return <div style={{ padding: '40px', textAlign: 'center' }}>読み込み中...</div>
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-10 h-10 animate-spin text-indigo-600" /></div>
 
   return (
-    <main style={{ padding: '20px', width: '100%', boxSizing: 'border-box', backgroundColor: '#f8fafc', minHeight: '100vh', fontFamily: 'sans-serif' }}>
-      <header style={{ marginBottom: '20px' }}>
-        <h1 style={{ fontSize: '20px', fontWeight: 'bold' }}>管理システム</h1>
-        <div style={{ display: 'flex', gap: '10px', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px' }}>
-          {['referrals', 'payments', 'settings'].map((t) => (
-            <button key={t} onClick={() => setActiveTab(t as any)} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', backgroundColor: activeTab === t ? '#1e293b' : 'transparent', color: activeTab === t ? '#fff' : '#64748b', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}>
-              {t === 'referrals' ? '成果承認' : t === 'payments' ? '支払い管理' : 'マスタ設定'}
+    // ★ フルワイド (max-w-full) の管理画面レイアウト
+    <main className="min-h-screen bg-slate-50 font-sans text-slate-800 p-4 md:p-8">
+      
+      {/* ヘッダー */}
+      <header className="mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">HQ システム管理</h1>
+          <button onClick={fetchData} className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
+            <RefreshCw className="w-4 h-4" /> データを更新
+          </button>
+        </div>
+        
+        {/* タブナビゲーション */}
+        <div className="flex gap-2 border-b border-slate-200 pb-px">
+          {[
+            { id: 'referrals', label: '成果承認', icon: <CheckSquare className="w-4 h-4" /> },
+            { id: 'payments', label: '支払い管理', icon: <CreditCard className="w-4 h-4" /> },
+            { id: 'settings', label: 'マスタ設定', icon: <Settings className="w-4 h-4" /> },
+          ].map(tab => (
+            <button 
+              key={tab.id} 
+              onClick={() => setActiveTab(tab.id as any)} 
+              className={`flex items-center gap-2 px-6 py-3 font-bold text-sm rounded-t-xl transition-colors border-b-2 ${
+                activeTab === tab.id 
+                  ? 'bg-white text-indigo-700 border-indigo-600 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]' 
+                  : 'text-slate-500 border-transparent hover:bg-slate-100 hover:text-slate-700'
+              }`}
+            >
+              {tab.icon} {tab.label}
             </button>
           ))}
         </div>
       </header>
 
+      {/* =========================================
+          タブ: Referrals (成果承認)
+      ========================================= */}
       {activeTab === 'referrals' && (
-        <>
-          <div style={{ backgroundColor: selectedIds.length > 0 ? '#1e293b' : '#fff', color: selectedIds.length > 0 ? '#fff' : '#64748b', padding: '12px 20px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '15px', transition: '0.2s' }}>
-            <div style={{ fontSize: '13px', fontWeight: 'bold' }}>一括操作 ({selectedIds.length}件):</div>
-            <button onClick={handleBulkConfirm} disabled={selectedIds.length === 0} style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', backgroundColor: selectedIds.length > 0 ? '#10b981' : '#475569', color: '#fff', cursor: selectedIds.length > 0 ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '13px', transition: '0.2s' }}>
-              チェックした項目を「報酬確定」にする
+        <div className="animate-in fade-in duration-300">
+          
+          {/* バルクアクションバー */}
+          <div className={`p-4 rounded-xl border mb-6 flex items-center justify-between transition-all ${selectedIds.length > 0 ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-sm'}`}>
+            <div className="flex items-center gap-4">
+              <span className={`text-sm font-bold ${selectedIds.length > 0 ? 'text-white' : 'text-slate-500'}`}>一括操作 ({selectedIds.length}件選択中)</span>
+              {selectedIds.length > 0 && <span className="text-xs text-slate-400">※仮計上のデータのみ選択可能</span>}
+            </div>
+            <button 
+              onClick={handleBulkConfirm} 
+              disabled={selectedIds.length === 0 || isProcessing} 
+              className={`px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${
+                selectedIds.length > 0 
+                  ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-md active:scale-95' 
+                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              }`}
+            >
+              {isProcessing && selectedIds.length > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              選択項目を「報酬確定」にする
             </button>
-            <span style={{ fontSize: '11px', opacity: 0.7 }}>※仮計上のデータのみ選択可能です</span>
           </div>
 
-          <div style={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          {/* フルワイド・データテーブル */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>
-                <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#64748b', fontSize: '11px' }}>
-                  <th style={{ padding: '15px 20px', width: '40px' }}><input type="checkbox" checked={isAllSelected} onChange={handleToggleAll} disabled={referrals.filter(r => r.status === 'pending').length === 0}/></th>
-                  <th style={{ padding: '15px' }}>日時 / 店舗ID</th>
-                  <th style={{ padding: '15px' }}>店舗名</th>
-                  <th style={{ padding: '15px' }}>受注番号</th>
-                  <th style={{ padding: '15px' }}>獲得予定Pt</th>
-                  <th style={{ padding: '15px' }}>ステータス</th>
-                  <th style={{ padding: '15px', textAlign: 'center' }}>操作</th>
+                <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="p-4 w-12 text-center">
+                    <input type="checkbox" checked={isAllSelected} onChange={handleToggleAll} disabled={referrals.filter(r => r.status === 'pending').length === 0} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+                  </th>
+                  <th className="p-4">日時 / 店舗ID</th>
+                  <th className="p-4">店舗・チーム名</th>
+                  <th className="p-4">受注番号</th>
+                  <th className="p-4 text-right">獲得予定Pt</th>
+                  <th className="p-4 text-center">ステータス</th>
+                  <th className="p-4 text-center">操作</th>
                 </tr>
               </thead>
-              <tbody style={{ fontSize: '13px' }}>
+              <tbody className="text-sm divide-y divide-slate-100">
                 {referrals.map(ref => {
                   const shop = shops.find(s => String(s.id) === String(ref.shop_id));
                   const rank = ranks.find(r => String(r.id) === String(shop?.rank_id));
-                  const status = STATUS_OPTIONS.find(s => s.value === ref.status);
+                  const status = STATUS_OPTIONS.find(s => s.value === ref.status) || STATUS_OPTIONS[0];
                   const isIssued = ref.status === 'issued';
                   const isCanceled = ref.status === 'cancel'; 
                   const isCheckable = ref.status === 'pending';
@@ -321,7 +354,6 @@ export default function AdminDashboard() {
                   const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
                   const hasTxs = refTxs.length > 0;
                   const hasBonusTx = refTxs.some(tx => tx.metadata?.is_bonus === true);
-
                   const shopHasBonusTx = pointTransactions.some(tx => String(tx.shop_id) === String(ref.shop_id) && tx.metadata?.is_bonus === true);
 
                   const shopValidRefs = referrals
@@ -330,7 +362,6 @@ export default function AdminDashboard() {
                   
                   const isOldest = shopValidRefs.length > 0 && shopValidRefs[0].id === ref.id;
                   const successCount = shopValidRefs.findIndex(r => r.id === ref.id) + 1;
-
                   const isFirstTime = isCanceled ? false : (hasTxs ? hasBonusTx : (!shopHasBonusTx && isOldest));
 
                   const firstRule = rewardRules.find(r => r.id === 'first_bonus');
@@ -339,54 +370,55 @@ export default function AdminDashboard() {
                   const totalPt = isCanceled ? 0 : (hasTxs ? refTxs.reduce((sum, tx) => sum + Number(tx.points), 0) : standardPt + bonusPt);
 
                   return (
-                    <tr key={ref.id} style={{ borderBottom: '1px solid #f1f5f9', backgroundColor: isIssued ? '#fcfcfc' : isCanceled ? '#fef2f2' : 'transparent' }}>
-                      <td style={{ padding: '15px 20px' }}>
-                        <input type="checkbox" disabled={!isCheckable} checked={selectedIds.includes(ref.id)} onChange={() => handleToggleSelect(ref.id)} />
+                    <tr key={ref.id} className={`hover:bg-slate-50 transition-colors ${isIssued ? 'bg-slate-50/50' : isCanceled ? 'bg-red-50/30' : ''}`}>
+                      <td className="p-4 text-center">
+                        <input type="checkbox" disabled={!isCheckable} checked={selectedIds.includes(ref.id)} onChange={() => handleToggleSelect(ref.id)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50" />
                       </td>
-                      <td style={{ padding: '15px' }}>
-                        <div style={{ fontSize: '11px', color: '#94a3b8' }}>{new Date(ref.created_at).toLocaleString('ja-JP')}</div>
-                        <div style={{ color: isIssued || isCanceled ? '#94a3b8' : '#6366f1', fontWeight: 'bold' }}>ID: {ref.shop_id}</div>
+                      <td className="p-4">
+                        <div className="text-xs text-slate-400 font-mono mb-1">{new Date(ref.created_at).toLocaleString('ja-JP')}</div>
+                        <div className={`font-bold font-mono ${isIssued || isCanceled ? 'text-slate-400' : 'text-indigo-600'}`}>{ref.shop_id}</div>
                       </td>
-                      <td style={{ padding: '15px' }}>
-                        <button onClick={() => { if(!isIssued && !isCanceled) { setEditingShop(shop); setIsShopModalOpen(true); } }} style={{ background: 'none', border: 'none', padding: 0, cursor: (isIssued || isCanceled) ? 'default' : 'pointer', textAlign: 'left' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                            <span style={{ fontWeight: 'bold', color: isIssued || isCanceled ? '#94a3b8' : '#1e293b', fontSize: '14px' }}>{shop?.name || '不明'}</span>
-                            {!isCanceled && (
-                              <span style={{ fontSize: '10px', backgroundColor: isFirstTime ? '#d1fae5' : '#f1f5f9', color: isFirstTime ? '#065f46' : '#64748b', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', border: isFirstTime ? '1px solid #a7f3d0' : '1px solid #e2e8f0', opacity: isIssued ? 0.5 : 1 }}>
-                                {isFirstTime ? '初紹介！' : `${successCount} 件目`}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#94a3b8' }}>{rank?.label || '未設定'}ランク</div>
-                        </button>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`font-bold ${isIssued || isCanceled ? 'text-slate-400' : 'text-slate-800'}`}>{shop?.name || '不明'}</span>
+                          {!isCanceled && (
+                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${isFirstTime ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'} ${isIssued ? 'opacity-50' : ''}`}>
+                              {isFirstTime ? '初紹介！' : `${successCount}件目`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-400">{rank?.label || '未設定'}ランク</div>
                       </td>
-                      <td style={{ padding: '15px', color: isIssued || isCanceled ? '#94a3b8' : '#333' }}>{ref.order_number}</td>
-                      <td style={{ padding: '15px' }}>
-                        <div style={{ fontWeight: 'bold', fontSize: '16px', color: isIssued || isCanceled ? '#94a3b8' : (bonusPt > 0 ? '#059669' : '#1e293b') }}>
-                          {totalPt.toLocaleString()} pt
+                      <td className={`p-4 font-mono ${isIssued || isCanceled ? 'text-slate-400' : 'text-slate-700'}`}>
+                        {ref.order_number}
+                      </td>
+                      <td className="p-4 text-right">
+                        <div className={`font-black tabular-nums text-lg ${isIssued || isCanceled ? 'text-slate-400' : bonusPt > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
+                          {totalPt.toLocaleString()} <span className="text-xs font-normal">pt</span>
                         </div>
                         {isFirstTime && bonusPt > 0 && !isIssued && !isCanceled && (
-                          <div style={{ fontSize: '10px', color: '#059669', fontWeight: 'bold', marginTop: '2px' }}>※初回ボーナス込</div>
+                          <div className="text-[10px] text-emerald-600 font-bold">※初回ボーナス込</div>
                         )}
                       </td>
-                      <td style={{ padding: '15px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
-                          <span style={{ padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', backgroundColor: status?.bgColor, color: status?.color, opacity: isIssued || isCanceled ? 0.6 : 1 }}>
-                            {status?.label}
+                      <td className="p-4 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${status.bgColor} ${status.color} ${status.border} ${isIssued || isCanceled ? 'opacity-60' : ''}`}>
+                            {status.label}
                           </span>
-                          {/* ★ Admin側でもキャンセル事由をチラ見せ */}
                           {isCanceled && ref.cancel_reason && (
-                            <span style={{ fontSize: '10px', color: '#ef4444', fontWeight: 'bold' }}>{ref.cancel_reason}</span>
+                            <span className="text-[10px] text-red-500 font-bold max-w-[120px] truncate" title={ref.cancel_reason}>{ref.cancel_reason}</span>
                           )}
                         </div>
                       </td>
-                      <td style={{ padding: '15px', textAlign: 'center' }}>
+                      <td className="p-4 text-center">
                         {isIssued ? (
-                          <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'bold' }}>✅ 処理済</span>
+                          <span className="text-xs font-bold text-slate-400 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4"/> 処理済</span>
                         ) : isCanceled ? (
-                          <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: 'bold' }}>🚫 キャンセル済</span>
+                          <span className="text-xs font-bold text-red-400 flex items-center justify-center gap-1"><X className="w-4 h-4"/> 取消済</span>
                         ) : (
-                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} style={{ padding: '5px 12px', borderRadius: '4px', border: '1px solid #cbd5e1', cursor: 'pointer', backgroundColor: '#fff', fontSize: '12px', fontWeight: 'bold' }}>詳細</button>
+                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className="px-4 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors shadow-sm active:scale-95">
+                            詳細・編集
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -394,26 +426,29 @@ export default function AdminDashboard() {
                 })}
               </tbody>
             </table>
+            {referrals.length === 0 && <div className="p-8 text-center text-slate-400 font-bold">データがありません</div>}
           </div>
-        </>
+        </div>
       )}
 
-      {/* 支払い管理、マスタ設定タブは省略せずにそのまま保持 */}
+      {/* =========================================
+          タブ: Payments (支払い管理)
+      ========================================= */}
       {activeTab === 'payments' && (
-        <div style={{ backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto animate-in fade-in duration-300">
+          <table className="w-full text-left border-collapse whitespace-nowrap">
             <thead>
-              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#64748b', fontSize: '12px' }}>
-                <th style={{ padding: '15px' }}>店舗名</th>
-                <th style={{ padding: '15px' }}>ステータス</th>
-                <th style={{ padding: '15px' }}>紹介件数</th>
-                <th style={{ padding: '15px' }}>累計報酬額</th>
-                <th style={{ padding: '15px' }}>未払い額</th>
-                <th style={{ padding: '15px' }}>支払い済み額</th>
-                <th style={{ padding: '15px', textAlign: 'center' }}>操作</th>
+              <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
+                <th className="p-4">店舗名</th>
+                <th className="p-4 text-center">ステータス</th>
+                <th className="p-4 text-center">紹介件数</th>
+                <th className="p-4 text-right">累計報酬額</th>
+                <th className="p-4 text-right">未払い額</th>
+                <th className="p-4 text-right">支払い済額</th>
+                <th className="p-4 text-center">操作</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="text-sm divide-y divide-slate-100">
               {shops.map(shop => {
                 const validTxs = pointTransactions.filter(tx => {
                   const ref = referrals.find(r => r.id === tx.referral_id);
@@ -423,7 +458,6 @@ export default function AdminDashboard() {
 
                 const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
                 const hasBonus = validTxs.some(tx => tx.metadata?.is_bonus === true);
-
                 const unpaidTxs = validTxs.filter(tx => tx.status === 'confirmed');
                 const paidTxs = validTxs.filter(tx => tx.status === 'paid');
 
@@ -432,26 +466,40 @@ export default function AdminDashboard() {
                 const totalAmount = unpaidTotal + paidTotal;
 
                 const isAllPaid = unpaidTotal === 0;
-                const statusLabel = isAllPaid ? 'ギフト発行済' : '報酬確定';
-                const statusColor = isAllPaid ? '#1e40af' : '#065f46';
-                const statusBg = isAllPaid ? '#dbeafe' : '#d1fae5';
 
                 return (
-                  <tr key={shop.id} style={{ borderBottom: '1px solid #f1f5f9', fontSize: '13px' }}>
-                    <td style={{ padding: '15px' }}><b>{shop.name}</b></td>
-                    <td style={{ padding: '15px' }}><span style={{ padding: '4px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 'bold', backgroundColor: statusBg, color: statusColor }}>{statusLabel}</span></td>
-                    <td style={{ padding: '15px' }}><span style={{ fontWeight: 'bold' }}>{uniqueReferralCount}</span> 件</td>
-                    <td style={{ padding: '15px' }}>
-                      <div style={{ fontWeight: 'bold' }}>{totalAmount.toLocaleString()} pt</div>
-                      {hasBonus && <div style={{ fontSize: '10px', color: '#059669', fontWeight: 'bold' }}>（初回ボーナス込）</div>}
+                  <tr key={shop.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-4 font-bold text-slate-800">{shop.name}</td>
+                    <td className="p-4 text-center">
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${isAllPaid ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
+                        {isAllPaid ? '発行・精算済' : '報酬確定(未払)'}
+                      </span>
                     </td>
-                    <td style={{ padding: '15px', fontWeight: 'bold', color: !isAllPaid ? '#e11d48' : '#64748b' }}>{unpaidTotal.toLocaleString()} pt</td>
-                    <td style={{ padding: '15px', color: '#64748b' }}>{paidTotal.toLocaleString()} pt</td>
-                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                    <td className="p-4 text-center font-bold text-slate-600">{uniqueReferralCount} <span className="text-xs font-normal">件</span></td>
+                    <td className="p-4 text-right">
+                      <div className="font-bold text-slate-800 tabular-nums">{totalAmount.toLocaleString()} pt</div>
+                      {hasBonus && <div className="text-[10px] text-emerald-600 font-bold">（初回ボーナス込）</div>}
+                    </td>
+                    <td className={`p-4 text-right font-black tabular-nums ${!isAllPaid ? 'text-rose-600' : 'text-slate-400'}`}>
+                      {unpaidTotal.toLocaleString()} pt
+                    </td>
+                    <td className="p-4 text-right font-bold text-slate-500 tabular-nums">
+                      {paidTotal.toLocaleString()} pt
+                    </td>
+                    <td className="p-4 text-center">
                       {!isAllPaid ? (
-                        <button onClick={() => handlePaymentComplete(shop.id)} style={{ padding: '8px 16px', backgroundColor: '#059669', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>支払完了にする</button>
+                        <button 
+                          onClick={() => handlePaymentComplete(shop.id)} 
+                          disabled={isProcessing}
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1 mx-auto disabled:opacity-50"
+                        >
+                          {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
+                          支払完了にする
+                        </button>
                       ) : (
-                        <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: 'bold' }}>処理完了</span>
+                        <span className="text-xs font-bold text-slate-400 flex items-center justify-center gap-1">
+                          <CheckCircle2 className="w-4 h-4" /> 処理完了
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -462,79 +510,123 @@ export default function AdminDashboard() {
         </div>
       )}
 
+      {/* =========================================
+          タブ: Settings (マスタ設定)
+      ========================================= */}
       {activeTab === 'settings' && (
-        <div>
-          <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '15px' }}>ランク別ポイント設定</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+        <div className="animate-in fade-in duration-300 max-w-6xl">
+          
+          <h3 className="text-lg font-black text-slate-800 mb-4 border-l-4 border-indigo-500 pl-3">ランク別ポイント設定</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
             {editingRanks.map(rank => (
-              <div key={rank.id} style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <div style={{ marginBottom: '15px' }}>
-                  <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '5px' }}>ランク名</label>
-                  <input type="text" value={rank.label} onChange={(e) => handleRankChange(rank.id, 'label', e.target.value)} style={{ width: '100%', padding: '10px', fontSize: '16px', fontWeight: 'bold', borderRadius: '4px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} />
+              <div key={rank.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="mb-4">
+                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">ランク名</label>
+                  <input type="text" value={rank.label} onChange={(e) => handleRankChange(rank.id, 'label', e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '5px' }}>報酬ポイント</label>
-                  <input type="number" value={rank.reward_points} onChange={(e) => handleRankChange(rank.id, 'reward_points', Number(e.target.value))} style={{ width: '100%', padding: '10px', fontSize: '16px', borderRadius: '4px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} />
+                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">報酬ポイント (pt)</label>
+                  <input type="number" value={rank.reward_points} onChange={(e) => handleRankChange(rank.id, 'reward_points', Number(e.target.value))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500 outline-none transition-all tabular-nums" />
                 </div>
               </div>
             ))}
           </div>
-          <h3 style={{ fontSize: '14px', fontWeight: 'bold', marginBottom: '15px', borderTop: '1px solid #e2e8f0', paddingTop: '30px' }}>特別報酬ルール (初回ボーナス等)</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '40px' }}>
+
+          <h3 className="text-lg font-black text-slate-800 mb-4 border-l-4 border-amber-500 pl-3">特別報酬ルール (初回ボーナス等)</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
             {editingRules.map(rule => (
-              <div key={rule.id} style={{ backgroundColor: '#fff', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <div style={{ marginBottom: '15px' }}>
-                  <label style={{ fontSize: '10px', color: '#6366f1', fontWeight: 'bold' }}>ID: {rule.id}</label>
-                  <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '5px', marginTop: '5px' }}>報酬の名前</label>
-                  <input type="text" value={rule.label} onChange={(e) => handleRuleChange(rule.id, 'label', e.target.value)} style={{ width: '100%', padding: '10px', fontSize: '14px', fontWeight: 'bold', borderRadius: '4px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} />
+              <div key={rule.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+                <div className="absolute top-0 right-0 bg-amber-100 text-amber-700 text-[10px] font-black px-3 py-1 rounded-bl-lg">ID: {rule.id}</div>
+                <div className="mb-4 mt-2">
+                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">ルールの名前</label>
+                  <input type="text" value={rule.label} onChange={(e) => handleRuleChange(rule.id, 'label', e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 outline-none transition-all" />
                 </div>
                 <div>
-                  <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '5px' }}>設定ポイント</label>
-                  <input type="number" value={rule.base_points} onChange={(e) => handleRuleChange(rule.id, 'base_points', Number(e.target.value))} style={{ width: '100%', padding: '10px', fontSize: '16px', borderRadius: '4px', border: '1px solid #cbd5e1', boxSizing: 'border-box' }} />
+                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">追加付与ポイント (pt)</label>
+                  <input type="number" value={rule.base_points} onChange={(e) => handleRuleChange(rule.id, 'base_points', Number(e.target.value))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-amber-600 focus:ring-2 focus:ring-amber-500 outline-none transition-all tabular-nums" />
                 </div>
               </div>
             ))}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button onClick={handleSaveAllSettings} style={{ padding: '12px 30px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' }}>設定をすべて保存する</button>
+          
+          <div className="flex justify-end pt-6 border-t border-slate-200">
+            <button 
+              onClick={handleSaveAllSettings} 
+              disabled={isProcessing}
+              className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
+            >
+              {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Settings className="w-5 h-5" />}
+              すべてのマスタ設定を保存する
+            </button>
           </div>
         </div>
       )}
 
-      {/* ステータス更新モーダル */}
+      {/* =========================================
+          モーダル: ステータス詳細・編集
+      ========================================= */}
       {isRefModalOpen && editingRef && (
-        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 200 }}>
-          <div style={{ backgroundColor: '#fff', padding: '25px', borderRadius: '12px', width: '400px' }}>
-            <h3 style={{ marginTop: 0 }}>ステータス更新</h3>
-            <p style={{ fontSize: '13px', color: '#64748b' }}>受注番号: {editingRef.order_number}</p>
-            
-            <div style={{ margin: '20px 0' }}>
-              <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>ステータス</label>
-              <select value={editingRef.status} onChange={(e) => setEditingRef({...editingRef, status: e.target.value})} style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #cbd5e1', backgroundColor: '#fff', color: '#333' }}>
-                {STATUS_OPTIONS.filter(opt => opt.value !== 'issued').map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">ステータス更新</h3>
+                <p className="text-xs font-mono text-slate-500 mt-1">受注番号: {editingRef.order_number}</p>
+              </div>
+              <button onClick={() => setIsRefModalOpen(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5" /></button>
             </div>
-
-            {/* ★ キャンセルを選んだときだけ「キャンセル事由」のドロップダウンを表示 */}
-            {editingRef.status === 'cancel' && (
-              <div style={{ marginBottom: '25px' }}>
-                <label style={{ fontSize: '12px', color: '#991b1b', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>キャンセル事由 (必須)</label>
-                <select
-                  value={editingRef.cancel_reason || ''}
-                  onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})}
-                  style={{ width: '100%', padding: '10px', borderRadius: '4px', border: '1px solid #fca5a5', backgroundColor: '#fef2f2', color: '#991b1b', outline: 'none' }}
+            
+            <div className="space-y-5 mb-8">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-2">ステータス</label>
+                <select 
+                  value={editingRef.status} 
+                  onChange={(e) => setEditingRef({...editingRef, status: e.target.value})} 
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
                 >
-                  <option value="">事由を選択してください</option>
-                  {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  {STATUS_OPTIONS.filter(opt => opt.value !== 'issued').map(opt => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
                 </select>
               </div>
-            )}
 
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setIsRefModalOpen(false)} style={{ padding: '8px 16px', border: 'none', backgroundColor: '#f1f5f9', borderRadius: '4px', cursor: 'pointer' }}>閉じる</button>
-              <button onClick={() => handleRefModalSave(editingRef)} style={{ padding: '8px 16px', backgroundColor: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>更新して保存</button>
+              {/* キャンセル事由（ステータスがキャンセルの時だけ表示） */}
+              {editingRef.status === 'cancel' && (
+                <div className="animate-in slide-in-from-top-2 duration-200">
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-red-600 mb-2">
+                    <AlertTriangle className="w-4 h-4" /> キャンセル事由 (必須)
+                  </label>
+                  <select
+                    value={editingRef.cancel_reason || ''}
+                    onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})}
+                    className="w-full px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm font-bold text-red-700 focus:ring-2 focus:ring-red-500 outline-none"
+                  >
+                    <option value="">事由を選択してください</option>
+                    {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* 警告メッセージ */}
+              {editingRef.status === 'cancel' && (
+                 <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex gap-3 items-start">
+                   <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                   <p className="text-xs font-bold text-red-700 leading-relaxed">
+                     キャンセルを実行すると、紐づく獲得予定ポイントはすべて無効（0pt）になります。この操作は元に戻せません。
+                   </p>
+                 </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setIsRefModalOpen(false)} className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">キャンセル</button>
+              <button 
+                onClick={() => handleRefModalSave(editingRef)} 
+                disabled={isProcessing}
+                className="px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all active:scale-95 shadow-md flex items-center gap-2 disabled:opacity-50"
+              >
+                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : '更新して保存'}
+              </button>
             </div>
           </div>
         </div>

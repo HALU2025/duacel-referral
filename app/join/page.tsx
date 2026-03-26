@@ -10,15 +10,21 @@ import {
   Building2, User, Mail, Lock, ArrowRight, ArrowLeft,
   QrCode, UserPlus, CheckCircle2, Copy, Share2, 
   Loader2, X, Sparkles, Eye, EyeOff, Smartphone, 
-  ChevronRight, Apple, Share, Trophy, Coins, Zap, Star, LayoutDashboard
+  ChevronRight, Apple, Share, Trophy, Coins, Zap, Star, LayoutDashboard, Phone
 } from 'lucide-react'
 
+// ★ オーナーのマイページ用トークン（4桁）
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-// ★ アニメーションの方向を制御するバリアント（物理法則）
+// ★ 追加：推測不可能な招待URL用のトークン（8桁）
+const generateInviteToken = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
 const swipeVariants = {
   enter: (direction: number) => ({
     x: direction > 0 ? 300 : -300,
@@ -43,6 +49,7 @@ export default function ShopJoinPage() {
   const [shopName, setShopName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('') // ★ 電話番号のステートを追加
   const [password, setPassword] = useState('') 
   
   const [isLoading, setIsLoading] = useState(false)
@@ -55,11 +62,9 @@ export default function ShopJoinPage() {
   const [copiedType, setCopiedType] = useState('') 
   const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop')
 
-  // ★ 変更点: ステップ数と「進んだ方向（direction）」をセットで管理する
   const [[onboardingStep, direction], setStepDirection] = useState([1, 0])
   const TOTAL_STEPS = 5 
 
-  // ★ ページをめくる関数
   const paginate = (newDirection: number) => {
     setStepDirection([onboardingStep + newDirection, newDirection])
   }
@@ -74,7 +79,7 @@ export default function ShopJoinPage() {
       setShopName(data.shopName);
       setStaffInviteUrl(data.staffInviteUrl);
       setOwnerMagicUrl(data.ownerMagicUrl);
-      setStepDirection([data.onboardingStep || 1, 0]); // 復元時は方向0
+      setStepDirection([data.onboardingStep || 1, 0]);
     }
   }, []);
 
@@ -103,21 +108,33 @@ export default function ShopJoinPage() {
 
     const finalShopName = shopName.trim() !== '' ? shopName.trim() : ownerName.trim()
 
+    // 1. Supabase Auth への登録
     const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
     if (authError) { setErrorMessage('アカウント作成エラー: ' + authError.message); setIsLoading(false); return; }
 
     const userId = authData.user?.id
     const tempId = `TEMP_${Date.now()}`
+    const inviteToken = generateInviteToken() // ★ 推測不可能な招待トークンを生成
 
+    // 2. 店舗情報の登録（電話番号と招待トークンを追加）
     const { data: newShop, error: insertError } = await supabase
-      .from('shops').insert([{ id: tempId, name: finalShopName, owner_email: email, owner_id: userId }])
+      .from('shops').insert([{ 
+        id: tempId, 
+        name: finalShopName, 
+        owner_email: email, 
+        phone: phone, // ★追加
+        owner_id: userId,
+        invite_token: inviteToken // ★追加
+      }])
       .select('shop_number').single()
+    
     if (insertError) { setErrorMessage('店舗登録エラー: ' + insertError.message); setIsLoading(false); return; }
 
     const formattedShopId = `S${newShop.shop_number.toString().padStart(3, '0')}`
     const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
     if (updateError) { setErrorMessage('店舗ID確定エラー: ' + updateError.message); setIsLoading(false); return; }
 
+    // 3. オーナーを「最初のスタッフ」として登録（オーナーなのでPINは不要としてnullまたは設定なしで保存）
     const nextStaffId = `ST${generateSecureToken().toUpperCase()}` 
     const secureToken = generateSecureToken()
     const { error: staffError } = await supabase.from('staffs').insert([{
@@ -126,9 +143,11 @@ export default function ShopJoinPage() {
     }])
     if (staffError) { setErrorMessage('管理者情報の初期設定に失敗しました: ' + staffError.message); setIsLoading(false); return; }
 
+    // 4. 次の画面へ渡すデータの整理
     const onboardingData = {
       shopName: finalShopName,
-      staffInviteUrl: `${window.location.origin}/reg/${formattedShopId}`,
+      // ★ 招待URLを shopId (S001等) から inviteToken に変更！
+      staffInviteUrl: `${window.location.origin}/reg/${inviteToken}`,
       ownerMagicUrl: `${window.location.origin}/m/${secureToken}`,
       onboardingStep: 1
     };
@@ -154,7 +173,6 @@ export default function ShopJoinPage() {
   }
 
   return (
-    // ★ 変更点1: min-h-screen をやめ、fixed inset-0 で画面全体を完全にロック（スクロールバーを消滅させる）
     <div className="fixed inset-0 bg-gray-50 flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-gray-800 overflow-hidden">
       
       {!staffInviteUrl ? (
@@ -174,15 +192,26 @@ export default function ShopJoinPage() {
                 <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">店舗・屋号・チーム名 <span className="text-indigo-500 ml-1">(任意)</span></label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Building2 className="w-5 h-5" /></div>
-                  <input placeholder="空欄の場合はお名前が登録されます" value={shopName} onChange={e => setShopName(e.target.value)}
+                  <input placeholder="空欄の場合はお名前が登録されます" value={shopName} onChange={e => setShopName(e.target.value)} disabled={isLoading}
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none placeholder:text-xs" />
                 </div>
               </div>
+
+              {/* ★ 追加：店舗の電話番号 */}
+              <div>
+                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">店舗の電話番号 <span className="text-red-500 ml-1">*</span></label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Phone className="w-5 h-5" /></div>
+                  <input required type="tel" placeholder="03-1234-5678" value={phone} onChange={e => setPhone(e.target.value)} disabled={isLoading}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">管理者名（ご自身のお名前） <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><User className="w-5 h-5" /></div>
-                  <input required placeholder="例: 山田 太郎 / アカウント名" value={ownerName} onChange={e => setOwnerName(e.target.value)}
+                  <input required placeholder="例: 山田 太郎 / アカウント名" value={ownerName} onChange={e => setOwnerName(e.target.value)} disabled={isLoading}
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
               </div>
@@ -190,7 +219,7 @@ export default function ShopJoinPage() {
                 <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">ログイン用メールアドレス <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Mail className="w-5 h-5" /></div>
-                  <input required type="email" placeholder="admin@example.com" value={email} onChange={e => setEmail(e.target.value)}
+                  <input required type="email" placeholder="admin@example.com" value={email} onChange={e => setEmail(e.target.value)} disabled={isLoading}
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
               </div>
@@ -198,7 +227,7 @@ export default function ShopJoinPage() {
                 <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">パスワード (6文字以上) <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Lock className="w-5 h-5" /></div>
-                  <input required type={showPassword ? "text" : "password"} minLength={6} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)}
+                  <input required type={showPassword ? "text" : "password"} minLength={6} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} disabled={isLoading}
                     className="w-full pl-11 pr-12 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-gray-400 hover:text-gray-600 transition-colors">
                     {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
@@ -222,7 +251,7 @@ export default function ShopJoinPage() {
 
       ) : (
 
-        // ★ 変更点2: カードを 80vh（最大680px）の固定枠にして、上下のゆらゆらを完全に消滅させる
+        // オンボーディング画面 (変更点は direction 加味とゆらゆら防止)
         <div className="w-full max-w-sm h-[80vh] min-h-[500px] max-h-[680px] bg-white rounded-[2.5rem] shadow-2xl relative overflow-hidden border-[8px] border-gray-900/5 select-none animate-in fade-in zoom-in-95 duration-500">
           
           <div className="absolute top-6 left-0 right-0 flex justify-center gap-1.5 z-30 px-10">
@@ -231,7 +260,6 @@ export default function ShopJoinPage() {
             ))}
           </div>
 
-          {/* ★ 変更点3: directionを加味した双方向アニメーションの適用 */}
           <AnimatePresence initial={false} custom={direction}>
             <motion.div
               key={onboardingStep}
@@ -245,14 +273,13 @@ export default function ShopJoinPage() {
               dragConstraints={{ left: 0, right: 0 }}
               dragElastic={0.8}
               onDragEnd={(e, { offset, velocity }) => {
-                const swipeThreshold = 30; // めくりやすさを向上
+                const swipeThreshold = 30;
                 if (offset.x < -swipeThreshold && onboardingStep < TOTAL_STEPS) {
-                  paginate(1) // 右から左へ（次へ）
+                  paginate(1)
                 } else if (offset.x > swipeThreshold && onboardingStep > 1) {
-                  paginate(-1) // 左から右へ（戻る）
+                  paginate(-1)
                 }
               }}
-              // ★ 変更点4: タッチ時のブラウザの縦スクロール（ゆらゆら）を無効化
               style={{ touchAction: "pan-y" }} 
               className="absolute inset-0 flex flex-col items-center justify-center p-8 cursor-grab active:cursor-grabbing h-full"
             >

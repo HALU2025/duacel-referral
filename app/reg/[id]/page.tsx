@@ -16,7 +16,6 @@ const generateSecureToken = () => {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-// ★ アニメーションの方向を制御するバリアント（物理法則）
 const swipeVariants = {
   enter: (direction: number) => ({
     x: direction > 0 ? 300 : -300,
@@ -39,13 +38,14 @@ const swipeVariants = {
 
 export default function MemberJoinPage() {
   const params = useParams()
-  const shopId = params.id as string
+  // ★ 変更：URLパラメータは shop_id ではなく invite_token になります
+  const inviteToken = params.id as string 
   const router = useRouter()
 
   const [shop, setShop] = useState<any>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [pin, setPin] = useState('') // ★ PINのステートを追加
+  const [pin, setPin] = useState('') 
   
   const [isLoading, setIsLoading] = useState(false)
   const [isPageLoading, setIsPageLoading] = useState(true)
@@ -55,7 +55,6 @@ export default function MemberJoinPage() {
   const [isReturningUser, setIsReturningUser] = useState(false)
   const [deviceType, setDeviceType] = useState<'ios' | 'android' | 'desktop'>('desktop')
 
-  // ★ オンボーディング管理（ステップ数と方向）
   const [[onboardingStep, direction], setStepDirection] = useState([1, 0])
   const TOTAL_STEPS = 4 
 
@@ -63,19 +62,28 @@ export default function MemberJoinPage() {
     setStepDirection([onboardingStep + newDirection, newDirection])
   }
 
-  // --- 店舗情報の取得 ---
+  // --- 店舗情報の取得（invite_token から逆引き検索） ---
   useEffect(() => {
     const fetchShop = async () => {
-      const { data, error } = await supabase.from('shops').select('name').eq('id', shopId).single()
-      if (data) setShop(data)
+      // ★ 変更：invite_tokenを使って店舗を特定し、実際のshop.id（S001など）を取得する
+      const { data, error } = await supabase
+        .from('shops')
+        .select('id, name')
+        .eq('invite_token', inviteToken)
+        .single()
+        
+      if (data) {
+        setShop(data) // data.id に本物の店舗IDが入っている
+      }
       setIsPageLoading(false)
     }
-    if (shopId) fetchShop()
-  }, [shopId])
+    if (inviteToken) fetchShop()
+  }, [inviteToken])
 
   // --- LocalStorageによる復元 ---
   useEffect(() => {
-    const savedKey = `duacel_member_onboarding_${shopId}`;
+    if (!shop?.id) return;
+    const savedKey = `duacel_member_onboarding_${shop.id}`;
     const savedData = localStorage.getItem(savedKey);
     if (savedData) {
       const data = JSON.parse(savedData);
@@ -84,9 +92,8 @@ export default function MemberJoinPage() {
       setIsReturningUser(data.isReturningUser);
       setStepDirection([data.onboardingStep || 1, 0]);
     }
-  }, [shopId]);
+  }, [shop?.id]);
 
-  // --- デバイス判定 ---
   useEffect(() => {
     const ua = navigator.userAgent.toLowerCase()
     if (/iphone|ipad|ipod/.test(ua)) setDeviceType('ios')
@@ -94,10 +101,9 @@ export default function MemberJoinPage() {
     else setDeviceType('desktop')
   }, [])
 
-  // --- ステップの保存 ---
   useEffect(() => {
-    if (magicLinkUrl) {
-      const savedKey = `duacel_member_onboarding_${shopId}`;
+    if (magicLinkUrl && shop?.id) {
+      const savedKey = `duacel_member_onboarding_${shop.id}`;
       const savedData = localStorage.getItem(savedKey);
       if (savedData) {
         const data = JSON.parse(savedData);
@@ -105,7 +111,7 @@ export default function MemberJoinPage() {
         localStorage.setItem(savedKey, JSON.stringify(data));
       }
     }
-  }, [onboardingStep, magicLinkUrl, shopId]);
+  }, [onboardingStep, magicLinkUrl, shop?.id]);
 
   // --- 登録処理 ---
   const handleRegister = async (e: React.FormEvent) => {
@@ -113,7 +119,6 @@ export default function MemberJoinPage() {
     setIsLoading(true)
     setErrorMessage('')
 
-    // ★ 4桁の数字チェック
     if (pin.length !== 4) {
       setErrorMessage('暗証番号は4桁の数字で入力してください。')
       setIsLoading(false)
@@ -121,9 +126,9 @@ export default function MemberJoinPage() {
     }
 
     try {
-      // 1. 既存ユーザーチェック
+      // 1. 既存ユーザーチェック (本物の shop.id を使用)
       const { data: existingStaff } = await supabase
-        .from('staffs').select('secret_token, name').eq('shop_id', shopId).eq('email', email).maybeSingle()
+        .from('staffs').select('secret_token, name').eq('shop_id', shop.id).eq('email', email).maybeSingle()
 
       if (existingStaff) {
         const onboardingData = {
@@ -132,7 +137,7 @@ export default function MemberJoinPage() {
           isReturningUser: true,
           onboardingStep: 1
         };
-        localStorage.setItem(`duacel_member_onboarding_${shopId}`, JSON.stringify(onboardingData));
+        localStorage.setItem(`duacel_member_onboarding_${shop.id}`, JSON.stringify(onboardingData));
 
         setTimeout(() => {
           setName(existingStaff.name)
@@ -152,13 +157,14 @@ export default function MemberJoinPage() {
       const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}`
 
       const secureToken = generateSecureToken()
-      const publicReferralCode = `${shopId}_${nextStaffId}`
+      // 紹介コードには本物の店舗ID（S001）を使う
+      const publicReferralCode = `${shop.id}_${nextStaffId}`
 
-      // ★ security_pin を追加してインサート
+      // ★ security_pin を本番のDBカラムに保存
       const { error: insertError } = await supabase.from('staffs').insert([{
-        id: nextStaffId, shop_id: shopId, name: name, email: email,
+        id: nextStaffId, shop_id: shop.id, name: name, email: email,
         referral_code: publicReferralCode, secret_token: secureToken,
-        security_pin: pin, is_deleted: false // ← PINを保存
+        security_pin: pin, is_deleted: false 
       }])
 
       if (insertError) throw insertError
@@ -169,7 +175,7 @@ export default function MemberJoinPage() {
         isReturningUser: false,
         onboardingStep: 1
       };
-      localStorage.setItem(`duacel_member_onboarding_${shopId}`, JSON.stringify(onboardingData));
+      localStorage.setItem(`duacel_member_onboarding_${shop.id}`, JSON.stringify(onboardingData));
 
       setTimeout(() => {
         setMagicLinkUrl(onboardingData.magicLinkUrl)
@@ -183,7 +189,7 @@ export default function MemberJoinPage() {
   }
 
   const goToMyPage = () => {
-    localStorage.removeItem(`duacel_member_onboarding_${shopId}`);
+    localStorage.removeItem(`duacel_member_onboarding_${shop?.id}`);
     router.push(magicLinkUrl);
   }
 
@@ -191,7 +197,6 @@ export default function MemberJoinPage() {
   if (!shop) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 text-gray-500">無効な招待URLです。</div>
 
   return (
-    // ★ fixed inset-0 で画面を完全にロック
     <div className="fixed inset-0 bg-gray-50 flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-gray-800 overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
       
       {!magicLinkUrl ? (
@@ -227,7 +232,6 @@ export default function MemberJoinPage() {
                 </div>
               </div>
 
-              {/* ★ セキュリティPINの入力フィールドを追加 */}
               <div>
                 <div className="flex justify-between items-end mb-1.5">
                   <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider">暗証番号（数字4桁） <span className="text-red-500 ml-1">*</span></label>
@@ -286,7 +290,7 @@ export default function MemberJoinPage() {
               className="absolute inset-0 flex flex-col items-center justify-center p-8 cursor-grab active:cursor-grabbing h-full"
             >
               
-              {/* --- 1枚目: 完了 / おかえりなさい --- */}
+              {/* --- 1枚目 --- */}
               {onboardingStep === 1 && (
                 <div className="flex flex-col items-center text-center h-full pt-16 w-full">
                   <div className="relative mb-10">
@@ -307,7 +311,7 @@ export default function MemberJoinPage() {
                 </div>
               )}
 
-              {/* --- 2枚目: アクションのシンプルさ --- */}
+              {/* --- 2枚目 --- */}
               {onboardingStep === 2 && (
                 <div className="flex flex-col items-center text-center h-full pt-16 w-full">
                   <div className="flex items-center gap-3 mb-10 p-5 bg-white shadow-xl shadow-gray-200/50 rounded-3xl border border-gray-100">
@@ -330,7 +334,7 @@ export default function MemberJoinPage() {
                 </div>
               )}
 
-              {/* --- 3枚目: PWAインストール --- */}
+              {/* --- 3枚目 --- */}
               {onboardingStep === 3 && (
                 <div className="flex flex-col items-center text-center h-full pt-12 w-full">
                   <div className="w-20 h-20 bg-gray-900 text-white rounded-[2rem] flex items-center justify-center mb-6 shadow-2xl relative">
@@ -371,7 +375,7 @@ export default function MemberJoinPage() {
                 </div>
               )}
 
-              {/* --- 4枚目: マイページへ --- */}
+              {/* --- 4枚目 --- */}
               {onboardingStep === TOTAL_STEPS && (
                 <div className="flex flex-col items-center text-center h-full pt-16 w-full">
                   <div className="w-24 h-24 bg-gradient-to-tr from-indigo-600 to-emerald-500 rounded-full flex items-center justify-center mb-10 shadow-2xl relative">
@@ -405,7 +409,6 @@ export default function MemberJoinPage() {
             </motion.div>
           </AnimatePresence>
           
-          {/* スワイプ誘導 */}
           {onboardingStep < TOTAL_STEPS && (
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}

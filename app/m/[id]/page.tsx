@@ -35,10 +35,9 @@ export default function MemberMagicPage() {
 
   const [copied, setCopied] = useState(false)
 
-  // ★ 設定タブ用の新しいステート
-  const [isEditMode, setIsEditMode] = useState(false) // 閲覧モード or 編集モード
-  const [showPinModal, setShowPinModal] = useState(false) // PIN入力画面を出すか
-  const [pin, setPin] = useState(['', '', '', '']) // 4桁のPIN配列
+  const [isEditMode, setIsEditMode] = useState(false)
+  const [showPinModal, setShowPinModal] = useState(false)
+  const [pin, setPin] = useState(['', '', '', '']) 
   const [pinError, setPinError] = useState(false)
   const pinInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
 
@@ -47,7 +46,6 @@ export default function MemberMagicPage() {
   const [isSaving, setIsSaving] = useState(false)
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code}` : ''
-  const lineShareText = `【${shop?.name || 'おすすめ'}】おすすめなのでぜひチェックしてみて！ここから予約・購入できます👇\n${referralUrl}`
 
   useEffect(() => {
     const fetchMemberData = async () => {
@@ -93,16 +91,15 @@ export default function MemberMagicPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  // ★ PIN入力の制御ロジック
+  // ★ 変更点1：本物のPINチェックロジック
   const handlePinChange = (index: number, value: string) => {
-    if (!/^\d*$/.test(value)) return; // 数字以外ブロック
+    if (!/^\d*$/.test(value)) return; 
     
     const newPin = [...pin]
-    newPin[index] = value.slice(-1) // 1文字だけ保持
+    newPin[index] = value.slice(-1) 
     setPin(newPin)
     setPinError(false)
 
-    // 次の入力欄へフォーカス移動
     if (value && index < 3) {
       pinInputRefs[index + 1].current?.focus()
     }
@@ -110,9 +107,9 @@ export default function MemberMagicPage() {
     // 4桁埋まったら自動判定
     if (index === 3 && value) {
       const enteredPin = newPin.join('')
-      // TODO: 実際はここで staff.security_pin と照合する。今はダミーで '1234' なら通すか、何入れても通すようにしています。
-      // ※スタッフ登録画面にPIN設定を組み込むまでは、テスト用に「1234」で通るようにしています。
-      if (enteredPin === '1234') { 
+      
+      // ★ データベースの security_pin と照合（オーナー等でPIN未設定の場合はそのまま通す）
+      if (!staff.security_pin || enteredPin === staff.security_pin) { 
         setTimeout(() => {
           setShowPinModal(false)
           setIsEditMode(true)
@@ -120,7 +117,7 @@ export default function MemberMagicPage() {
         }, 300)
       } else {
         setPinError(true)
-        setTimeout(() => setPin(['', '', '', '']), 500) // 間違えたらリセット
+        setTimeout(() => setPin(['', '', '', '']), 500) 
         pinInputRefs[0].current?.focus()
       }
     }
@@ -134,11 +131,10 @@ export default function MemberMagicPage() {
 
   const handleSaveProfile = async () => {
     setIsSaving(true)
-    // 実際はここでSupabaseにUPDATE処理
     await supabase.from('staffs').update({ name: editName, email: editEmail }).eq('id', staff.id)
     setStaff({ ...staff, name: editName, email: editEmail })
     setIsSaving(false)
-    setIsEditMode(false) // 閲覧モードに戻す
+    setIsEditMode(false) 
   }
 
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
@@ -170,7 +166,7 @@ export default function MemberMagicPage() {
             className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-6 -webkit-overflow-scrolling-touch"
           >
             
-            {/* 📱 TAB 1: QRコード (変更なし) */}
+            {/* 📱 TAB 1: QRコード */}
             {activeTab === 'qr' && (
               <div className="flex flex-col items-center max-w-sm mx-auto h-full">
                  <div className="w-full bg-white p-8 rounded-[2.5rem] shadow-xl border border-gray-100 flex flex-col items-center relative overflow-hidden mb-6">
@@ -193,24 +189,77 @@ export default function MemberMagicPage() {
               </div>
             )}
 
-            {/* 📊 TAB 2: ウォレット (変更なし) */}
+            {/* 📊 TAB 2: ウォレット (★変更点2：実績リストのUI構築) */}
             {activeTab === 'wallet' && (
-               <div className="max-w-lg mx-auto space-y-8">
-               <div>
-                 <h2 className="text-sm font-extrabold text-gray-900 mb-4 flex items-center gap-2">
-                   <Gift className="w-5 h-5 text-indigo-500" /> あなたの紹介実績
-                 </h2>
-                 <div className="grid grid-cols-2 gap-3">
-                   <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-5 rounded-[1.5rem] shadow-xl shadow-indigo-200">
-                     <p className="text-[10px] font-bold opacity-80 mb-1">累計 獲得ポイント</p>
-                     <p className="text-3xl font-black tabular-nums tracking-tight">{summary.total.toLocaleString()}<span className="text-xs ml-1 font-medium opacity-80">pt</span></p>
+               <div className="max-w-md mx-auto space-y-6">
+                 {/* サマリーカード */}
+                 <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-[2rem] shadow-xl shadow-indigo-200 relative overflow-hidden">
+                   <div className="absolute top-0 right-0 p-4 opacity-10"><Wallet className="w-24 h-24" /></div>
+                   <p className="text-[11px] font-bold opacity-80 mb-1 flex items-center gap-1"><Gift className="w-4 h-4"/> 累計獲得ポイント</p>
+                   <p className="text-4xl font-black tabular-nums tracking-tight mb-4">{summary.total.toLocaleString()}<span className="text-sm ml-1 font-medium opacity-80">pt</span></p>
+
+                   <div className="flex gap-6 border-t border-white/20 pt-4">
+                     <div>
+                       <p className="text-[10px] opacity-80 mb-0.5">確定・発行待ち</p>
+                       <p className="text-lg font-bold tabular-nums">{summary.pending} <span className="text-[10px] font-normal">件</span></p>
+                     </div>
+                     <div>
+                       <p className="text-[10px] opacity-80 mb-0.5">清算済</p>
+                       <p className="text-lg font-bold tabular-nums">{summary.paid.toLocaleString()} <span className="text-[10px] font-normal">pt</span></p>
+                     </div>
+                   </div>
+                 </div>
+
+                 {/* 履歴リスト */}
+                 <div>
+                   <h3 className="text-sm font-extrabold text-gray-900 mb-4 flex items-center gap-2">
+                     <History className="w-5 h-5 text-indigo-500" /> アクション履歴
+                   </h3>
+                   <div className="space-y-3">
+                     {history.length === 0 ? (
+                       <div className="bg-white rounded-2xl p-8 text-center border border-gray-100 shadow-sm">
+                         <MessageCircle className="w-8 h-8 text-gray-300 mx-auto mb-3" />
+                         <p className="text-sm font-bold text-gray-500">まだ紹介実績がありません</p>
+                         <p className="text-xs text-gray-400 mt-1">QRコードをお客様に提示しましょう！</p>
+                       </div>
+                     ) : (
+                       history.map((item, i) => {
+                         const isCanceled = item.status === 'cancel';
+                         const isPaid = item.is_staff_rewarded;
+                         return (
+                           <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ delay: i*0.05 }} key={item.id} className={`bg-white p-4 rounded-2xl border flex items-center justify-between shadow-sm ${isCanceled ? 'border-red-100 bg-red-50/30' : 'border-gray-100'}`}>
+                              <div>
+                                <p className="text-[10px] font-bold text-gray-400 mb-1">{new Date(item.created_at).toLocaleDateString('ja-JP')} {new Date(item.created_at).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</p>
+                                <div className="flex items-center gap-2">
+                                  {isCanceled ? (
+                                    <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full border border-red-200">キャンセル</span>
+                                  ) : isPaid ? (
+                                    <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">清算済</span>
+                                  ) : item.status === 'confirmed' ? (
+                                    <span className="text-[10px] font-bold bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full border border-emerald-200">確定</span>
+                                  ) : item.status === 'issued' ? (
+                                    <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-200">発行済(未清算)</span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200">仮計上</span>
+                                  )}
+                                  <span className="text-xs font-bold text-gray-700">ID: {item.order_number || '---'}</span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className={`text-lg font-black tabular-nums ${isCanceled ? 'text-gray-400 line-through' : isPaid ? 'text-gray-400' : 'text-indigo-600'}`}>
+                                  +{item.totalPt.toLocaleString()}<span className="text-[10px] ml-0.5">pt</span>
+                                </p>
+                              </div>
+                           </motion.div>
+                         )
+                       })
+                     )}
                    </div>
                  </div>
                </div>
-             </div>
             )}
 
-            {/* ⚙️ TAB 3: 設定 (★ここをバチバチに変更) */}
+            {/* ⚙️ TAB 3: 設定 */}
             {activeTab === 'settings' && (
               <div className="max-w-md mx-auto">
                 <div className="flex justify-between items-center mb-6">
@@ -218,7 +267,6 @@ export default function MemberMagicPage() {
                     <Settings className="w-5 h-5 text-indigo-500" /> アカウント情報
                   </h2>
                   
-                  {/* ★ 閲覧/編集の切り替えボタン */}
                   {!isEditMode ? (
                     <button 
                       onClick={() => setShowPinModal(true)} 
@@ -251,8 +299,6 @@ export default function MemberMagicPage() {
 
                   {/* 情報エリア */}
                   <div className="p-6 space-y-6">
-                    
-                    {/* 名前 */}
                     <div>
                       <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">
                         <User className="w-3.5 h-3.5" /> 表示名
@@ -269,7 +315,6 @@ export default function MemberMagicPage() {
 
                     <div className="h-px bg-gray-100" />
 
-                    {/* メールアドレス */}
                     <div>
                       <div className="flex justify-between items-center mb-2">
                         <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
@@ -287,10 +332,9 @@ export default function MemberMagicPage() {
                         />
                       )}
                     </div>
-
                   </div>
 
-                  {/* 保存ボタン（編集モード時のみ出現） */}
+                  {/* 保存ボタン */}
                   <AnimatePresence>
                     {isEditMode && (
                       <motion.div 
@@ -320,7 +364,7 @@ export default function MemberMagicPage() {
         </AnimatePresence>
       </main>
 
-      {/* --- PIN入力モーダル (The Vault) --- */}
+      {/* --- PIN入力モーダル --- */}
       <AnimatePresence>
         {showPinModal && (
           <motion.div 
@@ -341,11 +385,8 @@ export default function MemberMagicPage() {
                 </div>
                 <h3 className="text-xl font-black text-gray-900 mb-2">セキュリティロック</h3>
                 <p className="text-xs text-gray-500">アカウント情報を編集するには、<br/>4桁のPINコードを入力してください。</p>
-                {/* ★ 今回のテスト用カンペ */}
-                <p className="text-[10px] text-indigo-400 mt-2 font-mono">※テスト用:「1234」で解除できます</p>
               </div>
 
-              {/* 4桁の入力ボックス */}
               <div className={`flex justify-center gap-3 mb-8 ${pinError ? 'animate-[shake_0.5s_ease-in-out]' : ''}`}>
                 {pin.map((digit, index) => (
                   <input
@@ -375,7 +416,7 @@ export default function MemberMagicPage() {
       <nav className="bg-white border-t border-gray-100 px-6 py-2 flex justify-between items-center z-50 pb-safe shadow-[0_-10px_40px_rgba(0,0,0,0.03)] relative">
         <button onClick={() => setActiveTab('wallet')} className={`flex flex-col items-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'wallet' ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}>
           <Wallet className={`w-6 h-6 transition-transform ${activeTab === 'wallet' ? 'scale-110' : ''}`} />
-          <span className="text-[10px] font-bold">ウォレット</span>
+          <span className="text-[10px] font-bold">実績</span>
         </button>
         <div className="relative -mt-8 px-2">
           <button onClick={() => setActiveTab('qr')} className={`p-4 rounded-full shadow-xl border-4 border-gray-50 transition-all active:scale-95 ${activeTab === 'qr' ? 'bg-indigo-600 text-white shadow-indigo-200' : 'bg-gray-900 text-white'}`}>
