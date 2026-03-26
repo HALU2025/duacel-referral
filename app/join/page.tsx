@@ -8,10 +8,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Building2, User, Mail, Lock, ArrowRight, ArrowLeft,
   CheckCircle2, Loader2, X, Eye, EyeOff, Smartphone, 
-  ChevronRight, Phone, ShieldCheck
+  ChevronRight, Phone, ShieldCheck, Sparkles
 } from 'lucide-react'
 
-// ★ トークン生成
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -22,19 +21,18 @@ const generateInviteToken = () => {
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
+// ★ アニメーションを「大きく動く」から「短くスライド＆フェード」にして安定化
 const swipeVariants = {
   enter: (direction: number) => ({
-    x: direction > 0 ? 100 : -100, // スライド幅を少し抑えて上品に
+    x: direction > 0 ? 30 : -30,
     opacity: 0,
   }),
   center: {
-    zIndex: 1,
     x: 0,
     opacity: 1,
   },
   exit: (direction: number) => ({
-    zIndex: 0,
-    x: direction < 0 ? 100 : -100,
+    x: direction < 0 ? 30 : -30,
     opacity: 0,
   })
 }
@@ -42,7 +40,6 @@ const swipeVariants = {
 export default function ShopJoinPage() {
   const router = useRouter()
 
-  // フォームステート
   const [shopName, setShopName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [email, setEmail] = useState('')
@@ -54,14 +51,11 @@ export default function ShopJoinPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   
-  // URLステート
   const [ownerMagicUrl, setOwnerMagicUrl] = useState('')
 
-  // ステップ管理 (1〜6)
   const [[currentStep, direction], setStepDirection] = useState([1, 0])
-  const TOTAL_STEPS = 6
+  const TOTAL_STEPS = 5
 
-  // Enterキーでの進行制御
   const handleKeyDown = (e: React.KeyboardEvent, nextAction: () => void) => {
     if (e.key === 'Enter') {
       e.preventDefault()
@@ -69,7 +63,6 @@ export default function ShopJoinPage() {
     }
   }
 
-  // 次のステップへ進むバリデーション
   const handleNext = () => {
     setErrorMessage('')
     if (currentStep === 2 && !ownerName.trim()) return setErrorMessage('お名前を入力してください。')
@@ -84,7 +77,6 @@ export default function ShopJoinPage() {
     setStepDirection([currentStep - 1, -1])
   }
 
-  // 最終ステップ（Step5）での登録処理
   const handleRegisterShop = async () => {
     setErrorMessage('')
     if (pin.length !== 4) return setErrorMessage('4桁の数字を入力してください。')
@@ -123,7 +115,6 @@ export default function ShopJoinPage() {
       
       if (staffError) throw new Error('管理者情報の初期設定に失敗しました: ' + staffError.message)
 
-      // 成功したら完了画面（Step 6）へ
       setOwnerMagicUrl(`${window.location.origin}/m/${secureToken}`)
       setIsLoading(false)
       setStepDirection([6, 1])
@@ -135,30 +126,29 @@ export default function ShopJoinPage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-100 flex flex-col justify-center items-center p-4 font-sans text-gray-900 selection:bg-gray-900 selection:text-white">
+    <div className="fixed inset-0 bg-gray-100 flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-gray-900 selection:bg-gray-900 selection:text-white">
       
-      {/* メインカード */}
-      <div className="w-full max-w-md bg-white h-[85vh] min-h-[500px] max-h-[600px] rounded-[2rem] shadow-2xl relative overflow-hidden border border-gray-200 flex flex-col">
+      {/* ★ 変更: 高さを dvh (動的ビューポート) にし、スマホキーボード対応で柔軟に伸縮するように設定 */}
+      <div className="w-full max-w-md bg-white rounded-[2rem] shadow-2xl relative flex flex-col overflow-hidden h-[85dvh] min-h-[450px] max-h-[640px] border border-gray-200">
         
-        {/* プログレスバー (白黒コントラスト) */}
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-gray-100 z-50 flex">
-          <motion.div 
-            className="h-full bg-gray-900" 
-            initial={{ width: 0 }}
-            animate={{ width: `${(currentStep / TOTAL_STEPS) * 100}%` }}
-            transition={{ duration: 0.4, ease: "easeInOut" }}
-          />
-        </div>
+        {/* ★ 変更: プログレスバーを「カード内」のドット式に変更 */}
+        {currentStep < 6 && (
+          <div className="absolute top-8 left-0 right-0 flex justify-center gap-1.5 z-40 px-10 pointer-events-none">
+            {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+              <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${currentStep === i + 1 ? 'w-8 bg-gray-900' : currentStep > i + 1 ? 'w-3 bg-gray-300' : 'w-3 bg-gray-100'}`} />
+            ))}
+          </div>
+        )}
 
-        {/* 戻るボタン */}
         {currentStep > 1 && currentStep < 6 && !isLoading && (
-          <button onClick={handleBack} className="absolute top-6 left-6 z-50 text-gray-400 hover:text-gray-900 transition-colors p-2 -ml-2">
+          <button onClick={handleBack} className="absolute top-5 left-5 z-50 text-gray-400 hover:text-gray-900 transition-colors p-2 bg-white/80 backdrop-blur-sm rounded-full">
             <ArrowLeft className="w-5 h-5" />
           </button>
         )}
 
-        <div className="flex-1 relative">
-          <AnimatePresence initial={false} custom={direction} mode="wait">
+        {/* ★ 変更: absolute をやめ、flex-1 と overflow-y-auto で中身だけをスクロール可能に */}
+        <div className="flex-1 relative overflow-x-hidden overflow-y-auto pb-safe">
+          <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={currentStep}
               custom={direction}
@@ -166,8 +156,8 @@ export default function ShopJoinPage() {
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ type: "tween", duration: 0.3, ease: "circOut" }}
-              className="absolute inset-0 flex flex-col px-8 pt-20 pb-8 overflow-y-auto"
+              transition={{ type: "tween", duration: 0.25, ease: "circOut" }}
+              className="flex flex-col h-full px-8 pt-20 pb-8 min-h-full"
             >
               
               {/* ==========================================
@@ -178,15 +168,16 @@ export default function ShopJoinPage() {
                   <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
                     <Building2 className="w-6 h-6" />
                   </div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Step 1/5</p>
-                  <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">Duacel紹介プログラムへ<br/>ようこそ</h2>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Duacel 紹介プログラム</p>
+                  <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">まずはサロン名・店舗名を<br/>入力してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                    まずはサロン名・店舗名を入力してください。<br/>個人で登録する場合はスキップしてください。
+                    ※個人で登録する場合はスキップしてください。
                   </p>
                   
                   <div className="mt-auto space-y-4">
+                    {/* ★ 変更: すべての input から autoFocus を削除 */}
                     <input 
-                      autoFocus placeholder="例: Duacel サロン 表参道店" value={shopName} onChange={e => setShopName(e.target.value)}
+                      placeholder="例: Duacel サロン 表参道店" value={shopName} onChange={e => setShopName(e.target.value)}
                       onKeyDown={e => handleKeyDown(e, handleNext)}
                       className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
                     />
@@ -212,7 +203,6 @@ export default function ShopJoinPage() {
                   <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
                     <User className="w-6 h-6" />
                   </div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Step 2/5</p>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">管理者のお名前を<br/>入力してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
                     管理者は、メンバーの追加や削除、<br/>紹介実績の確認、インセンティブの<br/>配分比率設定などを行えます。
@@ -220,7 +210,7 @@ export default function ShopJoinPage() {
                   
                   <div className="mt-auto space-y-4">
                     <input 
-                      autoFocus placeholder="例: 山田 太郎" value={ownerName} onChange={e => setOwnerName(e.target.value)}
+                      placeholder="例: 山田 太郎" value={ownerName} onChange={e => setOwnerName(e.target.value)}
                       onKeyDown={e => handleKeyDown(e, handleNext)}
                       className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
                     />
@@ -240,7 +230,6 @@ export default function ShopJoinPage() {
                   <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
                     <ShieldCheck className="w-6 h-6" />
                   </div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Step 3/5</p>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">ログイン情報を<br/>設定してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-6">
                     管理者用のダッシュボードにアクセスするための<br/>メールアドレスとパスワードを入力してください。
@@ -250,7 +239,7 @@ export default function ShopJoinPage() {
                     <div>
                       <label className="text-[10px] font-bold text-gray-400 block mb-1">メールアドレス</label>
                       <input 
-                        autoFocus type="email" placeholder="admin@example.com" value={email} onChange={e => setEmail(e.target.value)}
+                        type="email" placeholder="admin@example.com" value={email} onChange={e => setEmail(e.target.value)}
                         onKeyDown={e => handleKeyDown(e, handleNext)}
                         className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
                       />
@@ -284,7 +273,6 @@ export default function ShopJoinPage() {
                   <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
                     <Phone className="w-6 h-6" />
                   </div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Step 4/5</p>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">管理者の電話番号を<br/>入力してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
                     メールが送信できなかった場合などに使用します。<br/>通常は使用しません。
@@ -292,7 +280,7 @@ export default function ShopJoinPage() {
                   
                   <div className="mt-auto space-y-4">
                     <input 
-                      autoFocus type="tel" placeholder="03-1234-5678" value={phone} onChange={e => setPhone(e.target.value)}
+                      type="tel" placeholder="03-1234-5678" value={phone} onChange={e => setPhone(e.target.value)}
                       onKeyDown={e => handleKeyDown(e, handleNext)}
                       className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
                     />
@@ -312,7 +300,6 @@ export default function ShopJoinPage() {
                   <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
                     <Smartphone className="w-6 h-6" />
                   </div>
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Step 5/5</p>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">数字4ケタのPINコードを<br/>設定してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
                     紹介QRを表示する「マイページ」に<br/>アクセスするために必要になります。
@@ -320,14 +307,14 @@ export default function ShopJoinPage() {
                   
                   <div className="mt-auto space-y-4">
                     <input 
-                      autoFocus type="password" inputMode="numeric" maxLength={4} placeholder="••••" 
+                      type="password" inputMode="numeric" maxLength={4} placeholder="••••" 
                       value={pin} onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
                       onKeyDown={e => handleKeyDown(e, handleRegisterShop)}
                       className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-2xl tracking-[1em] text-center font-mono font-black text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
                     />
                     {errorMessage && <p className="text-xs font-bold text-red-500 text-center">{errorMessage}</p>}
                     <button 
-                      onClick={handleRegisterShop} disabled={isLoading} 
+                      onClick={handleRegisterShop} disabled={isLoading || pin.length !== 4} 
                       className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 mt-4 disabled:opacity-50"
                     >
                       {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'この内容で登録を完了する'}
@@ -356,7 +343,7 @@ export default function ShopJoinPage() {
                       className="w-full p-5 bg-gray-900 hover:bg-black text-white rounded-2xl text-left transition-all shadow-xl group relative overflow-hidden active:scale-95 flex items-center justify-between"
                     >
                       <div>
-                        <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-widest flex items-center gap-1">Start Program</p>
+                        <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-widest flex items-center gap-1"><User className="w-3 h-3"/> Player's Page</p>
                         <p className="font-bold text-lg">マイページを開く</p>
                       </div>
                       <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white/20 transition-colors">
