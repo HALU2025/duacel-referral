@@ -6,9 +6,8 @@ import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
 
 import { 
-  Building2, User, Mail, Lock, ArrowRight, ArrowLeft,
-  CheckCircle2, Loader2, X, Eye, EyeOff, Smartphone, 
-  ChevronRight, Phone, ShieldCheck, Sparkles
+  ArrowRight, ArrowLeft, CheckCircle2, Loader2, 
+  Eye, EyeOff, ChevronRight, User
 } from 'lucide-react'
 
 const generateSecureToken = () => {
@@ -21,7 +20,6 @@ const generateInviteToken = () => {
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-// ★ アニメーションを「大きく動く」から「短くスライド＆フェード」にして安定化
 const swipeVariants = {
   enter: (direction: number) => ({
     x: direction > 0 ? 30 : -30,
@@ -128,10 +126,9 @@ export default function ShopJoinPage() {
   return (
     <div className="fixed inset-0 bg-gray-100 flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-gray-900 selection:bg-gray-900 selection:text-white">
       
-      {/* ★ 変更: 高さを dvh (動的ビューポート) にし、スマホキーボード対応で柔軟に伸縮するように設定 */}
       <div className="w-full max-w-md bg-white rounded-[2rem] shadow-2xl relative flex flex-col overflow-hidden h-[85dvh] min-h-[450px] max-h-[640px] border border-gray-200">
         
-        {/* ★ 変更: プログレスバーを「カード内」のドット式に変更 */}
+        {/* プログレスバー (ドット) */}
         {currentStep < 6 && (
           <div className="absolute top-8 left-0 right-0 flex justify-center gap-1.5 z-40 px-10 pointer-events-none">
             {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
@@ -140,13 +137,13 @@ export default function ShopJoinPage() {
           </div>
         )}
 
+        {/* 戻るボタン */}
         {currentStep > 1 && currentStep < 6 && !isLoading && (
           <button onClick={handleBack} className="absolute top-5 left-5 z-50 text-gray-400 hover:text-gray-900 transition-colors p-2 bg-white/80 backdrop-blur-sm rounded-full">
             <ArrowLeft className="w-5 h-5" />
           </button>
         )}
 
-        {/* ★ 変更: absolute をやめ、flex-1 と overflow-y-auto で中身だけをスクロール可能に */}
         <div className="flex-1 relative overflow-x-hidden overflow-y-auto pb-safe">
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
@@ -157,7 +154,7 @@ export default function ShopJoinPage() {
               animate="center"
               exit="exit"
               transition={{ type: "tween", duration: 0.25, ease: "circOut" }}
-              className="flex flex-col h-full px-8 pt-20 pb-8 min-h-full"
+              className="flex flex-col h-full px-8 pt-24 pb-8 min-h-full"
             >
               
               {/* ==========================================
@@ -165,9 +162,6 @@ export default function ShopJoinPage() {
               ========================================== */}
               {currentStep === 1 && (
                 <div className="flex flex-col h-full">
-                  <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                    <Building2 className="w-6 h-6" />
-                  </div>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Duacel 紹介プログラム</p>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">まずはサロン名・店舗名を<br/>入力してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
@@ -175,7 +169,6 @@ export default function ShopJoinPage() {
                   </p>
                   
                   <div className="mt-auto space-y-4">
-                    {/* ★ 変更: すべての input から autoFocus を削除 */}
                     <input 
                       placeholder="例: Duacel サロン 表参道店" value={shopName} onChange={e => setShopName(e.target.value)}
                       onKeyDown={e => handleKeyDown(e, handleNext)}
@@ -200,9 +193,6 @@ export default function ShopJoinPage() {
               ========================================== */}
               {currentStep === 2 && (
                 <div className="flex flex-col h-full">
-                  <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                    <User className="w-6 h-6" />
-                  </div>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">管理者のお名前を<br/>入力してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
                     管理者は、メンバーの追加や削除、<br/>紹介実績の確認、インセンティブの<br/>配分比率設定などを行えます。
@@ -227,9 +217,6 @@ export default function ShopJoinPage() {
               ========================================== */}
               {currentStep === 3 && (
                 <div className="flex flex-col h-full">
-                  <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                    <ShieldCheck className="w-6 h-6" />
-                  </div>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">ログイン情報を<br/>設定してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-6">
                     管理者用のダッシュボードにアクセスするための<br/>メールアドレスとパスワードを入力してください。
@@ -270,9 +257,6 @@ export default function ShopJoinPage() {
               ========================================== */}
               {currentStep === 4 && (
                 <div className="flex flex-col h-full">
-                  <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                    <Phone className="w-6 h-6" />
-                  </div>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">管理者の電話番号を<br/>入力してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
                     メールが送信できなかった場合などに使用します。<br/>通常は使用しません。
@@ -297,9 +281,6 @@ export default function ShopJoinPage() {
               ========================================== */}
               {currentStep === 5 && (
                 <div className="flex flex-col h-full">
-                  <div className="w-12 h-12 bg-gray-900 text-white rounded-xl flex items-center justify-center mb-6 shadow-lg">
-                    <Smartphone className="w-6 h-6" />
-                  </div>
                   <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">数字4ケタのPINコードを<br/>設定してください</h2>
                   <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
                     紹介QRを表示する「マイページ」に<br/>アクセスするために必要になります。
