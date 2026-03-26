@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   User, Mail, ArrowRight, ArrowLeft, CheckCircle2, 
   Loader2, X, Sparkles, UserPlus, QrCode, Smartphone, 
-  ChevronRight, Apple, Share, Zap, Coins, Star, Gift
+  ChevronRight, Apple, Share, Zap, Coins, Star, Gift, Lock
 } from 'lucide-react'
 
 const generateSecureToken = () => {
@@ -45,6 +45,7 @@ export default function MemberJoinPage() {
   const [shop, setShop] = useState<any>(null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [pin, setPin] = useState('') // ★ PINのステートを追加
   
   const [isLoading, setIsLoading] = useState(false)
   const [isPageLoading, setIsPageLoading] = useState(true)
@@ -112,6 +113,13 @@ export default function MemberJoinPage() {
     setIsLoading(true)
     setErrorMessage('')
 
+    // ★ 4桁の数字チェック
+    if (pin.length !== 4) {
+      setErrorMessage('暗証番号は4桁の数字で入力してください。')
+      setIsLoading(false)
+      return
+    }
+
     try {
       // 1. 既存ユーザーチェック
       const { data: existingStaff } = await supabase
@@ -146,9 +154,11 @@ export default function MemberJoinPage() {
       const secureToken = generateSecureToken()
       const publicReferralCode = `${shopId}_${nextStaffId}`
 
+      // ★ security_pin を追加してインサート
       const { error: insertError } = await supabase.from('staffs').insert([{
         id: nextStaffId, shop_id: shopId, name: name, email: email,
-        referral_code: publicReferralCode, secret_token: secureToken, is_deleted: false
+        referral_code: publicReferralCode, secret_token: secureToken,
+        security_pin: pin, is_deleted: false // ← PINを保存
       }])
 
       if (insertError) throw insertError
@@ -194,7 +204,7 @@ export default function MemberJoinPage() {
             </div>
             <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 opacity-80">{shop.name}</p>
             <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">メンバー登録</h1>
-            <p className="text-sm text-gray-500 mt-2 leading-relaxed">パスワードは不要です。<br/>お名前とメールアドレスだけで<br/>専用ページが即時発行されます。</p>
+            <p className="text-sm text-gray-500 mt-2 leading-relaxed">アカウント情報を入力して、<br/>専用ページを発行しましょう。</p>
           </div>
 
           <form onSubmit={handleRegister} className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 space-y-5">
@@ -215,6 +225,20 @@ export default function MemberJoinPage() {
                   <input required type="email" placeholder="example@email.com" value={email} onChange={e => setEmail(e.target.value)} disabled={isLoading}
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
+              </div>
+
+              {/* ★ セキュリティPINの入力フィールドを追加 */}
+              <div>
+                <div className="flex justify-between items-end mb-1.5">
+                  <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider">暗証番号（数字4桁） <span className="text-red-500 ml-1">*</span></label>
+                </div>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Lock className="w-5 h-5" /></div>
+                  <input required type="password" inputMode="numeric" maxLength={4} placeholder="••••" 
+                    value={pin} onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-lg tracking-[0.5em] font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1.5">※設定変更時のロック解除に使用します</p>
               </div>
             </div>
 
