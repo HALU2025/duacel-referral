@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
-export function middleware(request: NextRequest) {
+// ★ 修正：関数名を `middleware` から `proxy` に変更しました！
+export function proxy(request: NextRequest) {
   // 準備：後でCookieをセットしたり、そのまま画面を表示させるためのベース
   const response = NextResponse.next()
 
