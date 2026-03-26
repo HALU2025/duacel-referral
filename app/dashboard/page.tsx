@@ -239,12 +239,13 @@ export default function OwnerDashboard() {
   if (!shop) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-red-500">店舗情報が見つかりません。</div>
 
   return (
-    // ★ 変更点1：背景を暗くし、中央にスマホサイズのコンテナ（max-w-md）を配置
-    <div className="min-h-screen bg-gray-200 flex justify-center font-sans text-gray-800">
-      <div className="w-full max-w-md bg-gray-50 min-h-screen relative shadow-2xl flex flex-col">
+    // ★ 変更点: 外側のラッパーを fixed inset-0 にして画面スクロールを完全にロック
+    <div className="fixed inset-0 bg-gray-200 flex justify-center font-sans text-gray-800">
+      {/* ★ 変更点: h-full と overflow-hidden を追加し、メインエリアだけスクロールさせる */}
+      <div className="w-full max-w-md bg-gray-50 h-full relative shadow-2xl flex flex-col overflow-hidden">
         
-        {/* メインコンテンツエリア（スクロール可能） */}
-        <main className="flex-1 overflow-y-auto pb-24 pt-safe-top">
+        {/* メインコンテンツエリア（ここだけスクロール可能） */}
+        <main className="flex-1 overflow-y-auto pb-6 pt-safe-top">
           
           {/* =========================================
               タブ: Stats (ホーム)
@@ -412,9 +413,9 @@ export default function OwnerDashboard() {
         </main>
 
         {/* =========================================
-            ボトムナビゲーション（コンポーネント統合）
+            ボトムナビゲーション
         ========================================= */}
-        <nav className="absolute bottom-0 left-0 w-full bg-white border-t border-gray-100 flex justify-around items-center px-2 pb-safe z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.04)]">
+        <nav className="bg-white border-t border-gray-100 flex justify-around items-center px-2 pb-safe z-40 shadow-[0_-10px_40px_rgba(0,0,0,0.04)] shrink-0">
           {[
             { id: 'stats', icon: <LayoutDashboard className="w-6 h-6" />, label: 'ホーム' },
             { id: 'history', icon: <ClipboardList className="w-6 h-6" />, label: '明細' },
