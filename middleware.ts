@@ -2,30 +2,76 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 export function middleware(request: NextRequest) {
-  // 1. URLから「?r=◯◯」というパラメータを探す
+  // 準備：後でCookieをセットしたり、そのまま画面を表示させるためのベース
+  const response = NextResponse.next()
+
+  // ========================================================
+  // 🔒 1. Basic認証（開発中の全体ロック）
+  // 【つけ外しの方法】
+  // ここの `ENABLE_BASIC_AUTH` を false にするだけで一瞬で解除できます。
+  // ========================================================
+  const ENABLE_BASIC_AUTH = true
+
+  if (ENABLE_BASIC_AUTH) {
+    const basicAuth = request.headers.get('authorization')
+    // Vercelで環境変数を設定していない場合は test / 1234 になります
+    const user = process.env.BASIC_AUTH_USER || 'test'
+    const pwd = process.env.BASIC_AUTH_PASSWORD || '1234'
+
+    // 認証情報がない、または間違っている場合は弾く
+    if (!basicAuth) {
+      return new NextResponse('認証が必要です。 (Auth required)', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Basic realm="Secure Area"' },
+      })
+    }
+
+    const authValue = basicAuth.split(' ')[1]
+    const [providedUser, providedPwd] = atob(authValue).split(':')
+
+    if (providedUser !== user || providedPwd !== pwd) {
+      return new NextResponse('認証が必要です。 (Auth required)', {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'Basic realm="Secure Area"' },
+      })
+    }
+  }
+
+  // ========================================================
+  // 🎁 2. リファラルIDの保存処理（既存機能）
+  // Basic認証を突破した人（または認証オフの時）だけここを通ります
+  // ========================================================
   const { searchParams } = new URL(request.url)
   const referralId = searchParams.get('r')
 
-  // 2. もしURLに「r」が入っていたら
   if (referralId) {
-    // 3. レスポンス（画面を表示する準備）を作る
-    const response = NextResponse.next()
-
-    // 4. Cookieに「referral_id」という名前で保存する
-    // maxAge: 60 * 60 * 24 * 30 は「30日間」という意味です
+    // Cookieに「referral_id」という名前で保存する (30日間)
     response.cookies.set('referral_id', referralId, {
-      maxAge: 60 * 60 * 24 * 30, 
+      maxAge: 60 * 60 * 24 * 30,
       path: '/',
     })
-
     console.log('✅ リファラルIDを保存しました:', referralId)
-    return response
   }
 
-  return NextResponse.next()
+  // ========================================================
+  // 👮 3. 【将来用】 /admin へのアクセス制限
+  // ========================================================
+  // if (request.nextUrl.pathname.startsWith('/admin')) {
+  //   // 今後、ここに「アドミン用のパスワード要求」や
+  //   // 「Supabaseの権限チェック」のコードを追加します。
+  // }
+
+  // 全ての処理が終わったらレスポンスを返す
+  return response
 }
 
-// このミドルウェアを動かす範囲（基本全部でOK）
+// ========================================================
+// ⚙️ ミドルウェアを動かす範囲の設定
+// ========================================================
 export const config = {
-  matcher: '/:path*',
+  // 画像やNext.jsの裏側（_next/staticなど）はミドルウェアをスルーさせる。
+  // これをやらないと、画像1枚1枚にBasic認証のポップアップが出て画面がバグります。
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 }
