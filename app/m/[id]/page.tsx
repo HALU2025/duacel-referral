@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 import { 
   QrCode, Copy, MessageCircle, Wallet, Gift, Clock, History, 
-  Settings, Mail, User, CheckCircle2, ShieldCheck, Loader2, 
+  Settings, Mail, User, CheckCircle2, ShieldCheck, Loader2, Edit2,
   Lock, X, Smartphone, Crown, LayoutDashboard, ChevronRight, Share, UserPlus
 } from 'lucide-react'
 
