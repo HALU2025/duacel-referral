@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase'
 // ==========================================
 // 共通のデータ保存ロジック
 // ==========================================
-async function processWebhookData(referralCode: string | null, orderNumber: string | null) {
+// ★ 変更: 引数に customerId を追加
+async function processWebhookData(referralCode: string | null, orderNumber: string | null, customerId: string | null) {
   if (!referralCode) {
     return NextResponse.json({ error: '紹介コードが含まれていません' }, { status: 400 })
   }
@@ -26,6 +27,7 @@ async function processWebhookData(referralCode: string | null, orderNumber: stri
     staff_id: staffId,
     referral_code: referralCode,
     order_number: finalOrderNumber,
+    customer_id: customerId, // 👈 ★ 追加: 顧客IDを保存！
     status: 'pending',
     is_staff_rewarded: false
   }])
@@ -35,7 +37,7 @@ async function processWebhookData(referralCode: string | null, orderNumber: stri
     return NextResponse.json({ error: 'データベースエラーが発生しました' }, { status: 500 })
   }
 
-  console.log(`✅ 成果を記録しました: ${referralCode} / ${finalOrderNumber}`)
+  console.log(`✅ 成果を記録しました: 紹介コード[${referralCode}] / 注文[${finalOrderNumber}] / 顧客ID[${customerId || 'なし'}]`)
   return NextResponse.json({ success: true, message: '成果を記録しました' }, { status: 200 })
 }
 
@@ -46,11 +48,12 @@ export async function GET(request: Request) {
   console.log('📦 ecforceからGET通知を受信しました')
   const { searchParams } = new URL(request.url)
   
-  // ログから判明した変数名で取得
   const referralCode = searchParams.get('r') || searchParams.get('referral_code')
   const orderNumber = searchParams.get('order_id') || searchParams.get('order_number')
+  // ★ 追加: ecforce側の設定に合わせて customer_id を取得
+  const customerId = searchParams.get('customer_id') || searchParams.get('member_id')
 
-  return processWebhookData(referralCode, orderNumber)
+  return processWebhookData(referralCode, orderNumber, customerId)
 }
 
 // ==========================================
@@ -71,8 +74,10 @@ export async function POST(request: Request) {
 
     const referralCode = data.r || data.referral_code
     const orderNumber = data.order_id || data.order_number
+    // ★ 追加: ecforce側の設定に合わせて customer_id を取得
+    const customerId = data.customer_id || data.member_id
 
-    return processWebhookData(referralCode, orderNumber)
+    return processWebhookData(referralCode, orderNumber, customerId)
 
   } catch (error: any) {
     console.error('❌ POST Webhook エラー:', error)
