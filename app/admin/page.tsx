@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { 
   CheckSquare, CreditCard, Settings, AlertTriangle, 
-  CheckCircle2, X, AlertCircle, RefreshCw, Loader2 
+  CheckCircle2, X, AlertCircle, RefreshCw, Loader2,
+  Building2, Phone, Mail, Edit2, Crown // ★ アイコン追加
 } from 'lucide-react'
 
 // ==========================================
@@ -29,7 +30,8 @@ export default function AdminDashboard() {
   // ==========================================
   // 2. ステート管理
   // ==========================================
-  const [activeTab, setActiveTab] = useState<'referrals' | 'payments' | 'settings'>('referrals')
+  // ★ タブに 'shops' を追加
+  const [activeTab, setActiveTab] = useState<'referrals' | 'shops' | 'payments' | 'settings'>('referrals')
   const [referrals, setReferrals] = useState<any[]>([])
   const [shops, setShops] = useState<any[]>([])
   const [ranks, setRanks] = useState<any[]>([])
@@ -43,6 +45,10 @@ export default function AdminDashboard() {
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
   
+  // ★ 店舗編集用ステートを追加
+  const [isShopModalOpen, setIsShopModalOpen] = useState(false)
+  const [editingShop, setEditingShop] = useState<any>(null)
+  
   const [editingRanks, setEditingRanks] = useState<any[]>([])
   const [rewardRules, setRewardRules] = useState<any[]>([])
   const [editingRules, setEditingRules] = useState<any[]>([])
@@ -53,7 +59,7 @@ export default function AdminDashboard() {
   const fetchData = async () => {
     const [r, s, rk, tx, rr] = await Promise.all([
       supabase.from('referrals').select('*').order('created_at', { ascending: false }),
-      supabase.from('shops').select('*'),
+      supabase.from('shops').select('*').order('created_at', { ascending: false }),
       supabase.from('shop_ranks').select('*').order('reward_points', { ascending: true }),
       supabase.from('point_transactions').select('*'),
       supabase.from('reward_rules').select('*')
@@ -217,6 +223,24 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
+  // ★ 店舗編集の保存ハンドラー
+  const handleShopModalSave = async (updatedShop: any) => {
+    setIsProcessing(true)
+    const { error } = await supabase.from('shops').update({
+      name: updatedShop.name,
+      phone: updatedShop.phone,
+      rank_id: updatedShop.rank_id || null
+    }).eq('id', updatedShop.id)
+
+    if (error) {
+      alert('店舗情報の更新に失敗しました: ' + error.message)
+    } else {
+      setIsShopModalOpen(false)
+      await fetchData()
+    }
+    setIsProcessing(false)
+  }
+
   const handlePaymentComplete = async (shopId: string) => {
     if (!confirm('支払いを完了（ギフト発行済）にしますか？\n成果一覧のステータスも「発行済」に更新されます。')) return
     setIsProcessing(true)
@@ -266,7 +290,6 @@ export default function AdminDashboard() {
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-10 h-10 animate-spin text-indigo-600" /></div>
 
   return (
-    // ★ フルワイド (max-w-full) の管理画面レイアウト
     <main className="min-h-screen bg-slate-50 font-sans text-slate-800 p-4 md:p-8">
       
       {/* ヘッダー */}
@@ -278,17 +301,18 @@ export default function AdminDashboard() {
           </button>
         </div>
         
-        {/* タブナビゲーション */}
-        <div className="flex gap-2 border-b border-slate-200 pb-px">
+        {/* タブナビゲーション (★ 店舗情報を追加) */}
+        <div className="flex gap-2 border-b border-slate-200 pb-px overflow-x-auto scrollbar-hide">
           {[
-            { id: 'referrals', label: '成果承認', icon: <CheckSquare className="w-4 h-4" /> },
-            { id: 'payments', label: '支払い管理', icon: <CreditCard className="w-4 h-4" /> },
-            { id: 'settings', label: 'マスタ設定', icon: <Settings className="w-4 h-4" /> },
+            { id: 'referrals', label: '成果承認', icon: <CheckSquare className="w-4 h-4 shrink-0" /> },
+            { id: 'shops', label: '店舗情報', icon: <Building2 className="w-4 h-4 shrink-0" /> },
+            { id: 'payments', label: '支払い管理', icon: <CreditCard className="w-4 h-4 shrink-0" /> },
+            { id: 'settings', label: 'マスタ設定', icon: <Settings className="w-4 h-4 shrink-0" /> },
           ].map(tab => (
             <button 
               key={tab.id} 
               onClick={() => setActiveTab(tab.id as any)} 
-              className={`flex items-center gap-2 px-6 py-3 font-bold text-sm rounded-t-xl transition-colors border-b-2 ${
+              className={`flex items-center gap-2 px-6 py-3 font-bold text-sm rounded-t-xl transition-colors border-b-2 whitespace-nowrap ${
                 activeTab === tab.id 
                   ? 'bg-white text-indigo-700 border-indigo-600 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]' 
                   : 'text-slate-500 border-transparent hover:bg-slate-100 hover:text-slate-700'
@@ -306,7 +330,6 @@ export default function AdminDashboard() {
       {activeTab === 'referrals' && (
         <div className="animate-in fade-in duration-300">
           
-          {/* バルクアクションバー */}
           <div className={`p-4 rounded-xl border mb-6 flex items-center justify-between transition-all ${selectedIds.length > 0 ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-sm'}`}>
             <div className="flex items-center gap-4">
               <span className={`text-sm font-bold ${selectedIds.length > 0 ? 'text-white' : 'text-slate-500'}`}>一括操作 ({selectedIds.length}件選択中)</span>
@@ -326,7 +349,6 @@ export default function AdminDashboard() {
             </button>
           </div>
 
-          {/* フルワイド・データテーブル */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
             <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>
@@ -336,7 +358,8 @@ export default function AdminDashboard() {
                   </th>
                   <th className="p-4">日時 / 店舗ID</th>
                   <th className="p-4">店舗・チーム名</th>
-                  <th className="p-4">受注番号</th>
+                  {/* ★ 変更: 受注番号と顧客IDをまとめる */}
+                  <th className="p-4">受注 / 顧客番号</th>
                   <th className="p-4 text-right">獲得予定Pt</th>
                   <th className="p-4 text-center">ステータス</th>
                   <th className="p-4 text-center">操作</th>
@@ -389,8 +412,10 @@ export default function AdminDashboard() {
                         </div>
                         <div className="text-xs text-slate-400">{rank?.label || '未設定'}ランク</div>
                       </td>
+                      {/* ★ 追加: 顧客IDを表示 */}
                       <td className={`p-4 font-mono ${isIssued || isCanceled ? 'text-slate-400' : 'text-slate-700'}`}>
-                        {ref.order_number}
+                        <div className="font-bold">受注: {ref.order_number}</div>
+                        <div className="text-xs text-slate-400 mt-0.5">顧客: {ref.customer_id || '---'}</div>
                       </td>
                       <td className="p-4 text-right">
                         <div className={`font-black tabular-nums text-lg ${isIssued || isCanceled ? 'text-slate-400' : bonusPt > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
@@ -427,6 +452,68 @@ export default function AdminDashboard() {
               </tbody>
             </table>
             {referrals.length === 0 && <div className="p-8 text-center text-slate-400 font-bold">データがありません</div>}
+          </div>
+        </div>
+      )}
+
+      {/* =========================================
+          タブ: Shops (店舗情報) ★新設
+      ========================================= */}
+      {activeTab === 'shops' && (
+        <div className="animate-in fade-in duration-300">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="p-4">店舗ID / 登録日</th>
+                  <th className="p-4">店舗・チーム名</th>
+                  <th className="p-4">代表者 (オーナー)</th>
+                  <th className="p-4">連絡先</th>
+                  <th className="p-4 text-center">ランク</th>
+                  <th className="p-4 text-center">操作</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm divide-y divide-slate-100">
+                {shops.map(shop => {
+                  const rank = ranks.find(r => String(r.id) === String(shop.rank_id));
+                  return (
+                    <tr key={shop.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4">
+                        <div className="font-bold font-mono text-indigo-600">{shop.id}</div>
+                        <div className="text-xs text-slate-400 font-mono mt-0.5">{new Date(shop.created_at).toLocaleDateString('ja-JP')}</div>
+                      </td>
+                      <td className="p-4 font-bold text-slate-800">
+                        {shop.name}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-1 text-slate-800 font-bold mb-1"><Crown className="w-3 h-3 text-amber-500"/> {shop.owner_email}</div>
+                      </td>
+                      <td className="p-4">
+                        {shop.phone ? (
+                          <div className="flex items-center gap-1.5 text-slate-600"><Phone className="w-3 h-3 text-slate-400"/> {shop.phone}</div>
+                        ) : (
+                          <span className="text-slate-400 text-xs">未登録</span>
+                        )}
+                      </td>
+                      <td className="p-4 text-center">
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${rank ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                          {rank?.label || '未設定'}
+                        </span>
+                      </td>
+                      <td className="p-4 text-center">
+                        <button 
+                          onClick={() => { setEditingShop(shop); setIsShopModalOpen(true); }} 
+                          className="px-4 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors shadow-sm active:scale-95"
+                        >
+                          編集
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+            {shops.length === 0 && <div className="p-8 text-center text-slate-400 font-bold">店舗データがありません</div>}
           </div>
         </div>
       )}
@@ -563,7 +650,7 @@ export default function AdminDashboard() {
       )}
 
       {/* =========================================
-          モーダル: ステータス詳細・編集
+          モーダル1: ステータス詳細・編集
       ========================================= */}
       {isRefModalOpen && editingRef && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
@@ -571,7 +658,8 @@ export default function AdminDashboard() {
             <div className="flex justify-between items-start mb-6">
               <div>
                 <h3 className="text-lg font-black text-slate-900">ステータス更新</h3>
-                <p className="text-xs font-mono text-slate-500 mt-1">受注番号: {editingRef.order_number}</p>
+                <p className="text-xs font-mono text-slate-500 mt-1">受注: {editingRef.order_number}</p>
+                <p className="text-xs font-mono text-slate-500">顧客: {editingRef.customer_id || '---'}</p>
               </div>
               <button onClick={() => setIsRefModalOpen(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5" /></button>
             </div>
@@ -590,7 +678,6 @@ export default function AdminDashboard() {
                 </select>
               </div>
 
-              {/* キャンセル事由（ステータスがキャンセルの時だけ表示） */}
               {editingRef.status === 'cancel' && (
                 <div className="animate-in slide-in-from-top-2 duration-200">
                   <label className="flex items-center gap-1.5 text-xs font-bold text-red-600 mb-2">
@@ -607,7 +694,6 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* 警告メッセージ */}
               {editingRef.status === 'cancel' && (
                  <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex gap-3 items-start">
                    <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
@@ -631,6 +717,66 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* =========================================
+          モーダル2: 店舗情報の編集 ★新設
+      ========================================= */}
+      {isShopModalOpen && editingShop && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h3 className="text-lg font-black text-slate-900">店舗情報の編集</h3>
+                <p className="text-xs font-mono text-slate-500 mt-1">ID: {editingShop.id}</p>
+              </div>
+              <button onClick={() => setIsShopModalOpen(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            
+            <div className="space-y-4 mb-8">
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">店舗・チーム名</label>
+                <input 
+                  type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">電話番号</label>
+                <input 
+                  type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})}
+                  placeholder="03-1234-5678"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-600 mb-1.5">ランク設定</label>
+                <select 
+                  value={editingShop.rank_id || ''} 
+                  onChange={(e) => setEditingShop({...editingShop, rank_id: e.target.value})} 
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
+                >
+                  <option value="">未設定 (デフォルト)</option>
+                  {ranks.map(r => (
+                    <option key={r.id} value={r.id}>{r.label} ({r.reward_points}pt)</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setIsShopModalOpen(false)} className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">キャンセル</button>
+              <button 
+                onClick={() => handleShopModalSave(editingShop)} 
+                disabled={isProcessing}
+                className="px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all active:scale-95 shadow-md flex items-center gap-2 disabled:opacity-50"
+              >
+                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : '店舗情報を保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </main>
   )
 }
