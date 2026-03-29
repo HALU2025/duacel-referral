@@ -3,19 +3,17 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { 
-  CheckSquare, CreditCard, Settings, AlertTriangle, 
-  CheckCircle2, X, AlertCircle, RefreshCw, Loader2,
-  Building2, Phone, Mail, Edit2, Crown // ★ アイコン追加
+  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus
 } from 'lucide-react'
 
 // ==========================================
 // 1. 定数・型定義
 // ==========================================
 const STATUS_OPTIONS = [
-  { value: 'pending', label: '仮計上', color: 'text-amber-700', bgColor: 'bg-amber-100', border: 'border-amber-200' },
-  { value: 'confirmed', label: '報酬確定', color: 'text-emerald-700', bgColor: 'bg-emerald-100', border: 'border-emerald-200' },
-  { value: 'issued', label: 'ギフト発行済', color: 'text-blue-700', bgColor: 'bg-blue-100', border: 'border-blue-200' },
-  { value: 'cancel', label: 'キャンセル', color: 'text-red-700', bgColor: 'bg-red-100', border: 'border-red-200' },
+  { value: 'pending', label: '仮計上', bgColor: 'bg-amber-100', color: 'text-amber-800' },
+  { value: 'confirmed', label: '報酬確定', bgColor: 'bg-emerald-100', color: 'text-emerald-800' },
+  { value: 'issued', label: '発行済', bgColor: 'bg-blue-100', color: 'text-blue-800' },
+  { value: 'cancel', label: 'キャンセル', bgColor: 'bg-gray-100', color: 'text-gray-600' },
 ]
 
 const CANCEL_REASONS = [
@@ -26,18 +24,34 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
+const initialFilterState = {
+  order_number: '', customer_number: '', shop_id: '',
+  status: '', date_start: '', date_end: ''
+}
+
+const PAGE_TITLES: Record<string, string> = {
+  referrals: '成果承認',
+  payments: '支払管理',
+  shops: '店舗管理',
+  settings: 'マスタ設定'
+}
+
 export default function AdminDashboard() {
   // ==========================================
   // 2. ステート管理
   // ==========================================
-  // ★ タブに 'shops' を追加
-  const [activeTab, setActiveTab] = useState<'referrals' | 'shops' | 'payments' | 'settings'>('referrals')
+  const [activeTab, setActiveTab] = useState<'referrals' | 'payments' | 'shops' | 'settings'>('referrals')
   const [referrals, setReferrals] = useState<any[]>([])
   const [shops, setShops] = useState<any[]>([])
-  const [ranks, setRanks] = useState<any[]>([])
+  const [staffs, setStaffs] = useState<any[]>([])
+  const [categories, setCategories] = useState<any[]>([]) // 旧ranks
   const [pointTransactions, setPointTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
+
+  const [filters, setFilters] = useState(initialFilterState)
+  const [filteredReferrals, setFilteredReferrals] = useState<any[]>([])
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
 
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [isAllSelected, setIsAllSelected] = useState(false)
@@ -45,109 +59,93 @@ export default function AdminDashboard() {
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
   
-  // ★ 店舗編集用ステートを追加
   const [isShopModalOpen, setIsShopModalOpen] = useState(false)
   const [editingShop, setEditingShop] = useState<any>(null)
   
-  const [editingRanks, setEditingRanks] = useState<any[]>([])
-  const [rewardRules, setRewardRules] = useState<any[]>([])
-  const [editingRules, setEditingRules] = useState<any[]>([])
+  const [editingCategories, setEditingCategories] = useState<any[]>([])
+
+  const activeFilterCount = Object.values(filters).filter(val => val !== '').length
 
   // ==========================================
   // 3. データ取得ロジック
   // ==========================================
   const fetchData = async () => {
-    const [r, s, rk, tx, rr] = await Promise.all([
+    setLoading(true)
+    const [r, s, st, cat, tx] = await Promise.all([
       supabase.from('referrals').select('*').order('created_at', { ascending: false }),
       supabase.from('shops').select('*').order('created_at', { ascending: false }),
-      supabase.from('shop_ranks').select('*').order('reward_points', { ascending: true }),
-      supabase.from('point_transactions').select('*'),
-      supabase.from('reward_rules').select('*')
+      supabase.from('staffs').select('*').order('created_at', { ascending: true }),
+      supabase.from('shop_categories').select('*').order('reward_points', { ascending: true }),
+      supabase.from('point_transactions').select('*').order('created_at', { ascending: true })
     ])
     
-    if (r.data) setReferrals(r.data)
+    if (r.data) { setReferrals(r.data); setFilteredReferrals(r.data); }
     if (s.data) setShops(s.data)
+    if (st.data) setStaffs(st.data)
     if (tx.data) setPointTransactions(tx.data)
-    if (rk.data) {
-      setRanks(rk.data)
-      setEditingRanks(rk.data)
+    if (cat.data) {
+      setCategories(cat.data)
+      setEditingCategories(cat.data)
     }
-    if (rr.data) {
-      setRewardRules(rr.data)
-      setEditingRules(rr.data)
-    }
+    
+    setSelectedIds([])
+    setIsAllSelected(false)
+    setLoading(false)
   }
 
   useEffect(() => {
-    const init = async () => {
-      setLoading(true)
-      await fetchData()
-      setLoading(false)
-    }
-    init()
+    fetchData()
   }, [])
 
   // ==========================================
-  // 4. ポイント・報酬連動ロジック
+  // ヘルパー＆フィルター
   // ==========================================
-  const removePoints = async (referralId: string) => {
-    const { error } = await supabase.from('point_transactions').delete().eq('referral_id', referralId)
-    if (error) console.error("ポイント削除エラー:", error)
+  const getShopOwnerName = (shopId: string) => {
+    const owner = staffs.find(staff => String(staff.shop_id) === String(shopId))
+    return owner ? owner.name : '不明'
   }
 
-  const issuePoints = async (referral: any, currentShops: any[], currentRanks: any[]) => {
-    const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
-    if (existing && existing.length > 0) return
+  const openShopEditModal = (shopId: string) => {
+    const targetShop = shops.find(s => String(s.id) === String(shopId))
+    if (targetShop) { setEditingShop(targetShop); setIsShopModalOpen(true); }
+  }
 
-    const { data: pastTxs } = await supabase.from('point_transactions').select('metadata').eq('shop_id', referral.shop_id)
-
-    const hasReceivedBonus = pastTxs?.some(tx => tx.metadata?.is_bonus === true) || false;
-    const isFirstTime = !hasReceivedBonus;
-
-    const shop = currentShops.find(s => String(s.id) === String(referral.shop_id))
-    const rank = currentRanks.find(r => String(r.id) === String(shop?.rank_id))
-    const standardPoints = Number(rank?.reward_points) || 5000
-
-    const transactions = []
-    transactions.push({
-      shop_id: referral.shop_id,
-      referral_id: referral.id,
-      points: standardPoints,
-      reason: `${rank?.label || '通常'}報酬`,
-      status: 'confirmed',
-      metadata: { order_number: referral.order_number }
-    })
-
-    if (isFirstTime) {
-      const firstRule = rewardRules.find(r => r.id === 'first_bonus')
-      if (firstRule) {
-        transactions.push({
-          shop_id: referral.shop_id,
-          referral_id: referral.id,
-          points: Number(firstRule.base_points),
-          reason: firstRule.label,
-          status: 'confirmed',
-          metadata: { order_number: referral.order_number, is_bonus: true }
-        })
-      }
+  const handleFilter = () => {
+    let result = [...referrals]
+    if (filters.order_number) result = result.filter(r => r.order_number?.includes(filters.order_number))
+    if (filters.customer_number) result = result.filter(r => r.customer_id?.includes(filters.customer_number))
+    if (filters.shop_id) result = result.filter(r => String(r.shop_id) === String(filters.shop_id))
+    if (filters.status) result = result.filter(r => r.status === filters.status)
+    if (filters.date_start) {
+      const start = new Date(filters.date_start).getTime()
+      result = result.filter(r => new Date(r.created_at).getTime() >= start)
     }
-
-    await supabase.from('point_transactions').insert(transactions)
-
-    if (isFirstTime) {
-      await supabase.from('referrals').update({ reward_rule_id: 'first_bonus' }).eq('id', referral.id)
+    if (filters.date_end) {
+      const end = new Date(filters.date_end).getTime() + 86400000 
+      result = result.filter(r => new Date(r.created_at).getTime() <= end)
     }
+    setFilteredReferrals(result)
+    setSelectedIds([])
+    setIsAllSelected(false)
+    setIsFilterOpen(false)
+  }
+
+  const handleClearFilters = () => {
+    setFilters(initialFilterState)
+    setFilteredReferrals(referrals)
+    setSelectedIds([])
+    setIsAllSelected(false)
   }
 
   // ==========================================
-  // 5. アクションハンドラー
+  // アクションハンドラー
   // ==========================================
   const handleToggleAll = () => {
     if (isAllSelected) {
       setSelectedIds([])
       setIsAllSelected(false)
     } else {
-      const selectableIds = referrals.filter(r => r.status === 'pending').map(r => r.id)
+      const selectableIds = filteredReferrals.filter(r => r.status === 'pending').map(r => r.id)
       setSelectedIds(selectableIds)
       setIsAllSelected(selectableIds.length > 0)
     }
@@ -156,15 +154,53 @@ export default function AdminDashboard() {
   const handleToggleSelect = (id: string) => {
     setSelectedIds(prev => {
       const next = prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-      const selectableCount = referrals.filter(r => r.status === 'pending').length
+      const selectableCount = filteredReferrals.filter(r => r.status === 'pending').length
       setIsAllSelected(next.length === selectableCount && selectableCount > 0)
       return next
     })
   }
 
+  // ★ 報酬ロジックがカテゴリベースにシンプル化されました
+  const issuePoints = async (referral: any, currentShops: any[], currentCategories: any[]) => {
+    const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
+    if (existing && existing.length > 0) return
+
+    const { data: pastTxs } = await supabase.from('point_transactions').select('metadata').eq('shop_id', referral.shop_id)
+    const hasReceivedBonus = pastTxs?.some(tx => tx.metadata?.is_bonus === true) || false
+    const isFirstTime = !hasReceivedBonus
+
+    const shop = currentShops.find(s => String(s.id) === String(referral.shop_id))
+    const category = currentCategories.find(c => String(c.id) === String(shop?.category_id)) || currentCategories[0]
+
+    const standardPoints = Number(category?.reward_points) || 0
+    const transactions = []
+    
+    // 通常報酬の付与
+    transactions.push({
+      shop_id: referral.shop_id, referral_id: referral.id,
+      points: standardPoints, reason: `紹介報酬`, status: 'confirmed',
+      metadata: { order_number: referral.order_number }
+    })
+
+    // 初回ボーナスがONで、かつ対象ショップの初回実績の場合
+    if (isFirstTime && category?.first_bonus_enabled) {
+      transactions.push({
+        shop_id: referral.shop_id, referral_id: referral.id,
+        points: Number(category.first_bonus_points) || 0, reason: '初回ボーナス', status: 'confirmed',
+        metadata: { order_number: referral.order_number, is_bonus: true }
+      })
+    }
+
+    await supabase.from('point_transactions').insert(transactions)
+  }
+
+  const removePoints = async (referralId: string) => {
+    await supabase.from('point_transactions').delete().eq('referral_id', referralId)
+  }
+
   const handleBulkConfirm = async () => {
     if (selectedIds.length === 0) return
-    if (!confirm(`選択した ${selectedIds.length} 件の紹介を「報酬確定」にしますか？`)) return
+    if (!confirm(`選択した ${selectedIds.length} 件を「報酬確定」にしますか？`)) return
     
     setIsProcessing(true)
     const { error } = await supabase.from('referrals').update({ status: 'confirmed' }).in('id', selectedIds)
@@ -172,39 +208,19 @@ export default function AdminDashboard() {
     
     const targets = referrals.filter(r => selectedIds.includes(r.id))
     for (const target of targets) {
-      if (target.status !== 'confirmed') { 
-        await issuePoints(target, shops, ranks)
-      }
+      if (target.status !== 'confirmed') await issuePoints(target, shops, categories)
     }
     
-    setSelectedIds([])
-    setIsAllSelected(false)
     await fetchData()
     setIsProcessing(false)
   }
 
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
-    
     if (originalRef?.status === updatedRef.status && originalRef?.cancel_reason === updatedRef.cancel_reason) {
-      setIsRefModalOpen(false)
-      return
+      setIsRefModalOpen(false); return;
     }
-
-    if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) {
-      alert('キャンセル事由を選択してください。')
-      return
-    }
-
-    if (updatedRef.status === 'cancel' && originalRef?.status !== 'cancel') {
-      const msg = originalRef?.status === 'confirmed'
-        ? "【⚠️ 重大警告】\nこのデータはすでに「報酬確定」されています。\nキャンセルすると、計算済みの報酬ポイントがすべて削除され、二度と元に戻すことはできません。\n\n本当にキャンセルしてよろしいですか？"
-        : "【⚠️ 警告】\nこのデータをキャンセル（無効化）します。\n一度キャンセルすると、今後一切ステータスを戻すことはできません。\n\n本当にキャンセルしてよろしいですか？";
-      if (!confirm(msg)) return;
-    } else if (originalRef?.status === 'confirmed' && updatedRef.status === 'pending') {
-      const msg = "【⚠️ 警告】\nこのデータはすでに「報酬確定」されています。\n「仮計上」に戻すと、現在付与されている報酬ポイントがいったん削除されます。\n\n本当に仮計上に戻しますか？";
-      if (!confirm(msg)) return;
-    }
+    if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) { alert('キャンセル事由を選択してください。'); return; }
 
     setIsProcessing(true)
     await supabase.from('referrals').update({ 
@@ -213,7 +229,7 @@ export default function AdminDashboard() {
     }).eq('id', updatedRef.id)
     
     if (updatedRef.status === 'confirmed' && originalRef?.status !== 'confirmed') {
-      await issuePoints(updatedRef, shops, ranks)
+      await issuePoints(updatedRef, shops, categories)
     } else if (updatedRef.status !== 'confirmed' && originalRef?.status === 'confirmed') {
       await removePoints(updatedRef.id)
     }
@@ -223,560 +239,461 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
-  // ★ 店舗編集の保存ハンドラー
   const handleShopModalSave = async (updatedShop: any) => {
     setIsProcessing(true)
     const { error } = await supabase.from('shops').update({
-      name: updatedShop.name,
-      phone: updatedShop.phone,
-      rank_id: updatedShop.rank_id || null
+      name: updatedShop.name, phone: updatedShop.phone, category_id: updatedShop.category_id || null
     }).eq('id', updatedShop.id)
 
-    if (error) {
-      alert('店舗情報の更新に失敗しました: ' + error.message)
-    } else {
-      setIsShopModalOpen(false)
-      await fetchData()
-    }
+    if (error) alert('更新失敗: ' + error.message)
+    else { setIsShopModalOpen(false); await fetchData(); }
     setIsProcessing(false)
   }
 
   const handlePaymentComplete = async (shopId: string) => {
-    if (!confirm('支払いを完了（ギフト発行済）にしますか？\n成果一覧のステータスも「発行済」に更新されます。')) return
+    if (!confirm('この店舗の未払いを「発行済」にしますか？')) return
     setIsProcessing(true)
-
     try {
-      const { data: targetTxs, error: fetchError } = await supabase.from('point_transactions').select('referral_id').eq('shop_id', shopId).eq('status', 'confirmed')
-      if (fetchError || !targetTxs || targetTxs.length === 0) {
-        alert('支払い対象のデータが見つかりませんでした。')
-        setIsProcessing(false); return;
-      }
+      const { data: targetTxs } = await supabase.from('point_transactions').select('referral_id').eq('shop_id', shopId).eq('status', 'confirmed')
+      if (!targetTxs || targetTxs.length === 0) { setIsProcessing(false); return; }
 
       const targetRefIds = Array.from(new Set(targetTxs.map(tx => tx.referral_id)))
-      const { error: txUpdateError } = await supabase.from('point_transactions').update({ status: 'paid' }).eq('shop_id', shopId).eq('status', 'confirmed')
-      if (txUpdateError) throw txUpdateError
-
-      const { error: refUpdateError } = await supabase.from('referrals').update({ status: 'issued' }).in('id', targetRefIds)
-      if (refUpdateError) throw refUpdateError
-
+      await supabase.from('point_transactions').update({ status: 'paid' }).eq('shop_id', shopId).eq('status', 'confirmed')
+      await supabase.from('referrals').update({ status: 'issued' }).in('id', targetRefIds)
       await fetchData()
-      alert('支払い処理が完了し、すべてのステータスを更新しました！')
-    } catch (err) {
-      console.error('支払い処理エラー:', err)
-      alert('エラーが発生しました。詳細はコンソールを確認してください。')
-    } finally {
-      setIsProcessing(false)
-    }
+    } catch (err) { console.error(err) } finally { setIsProcessing(false) }
   }
 
-  const handleRankChange = (id: string, field: string, value: string | number) => {
-    setEditingRanks(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+  // ★ カテゴリ設定用ハンドラー
+  const handleCategoryChange = (id: string, field: string, value: any) => {
+    setEditingCategories(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
   }
   
-  const handleRuleChange = (id: string, field: string, value: string | number) => {
-    setEditingRules(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+  const handleAddCategory = () => {
+    if (editingCategories.length >= 5) {
+      alert('カテゴリは最大5つまで設定できます。')
+      return
+    }
+    setEditingCategories([...editingCategories, {
+      id: `new_${Date.now()}`,
+      label: '新規カテゴリ',
+      reward_points: 0,
+      first_bonus_enabled: false,
+      first_bonus_points: 0,
+      signup_bonus_enabled: false,
+      signup_bonus_points: 0,
+      isNew: true
+    }])
   }
 
   const handleSaveAllSettings = async () => {
-    if (!confirm('マスタ設定を変更しますか？')) return
+    if (!confirm('カテゴリ設定を保存しますか？')) return
     setIsProcessing(true)
-    for (const rank of editingRanks) { await supabase.from('shop_ranks').update({ label: rank.label, reward_points: rank.reward_points }).eq('id', rank.id) }
-    for (const rule of editingRules) { await supabase.from('reward_rules').update({ label: rule.label, base_points: rule.base_points }).eq('id', rule.id) }
+    for (const cat of editingCategories) {
+      const dataToSave = {
+        label: cat.label,
+        reward_points: cat.reward_points,
+        first_bonus_enabled: cat.first_bonus_enabled || false,
+        first_bonus_points: cat.first_bonus_points || 0,
+        signup_bonus_enabled: cat.signup_bonus_enabled || false,
+        signup_bonus_points: cat.signup_bonus_points || 0
+      }
+      if (cat.isNew) {
+        await supabase.from('shop_categories').insert(dataToSave)
+      } else {
+        await supabase.from('shop_categories').update(dataToSave).eq('id', cat.id)
+      }
+    }
     await fetchData()
     setIsProcessing(false)
-    alert('すべての設定を保存しました！')
+    alert('設定を保存しました。')
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-10 h-10 animate-spin text-indigo-600" /></div>
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm">読み込み中...</div>
+
+  const editingShopData = editingRef ? shops.find(s => String(s.id) === String(editingRef.shop_id)) : null
+  const editingOwnerName = editingRef ? getShopOwnerName(editingRef.shop_id) : '不明'
+  const editingConfirmedTx = editingRef ? pointTransactions.find(tx => tx.referral_id === editingRef.id) : null
 
   return (
-    <main className="min-h-screen bg-slate-50 font-sans text-slate-800 p-4 md:p-8">
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col">
       
-      {/* ヘッダー */}
-      <header className="mb-8">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">HQ システム管理</h1>
-          <button onClick={fetchData} className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-800 transition-colors bg-white px-4 py-2 rounded-lg border border-slate-200 shadow-sm">
-            <RefreshCw className="w-4 h-4" /> データを更新
+      {/* =========================================
+          ヘッダー
+      ========================================= */}
+      <header className="bg-white border-b border-gray-200 shadow-sm relative z-20">
+        <div className="px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <img src="/logo-duacel.svg" alt="Duacel Logo" className="h-6 w-auto" onError={(e) => e.currentTarget.style.display = 'none'} />
+            <span className="text-lg font-bold tracking-wider pl-3 border-l border-gray-300 text-gray-900">HQ管理システム</span>
+          </div>
+          <button onClick={fetchData} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-colors">
+            <RefreshCw className="w-4 h-4" /> 再読み込み
           </button>
         </div>
         
-        {/* タブナビゲーション (★ 店舗情報を追加) */}
-        <div className="flex gap-2 border-b border-slate-200 pb-px overflow-x-auto scrollbar-hide">
-          {[
-            { id: 'referrals', label: '成果承認', icon: <CheckSquare className="w-4 h-4 shrink-0" /> },
-            { id: 'shops', label: '店舗情報', icon: <Building2 className="w-4 h-4 shrink-0" /> },
-            { id: 'payments', label: '支払い管理', icon: <CreditCard className="w-4 h-4 shrink-0" /> },
-            { id: 'settings', label: 'マスタ設定', icon: <Settings className="w-4 h-4 shrink-0" /> },
-          ].map(tab => (
+        {/* タブナビゲーション */}
+        <div className="px-6 flex gap-8 text-sm font-bold text-gray-500">
+          {['referrals', 'payments', 'shops', 'settings'].map((key) => (
             <button 
-              key={tab.id} 
-              onClick={() => setActiveTab(tab.id as any)} 
-              className={`flex items-center gap-2 px-6 py-3 font-bold text-sm rounded-t-xl transition-colors border-b-2 whitespace-nowrap ${
-                activeTab === tab.id 
-                  ? 'bg-white text-indigo-700 border-indigo-600 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]' 
-                  : 'text-slate-500 border-transparent hover:bg-slate-100 hover:text-slate-700'
-              }`}
+              key={key} 
+              onClick={() => setActiveTab(key as any)} 
+              className={`py-3 transition-colors relative ${activeTab === key ? 'text-blue-600' : 'hover:text-gray-900'}`}
             >
-              {tab.icon} {tab.label}
+              {PAGE_TITLES[key]}
+              {activeTab === key && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
             </button>
           ))}
         </div>
       </header>
 
-      {/* =========================================
-          タブ: Referrals (成果承認)
-      ========================================= */}
-      {activeTab === 'referrals' && (
-        <div className="animate-in fade-in duration-300">
-          
-          <div className={`p-4 rounded-xl border mb-6 flex items-center justify-between transition-all ${selectedIds.length > 0 ? 'bg-slate-900 border-slate-800 shadow-lg' : 'bg-white border-slate-200 shadow-sm'}`}>
-            <div className="flex items-center gap-4">
-              <span className={`text-sm font-bold ${selectedIds.length > 0 ? 'text-white' : 'text-slate-500'}`}>一括操作 ({selectedIds.length}件選択中)</span>
-              {selectedIds.length > 0 && <span className="text-xs text-slate-400">※仮計上のデータのみ選択可能</span>}
+      {/* メインコンテンツ */}
+      <div className="flex-1 p-6 overflow-x-auto w-full">
+        
+        <h1 className="text-[18px] font-bold text-gray-900 mb-6">{PAGE_TITLES[activeTab]}</h1>
+
+        {/* =========================================
+            タブ: Referrals (成果承認)
+        ========================================= */}
+        {activeTab === 'referrals' && (
+          <div>
+            <div className="bg-white border border-gray-200 rounded-[4px] mb-4 shadow-[0_0_20px_rgba(0,0,0,0.05)] overflow-hidden transition-all">
+              <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="w-full px-4 py-3 flex items-center gap-2 bg-white hover:bg-gray-50 transition-colors text-sm text-gray-700 text-left">
+                <Filter className="w-4 h-4" /> 検索・絞り込み
+                {activeFilterCount > 0 && <span className="ml-2 text-blue-600 font-bold">({activeFilterCount})</span>}
+              </button>
+              
+              {isFilterOpen && (
+                <div className="p-4 border-t border-gray-200 bg-white">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
+                    <div><label className="block text-left text-gray-600 mb-1">受注番号</label><input type="text" value={filters.order_number} onChange={(e) => setFilters({...filters, order_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
+                    <div><label className="block text-left text-gray-600 mb-1">顧客番号</label><input type="text" value={filters.customer_number} onChange={(e) => setFilters({...filters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
+                    <div><label className="block text-left text-gray-600 mb-1">店舗ID</label><input type="text" value={filters.shop_id} onChange={(e) => setFilters({...filters, shop_id: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
+                    <div>
+                      <label className="block text-left text-gray-600 mb-1">ステータス</label>
+                      <select value={filters.status} onChange={(e) => setFilters({...filters, status: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none bg-white rounded-[4px]">
+                        <option value="">すべて</option>
+                        {STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="w-1/2"><label className="block text-left text-gray-600 mb-1">From</label><input type="date" value={filters.date_start} onChange={(e) => setFilters({...filters, date_start: e.target.value})} className="w-full border border-gray-300 px-2 py-1.5 outline-none rounded-[4px]" /></div>
+                      <div className="w-1/2"><label className="block text-left text-gray-600 mb-1">To</label><input type="date" value={filters.date_end} onChange={(e) => setFilters({...filters, date_end: e.target.value})} className="w-full border border-gray-300 px-2 py-1.5 outline-none rounded-[4px]" /></div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-start pt-3 border-t border-gray-100">
+                    <button onClick={handleFilter} className="px-4 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-[4px] flex items-center gap-1"><Search className="w-4 h-4"/>検索する</button>
+                    <button onClick={handleClearFilters} className="px-4 py-1.5 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-[4px]">クリア</button>
+                  </div>
+                </div>
+              )}
             </div>
-            <button 
-              onClick={handleBulkConfirm} 
-              disabled={selectedIds.length === 0 || isProcessing} 
-              className={`px-6 py-2 rounded-lg font-bold text-sm transition-all flex items-center gap-2 ${
-                selectedIds.length > 0 
-                  ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-md active:scale-95' 
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-              }`}
-            >
-              {isProcessing && selectedIds.length > 0 ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              選択項目を「報酬確定」にする
-            </button>
-          </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-            <table className="w-full text-left border-collapse whitespace-nowrap">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="p-4 w-12 text-center">
-                    <input type="checkbox" checked={isAllSelected} onChange={handleToggleAll} disabled={referrals.filter(r => r.status === 'pending').length === 0} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
-                  </th>
-                  <th className="p-4">日時 / 店舗ID</th>
-                  <th className="p-4">店舗・チーム名</th>
-                  {/* ★ 変更: 受注番号と顧客IDをまとめる */}
-                  <th className="p-4">受注 / 顧客番号</th>
-                  <th className="p-4 text-right">獲得予定Pt</th>
-                  <th className="p-4 text-center">ステータス</th>
-                  <th className="p-4 text-center">操作</th>
-                </tr>
-              </thead>
-              <tbody className="text-sm divide-y divide-slate-100">
-                {referrals.map(ref => {
-                  const shop = shops.find(s => String(s.id) === String(ref.shop_id));
-                  const rank = ranks.find(r => String(r.id) === String(shop?.rank_id));
-                  const status = STATUS_OPTIONS.find(s => s.value === ref.status) || STATUS_OPTIONS[0];
-                  const isIssued = ref.status === 'issued';
-                  const isCanceled = ref.status === 'cancel'; 
-                  const isCheckable = ref.status === 'pending';
+            <div className={`p-3 border rounded-[4px] mb-4 flex items-center gap-4 transition-all duration-200 ${selectedIds.length > 0 ? 'bg-blue-50 border-blue-200 opacity-100 shadow-[0_0_20px_rgba(0,0,0,0.05)]' : 'opacity-0 h-0 p-0 mb-0 overflow-hidden border-transparent'}`}>
+              <span className="text-sm font-bold text-blue-800">{selectedIds.length}件選択中</span>
+              <button onClick={handleBulkConfirm} disabled={isProcessing} className="px-4 py-1.5 bg-blue-600 text-white text-sm font-bold rounded-[4px] hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
+                選択項目を「報酬確定」にする
+              </button>
+            </div>
 
-                  const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
-                  const hasTxs = refTxs.length > 0;
-                  const hasBonusTx = refTxs.some(tx => tx.metadata?.is_bonus === true);
-                  const shopHasBonusTx = pointTransactions.some(tx => String(tx.shop_id) === String(ref.shop_id) && tx.metadata?.is_bonus === true);
+            <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
+                    <th className="p-3 w-10 text-left font-bold"><input type="checkbox" checked={isAllSelected} onChange={handleToggleAll} disabled={filteredReferrals.filter(r => r.status === 'pending').length === 0} /></th>
+                    <th className="p-3 text-left font-bold">受注番号</th>
+                    <th className="p-3 text-left font-bold">ステータス</th>
+                    <th className="p-3 text-left font-bold">店舗</th>
+                    <th className="p-3 text-left font-bold">報酬名</th>
+                    <th className="p-3 text-left font-bold">獲得Pt</th>
+                    <th className="p-3 text-left font-bold">日時</th>
+                    <th className="p-3 text-left font-bold">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-sm text-gray-900">
+                  {filteredReferrals.map(ref => {
+                    const shop = shops.find(s => String(s.id) === String(ref.shop_id));
+                    const category = categories.find(r => String(r.id) === String(shop?.category_id));
+                    const status = STATUS_OPTIONS.find(s => s.value === ref.status) || STATUS_OPTIONS[0];
 
-                  const shopValidRefs = referrals
-                    .filter(r => String(r.shop_id) === String(ref.shop_id) && r.status !== 'cancel')
-                    .sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-                  
-                  const isOldest = shopValidRefs.length > 0 && shopValidRefs[0].id === ref.id;
-                  const successCount = shopValidRefs.findIndex(r => r.id === ref.id) + 1;
-                  const isFirstTime = isCanceled ? false : (hasTxs ? hasBonusTx : (!shopHasBonusTx && isOldest));
+                    const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
+                    const shopValidRefs = referrals.filter(r => String(r.shop_id) === String(ref.shop_id) && r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+                    const successCount = shopValidRefs.findIndex(r => r.id === ref.id) + 1;
+                    const isOldest = shopValidRefs.length > 0 && shopValidRefs[0].id === ref.id;
+                    const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
 
-                  const firstRule = rewardRules.find(r => r.id === 'first_bonus');
-                  const standardPt = Number(rank?.reward_points) || 5000;
-                  const bonusPt = (isFirstTime && firstRule) ? Number(firstRule.base_points) : 0;
-                  const totalPt = isCanceled ? 0 : (hasTxs ? refTxs.reduce((sum, tx) => sum + Number(tx.points), 0) : standardPt + bonusPt);
+                    const standardPt = Number(category?.reward_points) || 0;
+                    const bonusPt = (isFirstTime && category?.first_bonus_enabled) ? Number(category.first_bonus_points) : 0;
+                    const totalPt = ref.status === 'cancel' ? 0 : (refTxs.length > 0 ? refTxs.reduce((sum, tx) => sum + Number(tx.points), 0) : standardPt + bonusPt);
+                    const rewardName = (isFirstTime && category?.first_bonus_enabled) ? `初回ボーナス (${successCount}件目)` : `紹介報酬 (${successCount}件目)`;
 
-                  return (
-                    <tr key={ref.id} className={`hover:bg-slate-50 transition-colors ${isIssued ? 'bg-slate-50/50' : isCanceled ? 'bg-red-50/30' : ''}`}>
-                      <td className="p-4 text-center">
-                        <input type="checkbox" disabled={!isCheckable} checked={selectedIds.includes(ref.id)} onChange={() => handleToggleSelect(ref.id)} className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50" />
-                      </td>
-                      <td className="p-4">
-                        <div className="text-xs text-slate-400 font-mono mb-1">{new Date(ref.created_at).toLocaleString('ja-JP')}</div>
-                        <div className={`font-bold font-mono ${isIssued || isCanceled ? 'text-slate-400' : 'text-indigo-600'}`}>{ref.shop_id}</div>
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`font-bold ${isIssued || isCanceled ? 'text-slate-400' : 'text-slate-800'}`}>{shop?.name || '不明'}</span>
-                          {!isCanceled && (
-                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${isFirstTime ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-500 border-slate-200'} ${isIssued ? 'opacity-50' : ''}`}>
-                              {isFirstTime ? '初紹介！' : `${successCount}件目`}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-slate-400">{rank?.label || '未設定'}ランク</div>
-                      </td>
-                      {/* ★ 追加: 顧客IDを表示 */}
-                      <td className={`p-4 font-mono ${isIssued || isCanceled ? 'text-slate-400' : 'text-slate-700'}`}>
-                        <div className="font-bold">受注: {ref.order_number}</div>
-                        <div className="text-xs text-slate-400 mt-0.5">顧客: {ref.customer_id || '---'}</div>
-                      </td>
-                      <td className="p-4 text-right">
-                        <div className={`font-black tabular-nums text-lg ${isIssued || isCanceled ? 'text-slate-400' : bonusPt > 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
-                          {totalPt.toLocaleString()} <span className="text-xs font-normal">pt</span>
-                        </div>
-                        {isFirstTime && bonusPt > 0 && !isIssued && !isCanceled && (
-                          <div className="text-[10px] text-emerald-600 font-bold">※初回ボーナス込</div>
-                        )}
-                      </td>
-                      <td className="p-4 text-center">
-                        <div className="flex flex-col items-center gap-1">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${status.bgColor} ${status.color} ${status.border} ${isIssued || isCanceled ? 'opacity-60' : ''}`}>
+                    return (
+                      <tr key={ref.id} className="hover:bg-gray-50">
+                        <td className="p-3 text-left"><input type="checkbox" disabled={ref.status !== 'pending'} checked={selectedIds.includes(ref.id)} onChange={() => handleToggleSelect(ref.id)} /></td>
+                        <td className="p-3 text-left font-normal tabular-nums">{ref.order_number}</td>
+                        <td className="p-3 text-left font-normal">
+                          <span className={`px-2 py-0.5 rounded-[4px] text-xs border ${status.bgColor} ${status.color} ${status.border} inline-block min-w-[70px] text-center`}>
                             {status.label}
                           </span>
-                          {isCanceled && ref.cancel_reason && (
-                            <span className="text-[10px] text-red-500 font-bold max-w-[120px] truncate" title={ref.cancel_reason}>{ref.cancel_reason}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-4 text-center">
-                        {isIssued ? (
-                          <span className="text-xs font-bold text-slate-400 flex items-center justify-center gap-1"><CheckCircle2 className="w-4 h-4"/> 処理済</span>
-                        ) : isCanceled ? (
-                          <span className="text-xs font-bold text-red-400 flex items-center justify-center gap-1"><X className="w-4 h-4"/> 取消済</span>
-                        ) : (
-                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className="px-4 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors shadow-sm active:scale-95">
-                            詳細・編集
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-            {referrals.length === 0 && <div className="p-8 text-center text-slate-400 font-bold">データがありません</div>}
+                        </td>
+                        <td className="p-3 text-left font-normal">
+                          {shop?.name || '不明'} <span className="text-gray-400 text-xs">({ref.shop_id})</span>
+                        </td>
+                        <td className="p-3 text-left font-normal text-gray-600">{rewardName}</td>
+                        <td className="p-3 text-left font-normal tabular-nums">{totalPt.toLocaleString()}</td>
+                        <td className="p-3 text-left font-normal tabular-nums text-gray-600">{new Date(ref.created_at).toLocaleString('ja-JP')}</td>
+                        <td className="p-3 text-left font-normal">
+                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className="text-blue-600 hover:underline">詳細・編集</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {filteredReferrals.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">データがありません</div>}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* =========================================
-          タブ: Shops (店舗情報) ★新設
-      ========================================= */}
-      {activeTab === 'shops' && (
-        <div className="animate-in fade-in duration-300">
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto">
-            <table className="w-full text-left border-collapse whitespace-nowrap">
+        {/* =========================================
+            タブ: Payments (支払管理)
+        ========================================= */}
+        {activeTab === 'payments' && (
+          <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
+            <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
               <thead>
-                <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="p-4">店舗ID / 登録日</th>
-                  <th className="p-4">店舗・チーム名</th>
-                  <th className="p-4">代表者 (オーナー)</th>
-                  <th className="p-4">連絡先</th>
-                  <th className="p-4 text-center">ランク</th>
-                  <th className="p-4 text-center">操作</th>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
+                  <th className="p-3 text-left font-bold">店舗名</th>
+                  <th className="p-3 text-left font-bold text-right">紹介件数</th>
+                  <th className="p-3 text-left font-bold text-right">累計報酬額</th>
+                  <th className="p-3 text-left font-bold text-right">未払い額</th>
+                  <th className="p-3 text-left font-bold text-right">支払い済額</th>
+                  <th className="p-3 text-left font-bold text-center">ステータス</th>
+                  <th className="p-3 text-left font-bold text-center">操作</th>
                 </tr>
               </thead>
-              <tbody className="text-sm divide-y divide-slate-100">
+              <tbody className="divide-y divide-gray-200 text-gray-900">
                 {shops.map(shop => {
-                  const rank = ranks.find(r => String(r.id) === String(shop.rank_id));
+                  const validTxs = pointTransactions.filter(tx => String(tx.shop_id) === String(shop.id) && referrals.find(r => r.id === tx.referral_id)?.status !== 'cancel');
+                  if (validTxs.length === 0) return null;
+
+                  const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
+                  const unpaidTotal = validTxs.filter(tx => tx.status === 'confirmed').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+                  const paidTotal = validTxs.filter(tx => tx.status === 'paid').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+                  const isAllPaid = unpaidTotal === 0;
+
                   return (
-                    <tr key={shop.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-4">
-                        <div className="font-bold font-mono text-indigo-600">{shop.id}</div>
-                        <div className="text-xs text-slate-400 font-mono mt-0.5">{new Date(shop.created_at).toLocaleDateString('ja-JP')}</div>
-                      </td>
-                      <td className="p-4 font-bold text-slate-800">
-                        {shop.name}
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center gap-1 text-slate-800 font-bold mb-1"><Crown className="w-3 h-3 text-amber-500"/> {shop.owner_email}</div>
-                      </td>
-                      <td className="p-4">
-                        {shop.phone ? (
-                          <div className="flex items-center gap-1.5 text-slate-600"><Phone className="w-3 h-3 text-slate-400"/> {shop.phone}</div>
-                        ) : (
-                          <span className="text-slate-400 text-xs">未登録</span>
-                        )}
-                      </td>
-                      <td className="p-4 text-center">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold border ${rank ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                          {rank?.label || '未設定'}
+                    <tr key={shop.id} className="hover:bg-gray-50">
+                      <td className="p-3 text-left font-normal">{shop.name} <span className="text-gray-400 text-xs">({shop.id})</span></td>
+                      <td className="p-3 text-left font-normal tabular-nums text-right">{uniqueReferralCount}</td>
+                      <td className="p-3 text-left font-normal tabular-nums text-right">{unpaidTotal + paidTotal}</td>
+                      <td className="p-3 text-left font-normal text-red-600 tabular-nums font-bold text-right">{unpaidTotal}</td>
+                      <td className="p-3 text-left font-normal tabular-nums text-gray-600 text-right">{paidTotal}</td>
+                      <td className="p-3 text-left font-normal text-center">
+                        <span className={`px-2 py-0.5 rounded-[4px] text-xs border ${isAllPaid ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-red-50 text-red-700 border-red-200'} inline-block min-w-[70px] text-center`}>
+                          {isAllPaid ? '精算済' : '未払いあり'}
                         </span>
                       </td>
-                      <td className="p-4 text-center">
-                        <button 
-                          onClick={() => { setEditingShop(shop); setIsShopModalOpen(true); }} 
-                          className="px-4 py-1.5 bg-white border border-slate-200 text-slate-600 text-xs font-bold rounded-lg hover:bg-slate-50 hover:text-indigo-600 transition-colors shadow-sm active:scale-95"
-                        >
-                          編集
-                        </button>
+                      <td className="p-3 text-left font-normal text-center">
+                        {!isAllPaid && <button onClick={() => handlePaymentComplete(shop.id)} className="text-blue-600 hover:underline">支払完了にする</button>}
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
-            {shops.length === 0 && <div className="p-8 text-center text-slate-400 font-bold">店舗データがありません</div>}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* =========================================
-          タブ: Payments (支払い管理)
-      ========================================= */}
-      {activeTab === 'payments' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-x-auto animate-in fade-in duration-300">
-          <table className="w-full text-left border-collapse whitespace-nowrap">
-            <thead>
-              <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="p-4">店舗名</th>
-                <th className="p-4 text-center">ステータス</th>
-                <th className="p-4 text-center">紹介件数</th>
-                <th className="p-4 text-right">累計報酬額</th>
-                <th className="p-4 text-right">未払い額</th>
-                <th className="p-4 text-right">支払い済額</th>
-                <th className="p-4 text-center">操作</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm divide-y divide-slate-100">
-              {shops.map(shop => {
-                const validTxs = pointTransactions.filter(tx => {
-                  const ref = referrals.find(r => r.id === tx.referral_id);
-                  return String(tx.shop_id) === String(shop.id) && ref && ref.status !== 'cancel';
-                });
-                if (validTxs.length === 0) return null;
-
-                const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
-                const hasBonus = validTxs.some(tx => tx.metadata?.is_bonus === true);
-                const unpaidTxs = validTxs.filter(tx => tx.status === 'confirmed');
-                const paidTxs = validTxs.filter(tx => tx.status === 'paid');
-
-                const unpaidTotal = unpaidTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-                const paidTotal = paidTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-                const totalAmount = unpaidTotal + paidTotal;
-
-                const isAllPaid = unpaidTotal === 0;
-
-                return (
-                  <tr key={shop.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4 font-bold text-slate-800">{shop.name}</td>
-                    <td className="p-4 text-center">
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold border ${isAllPaid ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}>
-                        {isAllPaid ? '発行・精算済' : '報酬確定(未払)'}
-                      </span>
-                    </td>
-                    <td className="p-4 text-center font-bold text-slate-600">{uniqueReferralCount} <span className="text-xs font-normal">件</span></td>
-                    <td className="p-4 text-right">
-                      <div className="font-bold text-slate-800 tabular-nums">{totalAmount.toLocaleString()} pt</div>
-                      {hasBonus && <div className="text-[10px] text-emerald-600 font-bold">（初回ボーナス込）</div>}
-                    </td>
-                    <td className={`p-4 text-right font-black tabular-nums ${!isAllPaid ? 'text-rose-600' : 'text-slate-400'}`}>
-                      {unpaidTotal.toLocaleString()} pt
-                    </td>
-                    <td className="p-4 text-right font-bold text-slate-500 tabular-nums">
-                      {paidTotal.toLocaleString()} pt
-                    </td>
-                    <td className="p-4 text-center">
-                      {!isAllPaid ? (
-                        <button 
-                          onClick={() => handlePaymentComplete(shop.id)} 
-                          disabled={isProcessing}
-                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm transition-all active:scale-95 flex items-center justify-center gap-1 mx-auto disabled:opacity-50"
-                        >
-                          {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <CreditCard className="w-4 h-4" />}
-                          支払完了にする
-                        </button>
-                      ) : (
-                        <span className="text-xs font-bold text-slate-400 flex items-center justify-center gap-1">
-                          <CheckCircle2 className="w-4 h-4" /> 処理完了
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* =========================================
-          タブ: Settings (マスタ設定)
-      ========================================= */}
-      {activeTab === 'settings' && (
-        <div className="animate-in fade-in duration-300 max-w-6xl">
-          
-          <h3 className="text-lg font-black text-slate-800 mb-4 border-l-4 border-indigo-500 pl-3">ランク別ポイント設定</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-            {editingRanks.map(rank => (
-              <div key={rank.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
-                <div className="mb-4">
-                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">ランク名</label>
-                  <input type="text" value={rank.label} onChange={(e) => handleRankChange(rank.id, 'label', e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">報酬ポイント (pt)</label>
-                  <input type="number" value={rank.reward_points} onChange={(e) => handleRankChange(rank.id, 'reward_points', Number(e.target.value))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-indigo-600 focus:ring-2 focus:ring-indigo-500 outline-none transition-all tabular-nums" />
-                </div>
-              </div>
-            ))}
+        {/* =========================================
+            タブ: Shops (店舗管理)
+        ========================================= */}
+        {activeTab === 'shops' && (
+          <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
+            <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
+                  <th className="p-3 text-left font-bold">店舗ID</th>
+                  <th className="p-3 text-left font-bold">店舗名</th>
+                  <th className="p-3 text-left font-bold">オーナー名</th>
+                  <th className="p-3 text-left font-bold">オーナーEmail</th>
+                  <th className="p-3 text-left font-bold">電話番号</th>
+                  <th className="p-3 text-left font-bold">設定カテゴリ</th>
+                  <th className="p-3 text-left font-bold">登録日</th>
+                  <th className="p-3 text-left font-bold">操作</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 text-gray-900">
+                {shops.map(shop => {
+                  const ownerName = getShopOwnerName(shop.id);
+                  const category = categories.find(r => String(r.id) === String(shop.category_id));
+                  return (
+                    <tr key={shop.id} className="hover:bg-gray-50">
+                      <td className="p-3 text-left font-normal text-blue-600 hover:underline cursor-pointer" onClick={() => openShopEditModal(shop.id)}>{shop.id}</td>
+                      <td className="p-3 text-left font-normal text-blue-600 hover:underline cursor-pointer" onClick={() => openShopEditModal(shop.id)}>{shop.name}</td>
+                      <td className="p-3 text-left font-normal">{ownerName}</td>
+                      <td className="p-3 text-left font-normal text-gray-600">{shop.owner_email}</td>
+                      <td className="p-3 text-left font-normal">{shop.phone || '-'}</td>
+                      <td className="p-3 text-left font-normal">{category?.label || '未設定'}</td>
+                      <td className="p-3 text-left font-normal tabular-nums text-gray-600">{new Date(shop.created_at).toLocaleDateString('ja-JP')}</td>
+                      <td className="p-3 text-left font-normal">
+                        <button onClick={() => openShopEditModal(shop.id)} className="text-blue-600 hover:underline">編集</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
+        )}
 
-          <h3 className="text-lg font-black text-slate-800 mb-4 border-l-4 border-amber-500 pl-3">特別報酬ルール (初回ボーナス等)</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-10">
-            {editingRules.map(rule => (
-              <div key={rule.id} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-                <div className="absolute top-0 right-0 bg-amber-100 text-amber-700 text-[10px] font-black px-3 py-1 rounded-bl-lg">ID: {rule.id}</div>
-                <div className="mb-4 mt-2">
-                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">ルールの名前</label>
-                  <input type="text" value={rule.label} onChange={(e) => handleRuleChange(rule.id, 'label', e.target.value)} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-800 focus:ring-2 focus:ring-amber-500 outline-none transition-all" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">追加付与ポイント (pt)</label>
-                  <input type="number" value={rule.base_points} onChange={(e) => handleRuleChange(rule.id, 'base_points', Number(e.target.value))} className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg font-black text-amber-600 focus:ring-2 focus:ring-amber-500 outline-none transition-all tabular-nums" />
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <div className="flex justify-end pt-6 border-t border-slate-200">
-            <button 
-              onClick={handleSaveAllSettings} 
-              disabled={isProcessing}
-              className="px-8 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-2 disabled:opacity-50"
-            >
-              {isProcessing ? <Loader2 className="w-5 h-5 animate-spin" /> : <Settings className="w-5 h-5" />}
-              すべてのマスタ設定を保存する
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================
-          モーダル1: ステータス詳細・編集
-      ========================================= */}
-      {isRefModalOpen && editingRef && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-start mb-6">
+        {/* =========================================
+            タブ: Settings (マスタ設定)
+        ========================================= */}
+        {activeTab === 'settings' && (
+          <div className="bg-white border border-gray-200 rounded-[4px] p-6 shadow-[0_0_20px_rgba(0,0,0,0.05)] w-full overflow-x-auto">
+            <div className="flex justify-between items-end mb-4">
               <div>
-                <h3 className="text-lg font-black text-slate-900">ステータス更新</h3>
-                <p className="text-xs font-mono text-slate-500 mt-1">受注: {editingRef.order_number}</p>
-                <p className="text-xs font-mono text-slate-500">顧客: {editingRef.customer_id || '---'}</p>
+                <h3 className="text-sm font-bold text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
+                <p className="text-xs text-gray-500">店舗の属性（カテゴリ）ごとに、通常報酬と各種ボーナスを設定します。</p>
               </div>
-              <button onClick={() => setIsRefModalOpen(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5" /></button>
             </div>
             
-            <div className="space-y-5 mb-8">
+            <table className="w-full min-w-[800px] text-left border-collapse border border-gray-200 mb-4 text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
+                  <th className="p-3 text-left font-bold min-w-[150px]">カテゴリ名</th>
+                  <th className="p-3 text-left font-bold w-32">通常報酬</th>
+                  <th className="p-3 text-left font-bold min-w-[200px]">初回ボーナス設定</th>
+                  <th className="p-3 text-left font-bold min-w-[200px]">登録ボーナス設定</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {editingCategories.map(cat => (
+                  <tr key={cat.id} className="hover:bg-gray-50">
+                    <td className="p-3 text-left">
+                      <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none focus:border-blue-500" placeholder="カテゴリ名" />
+                    </td>
+                    <td className="p-3 text-left">
+                      <div className="flex items-center gap-1">
+                        <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none tabular-nums text-right focus:border-blue-500" />
+                        <span className="text-xs text-gray-500">pt</span>
+                      </div>
+                    </td>
+                    <td className="p-3 text-left border-l border-gray-100 bg-blue-50/10">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCategoryChange(cat.id, 'first_bonus_enabled', !cat.first_bonus_enabled)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${cat.first_bonus_enabled ? 'bg-blue-600' : 'bg-gray-200'}`}
+                        >
+                          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${cat.first_bonus_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                        <div className="flex items-center gap-1 flex-1">
+                          <input type="number" disabled={!cat.first_bonus_enabled} value={cat.first_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none tabular-nums text-right disabled:bg-gray-100 disabled:text-gray-400 focus:border-blue-500" />
+                          <span className="text-xs text-gray-500">pt</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-3 text-left border-l border-gray-100 bg-emerald-50/10">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => handleCategoryChange(cat.id, 'signup_bonus_enabled', !cat.signup_bonus_enabled)}
+                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${cat.signup_bonus_enabled ? 'bg-emerald-600' : 'bg-gray-200'}`}
+                        >
+                          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${cat.signup_bonus_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                        <div className="flex items-center gap-1 flex-1">
+                          <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none tabular-nums text-right disabled:bg-gray-100 disabled:text-gray-400 focus:border-emerald-500" />
+                          <span className="text-xs text-gray-500">pt</span>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="flex justify-between items-center pt-2">
+              <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm text-blue-600 hover:underline"><Plus className="w-4 h-4"/>新しいカテゴリを追加</button>
+              <button onClick={handleSaveAllSettings} className="bg-blue-600 text-white text-sm px-8 py-2.5 rounded-[4px] hover:bg-blue-700 transition-colors flex items-center gap-2">
+                {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 設定を保存する
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* =========================================
+          モーダル
+      ========================================= */}
+      {isRefModalOpen && editingRef && (
+        <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-[4px] p-6 w-full max-w-lg border border-gray-200 shadow-[0_0_20px_rgba(0,0,0,0.1)]">
+            <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-2">
+              <h3 className="text-base font-bold text-gray-900">詳細情報・ステータス更新</h3>
+              <button onClick={() => setIsRefModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            
+            <div className="bg-gray-50 border border-gray-200 p-4 rounded-[4px] text-sm mb-6 space-y-2 text-gray-700">
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">受注番号</div><div className="col-span-2 tabular-nums">{editingRef.order_number}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">顧客番号</div><div className="col-span-2 tabular-nums">{editingRef.customer_id || '未取得'}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">店舗</div><div className="col-span-2">{editingShopData?.name || '不明'} ({editingRef.shop_id})</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">オーナー</div><div className="col-span-2">{editingOwnerName}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">発生日時</div><div className="col-span-2 tabular-nums">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div></div>
+              {editingConfirmedTx && (
+                <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">確定日時</div><div className="col-span-2 tabular-nums">{new Date(editingConfirmedTx.created_at).toLocaleString('ja-JP')}</div></div>
+              )}
+            </div>
+
+            <div className="space-y-4 mb-6">
               <div>
-                <label className="block text-xs font-bold text-slate-600 mb-2">ステータス</label>
-                <select 
-                  value={editingRef.status} 
-                  onChange={(e) => setEditingRef({...editingRef, status: e.target.value})} 
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  {STATUS_OPTIONS.filter(opt => opt.value !== 'issued').map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
+                <label className="block text-sm text-gray-700 mb-1 font-bold">ステータス更新</label>
+                <select value={editingRef.status} onChange={(e) => setEditingRef({...editingRef, status: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 text-sm outline-none bg-white focus:border-blue-500">
+                  {STATUS_OPTIONS.filter(opt => opt.value !== 'issued').map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
               </div>
-
               {editingRef.status === 'cancel' && (
-                <div className="animate-in slide-in-from-top-2 duration-200">
-                  <label className="flex items-center gap-1.5 text-xs font-bold text-red-600 mb-2">
-                    <AlertTriangle className="w-4 h-4" /> キャンセル事由 (必須)
-                  </label>
-                  <select
-                    value={editingRef.cancel_reason || ''}
-                    onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})}
-                    className="w-full px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm font-bold text-red-700 focus:ring-2 focus:ring-red-500 outline-none"
-                  >
-                    <option value="">事由を選択してください</option>
+                <div>
+                  <label className="flex items-center gap-1 text-sm text-red-600 font-bold mb-1"><AlertTriangle className="w-4 h-4"/>キャンセル事由</label>
+                  <select value={editingRef.cancel_reason || ''} onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})} className="w-full border border-red-300 bg-red-50 p-2 text-sm text-red-800 outline-none rounded-[4px] focus:border-red-500">
+                    <option value="">選択してください</option>
                     {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
               )}
-
-              {editingRef.status === 'cancel' && (
-                 <div className="bg-red-50 p-4 rounded-xl border border-red-100 flex gap-3 items-start">
-                   <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                   <p className="text-xs font-bold text-red-700 leading-relaxed">
-                     キャンセルを実行すると、紐づく獲得予定ポイントはすべて無効（0pt）になります。この操作は元に戻せません。
-                   </p>
-                 </div>
-              )}
             </div>
-
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setIsRefModalOpen(false)} className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">キャンセル</button>
-              <button 
-                onClick={() => handleRefModalSave(editingRef)} 
-                disabled={isProcessing}
-                className="px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all active:scale-95 shadow-md flex items-center gap-2 disabled:opacity-50"
-              >
-                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : '更新して保存'}
-              </button>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setIsRefModalOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-[4px] hover:bg-gray-50">キャンセル</button>
+              <button onClick={() => handleRefModalSave(editingRef)} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-[4px] hover:bg-blue-700">更新して保存</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* =========================================
-          モーダル2: 店舗情報の編集 ★新設
-      ========================================= */}
       {isShopModalOpen && editingShop && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-start mb-6">
+        <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-[4px] p-6 w-full max-w-md border border-gray-200 shadow-[0_0_20px_rgba(0,0,0,0.1)]">
+            <h3 className="text-base font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">店舗情報の編集 (ID: {editingShop.id})</h3>
+            <div className="space-y-4 mb-6 text-sm">
+              <div><label className="block text-gray-700 font-bold mb-1">店舗名</label><input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none focus:border-blue-500" /></div>
+              <div><label className="block text-gray-700 font-bold mb-1">電話番号</label><input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none focus:border-blue-500" /></div>
               <div>
-                <h3 className="text-lg font-black text-slate-900">店舗情報の編集</h3>
-                <p className="text-xs font-mono text-slate-500 mt-1">ID: {editingShop.id}</p>
-              </div>
-              <button onClick={() => setIsShopModalOpen(false)} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors"><X className="w-5 h-5" /></button>
-            </div>
-            
-            <div className="space-y-4 mb-8">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">店舗・チーム名</label>
-                <input 
-                  type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">電話番号</label>
-                <input 
-                  type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})}
-                  placeholder="03-1234-5678"
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1.5">ランク設定</label>
-                <select 
-                  value={editingShop.rank_id || ''} 
-                  onChange={(e) => setEditingShop({...editingShop, rank_id: e.target.value})} 
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  <option value="">未設定 (デフォルト)</option>
-                  {ranks.map(r => (
-                    <option key={r.id} value={r.id}>{r.label} ({r.reward_points}pt)</option>
-                  ))}
+                <label className="block text-gray-700 font-bold mb-1">設定カテゴリ</label>
+                <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none bg-white focus:border-blue-500">
+                  <option value="">未設定</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
               </div>
             </div>
-
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setIsShopModalOpen(false)} className="px-5 py-2.5 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">キャンセル</button>
-              <button 
-                onClick={() => handleShopModalSave(editingShop)} 
-                disabled={isProcessing}
-                className="px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all active:scale-95 shadow-md flex items-center gap-2 disabled:opacity-50"
-              >
-                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : '店舗情報を保存'}
-              </button>
+            <div className="flex gap-2 justify-end text-sm">
+              <button onClick={() => setIsShopModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-[4px] text-gray-700 hover:bg-gray-50">キャンセル</button>
+              <button onClick={() => handleShopModalSave(editingShop)} className="px-4 py-2 bg-blue-600 text-white rounded-[4px] hover:bg-blue-700">保存</button>
             </div>
           </div>
         </div>
       )}
-
-    </main>
+    </div>
   )
 }
