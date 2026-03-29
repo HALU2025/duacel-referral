@@ -6,6 +6,11 @@ export function proxy(request: NextRequest) {
   // 準備：後でCookieをセットしたり、そのまま画面を表示させるためのベース
   const response = NextResponse.next()
 
+// ★ 追加：ecforceからのWebhook通信だけは、Basic認証をスルーして通す！
+  if (request.nextUrl.pathname.startsWith('/api/webhooks')) {
+    return response;
+  }
+
   // ========================================================
   // 🔒 1. Basic認証（開発中の全体ロック）
   // 【つけ外しの方法】

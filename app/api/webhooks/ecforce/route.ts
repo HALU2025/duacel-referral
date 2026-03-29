@@ -2,68 +2,80 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 
-// ecforceは GET または POST でURLパラメータに値を乗せてくる
+// ==========================================
+// 共通のデータ保存ロジック
+// ==========================================
+async function processWebhookData(referralCode: string | null, orderNumber: string | null) {
+  if (!referralCode) {
+    return NextResponse.json({ error: '紹介コードが含まれていません' }, { status: 400 })
+  }
+
+  // "S001_ST001" を shop_id と staff_id に分割
+  const [shopId, staffId] = referralCode.split('_')
+
+  if (!shopId || !staffId) {
+    return NextResponse.json({ error: '無効な紹介コードのフォーマットです' }, { status: 400 })
+  }
+
+  // 受注番号がない場合はタイムスタンプで仮生成
+  const finalOrderNumber = orderNumber || `ORD-${Date.now()}`
+
+  // データベース（referrals）に「仮計上」として登録
+  const { error } = await supabase.from('referrals').insert([{
+    shop_id: shopId,
+    staff_id: staffId,
+    referral_code: referralCode,
+    order_number: finalOrderNumber,
+    status: 'pending',
+    is_staff_rewarded: false
+  }])
+
+  if (error) {
+    console.error('❌ DB保存エラー:', error)
+    return NextResponse.json({ error: 'データベースエラーが発生しました' }, { status: 500 })
+  }
+
+  console.log(`✅ 成果を記録しました: ${referralCode} / ${finalOrderNumber}`)
+  return NextResponse.json({ success: true, message: '成果を記録しました' }, { status: 200 })
+}
+
+// ==========================================
+// GETリクエスト（ecforceからURLパラメータで来る場合）
+// ==========================================
 export async function GET(request: Request) {
-  return handleWebhook(request)
+  console.log('📦 ecforceからGET通知を受信しました')
+  const { searchParams } = new URL(request.url)
+  
+  // ログから判明した変数名で取得
+  const referralCode = searchParams.get('r') || searchParams.get('referral_code')
+  const orderNumber = searchParams.get('order_id') || searchParams.get('order_number')
+
+  return processWebhookData(referralCode, orderNumber)
 }
 
+// ==========================================
+// POSTリクエスト（ecforceからJSON等で来る場合）
+// ==========================================
 export async function POST(request: Request) {
-  return handleWebhook(request)
-}
-
-async function handleWebhook(request: Request) {
+  console.log('📦 ecforceからPOST通知を受信しました')
   try {
-    // 1. ecforceが送ってきたURLからパラメータを取得
-    const { searchParams } = new URL(request.url)
+    const body = await request.text()
+    let data: any = {}
     
-    // 例: ?r=S001_ST001&order_id=12345
-    const referralCode = searchParams.get('r')
-    const orderNumber = searchParams.get('order_id') || searchParams.get('order_number') || `ORD-${Date.now()}`
-
-    console.log('📦 ecforceから成果通知を受信:', { referralCode, orderNumber })
-
-    if (!referralCode) {
-      console.error('紹介コードなし')
-      return NextResponse.json({ error: '紹介コード(r)が含まれていません' }, { status: 400 })
+    try {
+      data = JSON.parse(body)
+    } catch (e) {
+      const params = new URLSearchParams(body)
+      params.forEach((value, key) => { data[key] = value })
     }
 
-    // "S001_ST001" を shop_id と staff_id に分割
-    const [shopId, staffId] = referralCode.split('_')
+    const referralCode = data.r || data.referral_code
+    const orderNumber = data.order_id || data.order_number
 
-    if (!shopId || !staffId) {
-      console.error('フォーマットエラー:', referralCode)
-      return NextResponse.json({ error: '無効な紹介コードです' }, { status: 400 })
-    }
-
-    // 2. 既存の受注番号かチェック（ecforceのリロード等による二重登録防止）
-    const { data: existingRef } = await supabase
-      .from('referrals')
-      .select('id')
-      .eq('order_number', orderNumber)
-      .single()
-
-    if (existingRef) {
-      console.log('⚠️ すでに登録済みの受注番号です:', orderNumber)
-      return NextResponse.json({ success: true, message: '既に登録済みです' }, { status: 200 })
-    }
-
-    // 3. Duacelのデータベース（referrals）に「仮計上」として登録
-    const { error } = await supabase.from('referrals').insert([{
-      shop_id: shopId,
-      staff_id: staffId,
-      referral_code: referralCode,
-      order_number: orderNumber,
-      status: 'pending', // 最初は必ず「仮計上」
-      is_staff_rewarded: false
-    }])
-
-    if (error) throw error
-
-    console.log('✅ 成果の記録に成功しました！')
-    return NextResponse.json({ success: true, message: '成果を記録しました' }, { status: 200 })
+    return processWebhookData(referralCode, orderNumber)
 
   } catch (error: any) {
-    console.error('❌ ecforce Webhook エラー:', error)
+    console.error('❌ POST Webhook エラー:', error)
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 })
   }
 }
