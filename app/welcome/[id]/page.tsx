@@ -20,7 +20,7 @@ export default function WelcomeBridgePage() {
   // ==========================================
   // ★ 検証用の飛び先URL（後でecforceのLPに変更してください）
   // ==========================================
-  const TEST_DESTINATION_URL = "/lp" // または "https://google.com" など
+  const DESTINATION_URL = "https://duacel.com/lp?u=rf"
 
   useEffect(() => {
     const fetchReferrer = async () => {
@@ -49,12 +49,13 @@ export default function WelcomeBridgePage() {
 
   const handleProceed = () => {
     setRedirecting(true)
-    // 実際に飛ばすときは紹介コードをパラメータに乗せると計測しやすくなります
-    const finalUrl = `${TEST_DESTINATION_URL}?r=${referralId}`
     
-    // 検証用なので、少しだけ「遷移中」の演出を入れてから飛ばす
+    // すでに ?u=rf が付いているので、&r=S001_ST001 の形で結合する
+    const finalUrl = `${DESTINATION_URL}&r=${referralId}`
+    
     setTimeout(() => {
-      router.push(finalUrl)
+      // 現在のタブのままLPへ遷移させる
+      window.location.href = finalUrl
     }, 800)
   }
 
