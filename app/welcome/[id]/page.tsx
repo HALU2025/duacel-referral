@@ -1,163 +1,155 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { useParams, useRouter } from 'next/navigation'
+import { motion } from 'framer-motion'
 import { 
-  Gift, ArrowRight, Store, User, 
-  CheckCircle2, Sparkles, Loader2, ShieldCheck 
+  ArrowRight, Loader2, Sparkles, Gift, 
+  TestTube, CheckCircle2, AlertTriangle 
 } from 'lucide-react'
 
-export default function WelcomeBridgePage() {
+export default function WelcomePage() {
   const params = useParams()
-  const referralId = params.id as string // 例: S001_ST001
-  const router = useRouter()
-
-  const [data, setData] = useState<any>(null)
+  const referralCode = params.id as string
+  
+  const [shop, setShop] = useState<any>(null)
+  const [staff, setStaff] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [redirecting, setRedirecting] = useState(false)
 
-  // ==========================================
-  // ★ 検証用の飛び先URL（後でecforceのLPに変更してください）
-  // ==========================================
-  const DESTINATION_URL = "https://duacel.com/lp?u=rf"
+  // テストコンバージョン用ステート
+  const [isTesting, setIsTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ success?: boolean, message: string } | null>(null)
 
   useEffect(() => {
-    const fetchReferrer = async () => {
-      // 1. 公開用の紹介コードからスタッフと店舗情報を取得
-      const { data: staff, error } = await supabase
-        .from('staffs')
-        .select(`
-          name,
-          shops (
-            name
-          )
-        `)
-        .eq('referral_code', referralId)
-        .single()
-
-      if (staff) {
-        setData(staff)
+    const fetchData = async () => {
+      // 紹介コード（S0001_m01）からスタッフを検索
+      const { data: staffData } = await supabase.from('staffs').select('*').eq('referral_code', referralCode).maybeSingle()
+      
+      if (staffData) {
+        setStaff(staffData)
+        // スタッフが所属する店舗を検索
+        const { data: shopData } = await supabase.from('shops').select('*').eq('id', staffData.shop_id).maybeSingle()
+        if (shopData) setShop(shopData)
       }
-      
-      // 2. 「特典適用中...」のワクワク感を出すためのあえての待機時間（1.5秒）
-      setTimeout(() => setLoading(false), 1500)
+      setLoading(false)
     }
+    if (referralCode) fetchData()
+  }, [referralCode])
 
-    if (referralId) fetchReferrer()
-  }, [referralId])
+  // ==========================================
+  // ★ 開発者用：テストコンバージョン発生ロジック
+  // ==========================================
+  const handleTestConversion = async () => {
+    setIsTesting(true)
+    setTestResult(null)
 
-  const handleProceed = () => {
-    setRedirecting(true)
-    
-    // すでに ?u=rf が付いているので、&r=S001_ST001 の形で結合する
-    const finalUrl = `${DESTINATION_URL}&r=${referralId}`
-    
-    setTimeout(() => {
-      // 現在のタブのままLPへ遷移させる
-      window.location.href = finalUrl
-    }, 800)
-  }
+    // ecforceから送られてくるようなランダムなテストデータを生成
+    const mockOrderNumber = `TEST_${Math.floor(Math.random() * 100000000)}`
+    const mockCustomerNumber = `CUST_${Math.floor(Math.random() * 10000)}`
 
-  // A. 読み込み中（特典計算演出）
-  if (loading) {
-    return (
-      <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-white p-6">
-        <div className="relative mb-8">
-          <Loader2 className="w-12 h-12 animate-spin text-indigo-600" />
-          <Sparkles className="absolute -top-2 -right-2 text-amber-400 animate-pulse" />
-        </div>
-        <h2 className="text-lg font-bold text-gray-900 tracking-tighter">紹介特典を照合しています...</h2>
-        <p className="text-[10px] text-gray-400 mt-2 uppercase tracking-widest font-medium">Validating your special offer</p>
-      </div>
-    )
-  }
-
-  // B. 紹介者が見つからなかった場合（エラー防止）
-  if (!data) {
-    return (
-      <div className="min-h-[100dvh] flex flex-col items-center justify-center bg-gray-50 p-6 text-center">
-        <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
-          <p className="text-sm text-gray-500 mb-6 leading-relaxed">
-            ご紹介情報の有効期限が切れているか、<br/>URLが正しくありません。
-          </p>
-          <button onClick={() => router.push('/')} className="text-indigo-600 font-bold text-sm hover:underline">
-            トップページへ戻る
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  // C. メインのおもてなし画面
-  return (
-    <main className="min-h-[100dvh] bg-gradient-to-b from-indigo-50 via-white to-white font-sans text-gray-800 flex flex-col items-center justify-center p-6">
+    try {
+      // 実際にecforceが叩くのと同じAPI（自作のWebhook）に対して、GETリクエストを投げる
+      const response = await fetch(`/api/webhooks/ecforce?r=${referralCode}&order_number=${mockOrderNumber}&customer_id=${mockCustomerNumber}`)
       
-      <div className="w-full max-w-sm bg-white rounded-[2.5rem] shadow-2xl shadow-indigo-100 border border-indigo-50 p-8 text-center relative overflow-hidden animate-in fade-in zoom-in-95 duration-500">
-        
-        {/* 上部の装飾ライン */}
-        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
-        
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-50 text-amber-500 mb-6 ring-8 ring-amber-50/50">
-          <Gift className="w-10 h-10" />
-        </div>
+      if (response.ok) {
+        setTestResult({ 
+          success: true, 
+          message: `🎉 成果発生成功！\n受注番号: ${mockOrderNumber}` 
+        })
+      } else {
+        const errorText = await response.text()
+        setTestResult({ 
+          success: false, 
+          message: `❌ エラー: ${response.status} ${errorText}` 
+        })
+      }
+    } catch (error: any) {
+      setTestResult({ 
+        success: false, 
+        message: `❌ 通信エラー: ${error.message}` 
+      })
+    } finally {
+      setIsTesting(false)
+    }
+  }
 
-        <h1 className="text-xl font-extrabold text-gray-900 mb-2 leading-tight">
-          特別なご紹介特典が<br/>適用されました
-        </h1>
+  if (loading) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
+  if (!staff || !shop) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 text-gray-500 font-bold">無効な紹介リンクです。</div>
+
+  // 本番のLPへのURL
+  const lpUrl = `https://duacel.com/lp?u=rf&r=${referralCode}`
+
+  return (
+    <div className="min-h-[100dvh] bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-800">
+      
+      {/* 📱 本番用：お客様に見せるUI */}
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100 relative mb-8"
+      >
+        <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-indigo-50 to-white" />
         
-        <div className="bg-gray-50 rounded-2xl p-4 mb-8 border border-gray-100">
-          <div className="flex items-center justify-center gap-2 mb-1">
-            <Store className="w-3 h-3 text-indigo-500" />
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{data.shops?.name}</p>
+        <div className="relative pt-12 pb-8 px-8 flex flex-col items-center text-center">
+          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-xl border-4 border-white mb-6 relative">
+            <Gift className="w-10 h-10 text-indigo-600" />
+            <Sparkles className="w-5 h-5 text-yellow-400 absolute -top-2 -right-2 animate-pulse" />
           </div>
-          <div className="flex items-center justify-center gap-1.5">
-            <div className="w-6 h-6 bg-indigo-100 rounded-full flex items-center justify-center">
-              <User className="w-3.5 h-3.5 text-indigo-600" />
-            </div>
-            <p className="text-base font-extrabold text-gray-900">
-              {data.name} <span className="text-xs font-normal text-gray-500">様からの紹介</span>
+          
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Duacel Special Offer</p>
+          <h1 className="text-2xl font-black text-gray-900 leading-tight mb-2">
+            特別招待リンクが<br/>適用されました
+          </h1>
+          
+          <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2 mt-4 mb-8 inline-block">
+            <p className="text-xs font-bold text-indigo-800">
+              招待元: {shop.name}
             </p>
           </div>
-        </div>
 
-        <div className="space-y-4 mb-8 text-left">
-          <div className="flex items-start gap-3">
-            <div className="mt-1 bg-emerald-100 rounded-full p-0.5"><CheckCircle2 className="w-3 h-3 text-emerald-600" /></div>
-            <p className="text-xs font-bold text-gray-600">このページ限定の特別価格で購入可能です</p>
-          </div>
-          <div className="flex items-start gap-3">
-            <div className="mt-1 bg-emerald-100 rounded-full p-0.5"><CheckCircle2 className="w-3 h-3 text-emerald-600" /></div>
-            <p className="text-xs font-bold text-gray-600">優先カスタマーサポートが付帯します</p>
-          </div>
+          {/* ★ 本番用ボタン（実LPへ飛ぶ） */}
+          <a 
+            href={lpUrl}
+            className="w-full py-4 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-bold text-sm shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
+          >
+            限定ページへ進む <ArrowRight className="w-4 h-4" />
+          </a>
         </div>
+      </motion.div>
 
-        <button 
-          onClick={handleProceed}
-          disabled={redirecting}
-          className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-lg transition-all shadow-lg shadow-indigo-200 flex items-center justify-center gap-2 group overflow-hidden relative"
-        >
-          {redirecting ? (
-            <Loader2 className="w-6 h-6 animate-spin" />
-          ) : (
-            <>
-              限定ページへ進む
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </>
+      {/* 🛠️ 開発・テスト用：シークレットメニュー */}
+      <div className="w-full max-w-sm bg-gray-100 border border-gray-200 border-dashed rounded-2xl p-5">
+        <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-wider flex items-center gap-1.5 mb-4">
+          <TestTube className="w-3.5 h-3.5" /> Developer Tools
+        </h3>
+        
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500 font-bold">
+            ※ボタンを押すと、この紹介コード（{referralCode}）で「ecforceから購入通知が来た」という擬似データをシステムに送信します。
+          </p>
+
+          <button 
+            onClick={handleTestConversion}
+            disabled={isTesting}
+            className="w-full py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-xs shadow-sm hover:bg-gray-50 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {isTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <TestTube className="w-4 h-4" />}
+            テスト成果を発生させる
+          </button>
+
+          {/* テスト結果の表示 */}
+          {testResult && (
+            <motion.div 
+              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+              className={`p-3 rounded-xl text-xs font-bold whitespace-pre-wrap flex items-start gap-2 ${testResult.success ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}
+            >
+              {testResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+              {testResult.message}
+            </motion.div>
           )}
-          <div className="absolute top-0 -left-[100%] w-[50%] h-full bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-[-25deg] group-hover:left-[150%] transition-all duration-1000" />
-        </button>
-
-        <div className="mt-6 flex items-center justify-center gap-1.5 text-gray-400">
-          <ShieldCheck className="w-3 h-3" />
-          <span className="text-[9px] font-bold uppercase tracking-widest">Verified Official Referral</span>
         </div>
       </div>
 
-      <p className="mt-8 text-[10px] text-gray-400 max-w-[240px] text-center leading-relaxed">
-        このページは正式な紹介プログラムに基づいて<br/>
-        Duacelシステムにより自動生成されています。
-      </p>
-    </main>
+    </div>
   )
 }

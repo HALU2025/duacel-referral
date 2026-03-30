@@ -111,6 +111,9 @@ export default function MemberMagicPage() {
 
       const isOwnerAction = shopData.owner_email === staffData.email;
       let myEarnedPoints = 0;
+      
+      // ★ バックエンドと同じ厳密な分配計算に統一
+      const actualTxPoints = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
 
       if (r.status === 'pending') {
         const indPart = isMine ? totalBase * (ratioInd / 100) : 0;
@@ -118,10 +121,13 @@ export default function MemberMagicPage() {
         const ownerPart = isOwnerAction ? totalBase * (ratioOwner / 100) : 0;
         myEarnedPoints = Math.floor(indPart + teamPart + ownerPart);
       } else {
-        myEarnedPoints = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+        const indPart = isMine ? actualTxPoints * (ratioInd / 100) : 0;
+        const teamPart = (actualTxPoints * (ratioTeam / 100)) / activeStaffCount;
+        const ownerPart = isOwnerAction ? actualTxPoints * (ratioOwner / 100) : 0;
+        myEarnedPoints = Math.floor(indPart + teamPart + ownerPart);
       }
 
-      if (isMine || myEarnedPoints > 0) {
+      if (myEarnedPoints > 0) {
         const enrichedData = {
           ...r,
           totalPt: isCanceled ? 0 : myEarnedPoints,
@@ -134,13 +140,11 @@ export default function MemberMagicPage() {
           if (r.is_staff_rewarded || r.status === 'issued') {
             sTotal += enrichedData.totalPt;
             if (r.is_staff_rewarded) sPaid += enrichedData.totalPt;
-            // 確定済でまだ清算（paid）されていないものを抽出
             if (!r.is_staff_rewarded && r.status === 'issued') sConfirmed += enrichedData.totalPt;
           }
           if (r.status === 'pending' || r.status === 'confirmed') {
-            // 本部が「報酬確定」にしているものも交換可能ポイントに含める
             if (r.status === 'confirmed') sConfirmed += enrichedData.totalPt;
-            else sPending++; // 仮計上は件数のみ
+            else sPending++; 
           }
         }
       }
@@ -196,7 +200,7 @@ export default function MemberMagicPage() {
   }
 
   // ==========================================
-  // ★ ポイント交換ロジック (即時発行)
+  // ★ ポイント交換ロジック (バックエンドAPI連携)
   // ==========================================
   const openRedeemModal = (type: 'bcart' | 'eraberu') => {
     setRedeemType(type)
@@ -204,7 +208,7 @@ export default function MemberMagicPage() {
     setRedeemPin(['', '', '', ''])
     setRedeemError('')
     setIsRedeemModalOpen(true)
-    setTimeout(() => redeemPinRefs[0].current?.focus(), 100) // モーダルを開いたら自動フォーカス
+    setTimeout(() => redeemPinRefs[0].current?.focus(), 100) 
   }
 
   const handleRedeemPinChange = (index: number, value: string) => {
@@ -217,53 +221,43 @@ export default function MemberMagicPage() {
     if (value && index < 3) redeemPinRefs[index + 1].current?.focus()
 
     if (index === 3 && value) {
-      // 4桁入力されたら自動で交換処理（防波堤）を実行
       executeRedemption(newPin.join(''))
     }
   }
 
+  // ★ サーバーのAPIを呼び出して安全に処理する
   const executeRedemption = async (enteredPin: string) => {
-    // 1. セキュリティチェック（防波堤2）
-    if (staff.security_pin && enteredPin !== staff.security_pin) {
-      setRedeemError('暗証番号が間違っています。')
-      setTimeout(() => setRedeemPin(['', '', '', '']), 500)
-      redeemPinRefs[0].current?.focus()
-      return
-    }
-
-    // 2. 二重送信防止のロック（防波堤4）
     if (isRedeeming) return;
     setIsRedeeming(true)
 
     try {
-      // ※ ここに本来は「バックエンドAPI（サーバー側）」を呼び出す処理を書きます。
-      // 今回はフロントエンドで安全な疑似処理を再現します。
+      const response = await fetch('/api/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId: staff.id,
+          pin: enteredPin,
+          redeemType: redeemType
+        })
+      })
 
-      // 擬似的なAPI通信の待機時間（2秒）
-      await new Promise(resolve => setTimeout(resolve, 2000))
+      const data = await response.json()
 
-      // 対象となる「確定済」のデータを取得
-      const targetReferralIds = history.filter(h => h.status === 'confirmed' || (h.status === 'issued' && !h.is_staff_rewarded)).map(h => h.id)
-      
-      if (targetReferralIds.length === 0) throw new Error('交換可能なポイントがありません。')
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || '交換処理に失敗しました。')
+      }
 
-      // DBを「清算済」に更新（防波堤1）
-      await supabase.from('referrals').update({ is_staff_rewarded: true }).in('id', targetReferralIds)
-
-      // 擬似的なギフトURLの発行
-      const mockGiftUrl = redeemType === 'eraberu' 
-        ? `https://giftee.com/mock/${generateSecureToken()}${generateSecureToken()}`
-        : `https://b-cart.example.com/apply/${generateSecureToken()}`
-
-      setRedeemResultUrl(mockGiftUrl)
+      // サーバーから返ってきた本物のギフトURLをセット
+      setRedeemResultUrl(data.giftUrl)
       setRedeemStep('success')
       await loadData() // ウォレットの数字を最新に更新
 
     } catch (err: any) {
       setRedeemError(err.message)
       setRedeemPin(['', '', '', ''])
+      redeemPinRefs[0].current?.focus()
     } finally {
-      setIsRedeeming(false) // ロック解除
+      setIsRedeeming(false) 
     }
   }
 
@@ -288,7 +282,7 @@ export default function MemberMagicPage() {
   const STATUS_MAP: any = {
     pending: { label: '仮計上', color: 'bg-amber-50 text-amber-700 border-amber-100', icon: <Clock className="w-3 h-3" /> },
     confirmed: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
-    issued: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> }, // スタッフ向けにはissuedも「確定（交換可能）」と見せる
+    issued: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
     cancel: { label: 'キャンセル', color: 'bg-red-50 text-red-600 border-red-100', icon: <Ban className="w-3 h-3" /> },
   }
 
@@ -395,7 +389,6 @@ export default function MemberMagicPage() {
                      <p className="text-4xl font-black tabular-nums tracking-tight">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 font-medium opacity-80">pt</span></p>
                    </div>
 
-                   {/* ★ ポイント交換アクションボタン */}
                    <button 
                      onClick={() => setIsRedeemModalOpen(true)}
                      disabled={summary.confirmed === 0}
@@ -538,7 +531,7 @@ export default function MemberMagicPage() {
       </main>
 
       {/* ==========================================
-          ★ ポイント交換モーダル（防波堤つき）
+          ★ ポイント交換モーダル（API呼び出し版）
       ========================================== */}
       <AnimatePresence>
         {isRedeemModalOpen && (
