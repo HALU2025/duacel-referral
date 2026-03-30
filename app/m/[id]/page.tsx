@@ -10,7 +10,7 @@ import {
   QrCode, Copy, MessageCircle, Wallet, Gift, Clock, History, 
   Settings, Mail, User, CheckCircle2, ShieldCheck, Loader2, Edit2,
   Lock, X, Smartphone, Crown, LayoutDashboard, ChevronRight, Share, UserPlus,
-  Ban, CheckCheck, ArrowRight, Store, CreditCard, Send
+  Ban, CheckCheck, ArrowRight, Store, CreditCard, Send, LogOut
 } from 'lucide-react'
 
 const getGradient = (name: string) => {
@@ -35,22 +35,26 @@ export default function MemberMagicPage() {
   const [loading, setLoading] = useState(true)
   
   // ==========================================
-  // ★ ページ全体のロック管理
+  // ★ ページ全体のロック・セッション管理
   // ==========================================
   const [isUnlocked, setIsUnlocked] = useState(false)
   const [pin, setPin] = useState(['', '', '', '']) 
   const [pinError, setPinError] = useState(false)
   const pinInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
 
-  // ★ PINリセット用ステート
+  // セキュリティ対策（ロックアウトと試行回数）
+  const MAX_ATTEMPTS = 5
+  const LOCKOUT_MINUTES = 15
+  const [attemptsLeft, setAttemptsLeft] = useState(MAX_ATTEMPTS)
+  const [lockoutUntil, setLockoutUntil] = useState<number | null>(null)
+
+  // PINリセット用ステート
   const [isForgotPinOpen, setIsForgotPinOpen] = useState(false)
   const [forgotEmail, setForgotEmail] = useState('')
   const [isResetting, setIsResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{success?: boolean, message: string} | null>(null)
 
-  // ==========================================
-  // ★ ポイント交換用ステート
-  // ==========================================
+  // ポイント交換用ステート
   const [isRedeemModalOpen, setIsRedeemModalOpen] = useState(false)
   const [redeemStep, setRedeemStep] = useState<'choice' | 'pin' | 'success'>('choice')
   const [redeemType, setRedeemType] = useState<'bcart' | 'eraberu' | null>(null)
@@ -81,6 +85,26 @@ export default function MemberMagicPage() {
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code}` : ''
   const isOwner = shop?.owner_email === staff?.email
+
+  // ★ セッション・ロックアウトの初期確認
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // ロックアウト状態の確認
+      const locked = localStorage.getItem(`duacel_lockout_${magicToken}`)
+      if (locked && parseInt(locked) > Date.now()) {
+        setLockoutUntil(parseInt(locked))
+      } else if (locked) {
+        localStorage.removeItem(`duacel_lockout_${magicToken}`)
+        setAttemptsLeft(MAX_ATTEMPTS)
+      }
+
+      // セッション（ログイン状態）の確認
+      const isAuth = sessionStorage.getItem(`duacel_auth_${magicToken}`)
+      if (isAuth === 'true') {
+        setIsUnlocked(true)
+      }
+    }
+  }, [magicToken])
 
   const loadData = async () => {
     const { data: staffData, error } = await supabase.from('staffs').select('*').eq('secret_token', magicToken).single()
@@ -138,12 +162,7 @@ export default function MemberMagicPage() {
       }
 
       if (myEarnedPoints > 0) {
-        const enrichedData = {
-          ...r,
-          totalPt: isCanceled ? 0 : myEarnedPoints,
-          isMine,
-          hasBonus: isFirstTime && firstBonusEnabled && isMine 
-        };
+        const enrichedData = { ...r, totalPt: isCanceled ? 0 : myEarnedPoints, isMine, hasBonus: isFirstTime && firstBonusEnabled && isMine };
         myReferrals.push(enrichedData);
 
         if (!isCanceled) {
@@ -186,7 +205,7 @@ export default function MemberMagicPage() {
   }
 
   // ==========================================
-  // ★ PINロック解除
+  // ★ PINロック解除・セッション管理
   // ==========================================
   const handlePinChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return; 
@@ -200,11 +219,25 @@ export default function MemberMagicPage() {
     if (index === 3 && value) {
       const enteredPin = newPin.join('')
       if (!staff.security_pin || enteredPin === staff.security_pin) { 
+        // 成功：セッション保存
+        sessionStorage.setItem(`duacel_auth_${magicToken}`, 'true')
+        setAttemptsLeft(MAX_ATTEMPTS) // 成功したらリセット
         setTimeout(() => setIsUnlocked(true), 300)
       } else {
-        setPinError(true)
-        setTimeout(() => setPin(['', '', '', '']), 500) 
-        pinInputRefs[0].current?.focus()
+        // 失敗：試行回数を減らす
+        const newAttempts = attemptsLeft - 1
+        setAttemptsLeft(newAttempts)
+        
+        if (newAttempts <= 0) {
+          // ロックアウト発動
+          const unlockTime = Date.now() + LOCKOUT_MINUTES * 60 * 1000
+          setLockoutUntil(unlockTime)
+          localStorage.setItem(`duacel_lockout_${magicToken}`, unlockTime.toString())
+        } else {
+          setPinError(true)
+          setTimeout(() => setPin(['', '', '', '']), 500) 
+          pinInputRefs[0].current?.focus()
+        }
       }
     }
   }
@@ -213,6 +246,14 @@ export default function MemberMagicPage() {
     if (e.key === 'Backspace' && !(isRedeem ? redeemPin : pin)[index] && index > 0) {
       (isRedeem ? redeemPinRefs : pinInputRefs)[index - 1].current?.focus()
     }
+  }
+
+  // 手動で画面をロックする（ログアウト）
+  const handleManualLock = () => {
+    sessionStorage.removeItem(`duacel_auth_${magicToken}`)
+    setIsUnlocked(false)
+    setActiveTab('qr')
+    setPin(['', '', '', ''])
   }
 
   // ==========================================
@@ -237,7 +278,6 @@ export default function MemberMagicPage() {
       
       setResetResult({ success: true, message: '新しい暗証番号をメールで送信しました！\nメールをご確認ください。' })
       
-      // 成功したら3秒後にモーダルを閉じる
       setTimeout(() => {
          setIsForgotPinOpen(false)
          setResetResult(null)
@@ -252,7 +292,7 @@ export default function MemberMagicPage() {
   }
 
   // ==========================================
-  // ★ ポイント交換ロジック (バックエンドAPI連携)
+  // ★ ポイント交換ロジック
   // ==========================================
   const openRedeemModal = (type: 'bcart' | 'eraberu') => {
     setRedeemType(type)
@@ -287,12 +327,9 @@ export default function MemberMagicPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ staffId: staff.id, pin: enteredPin, redeemType: redeemType })
       })
-
       const data = await response.json()
 
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || '交換処理に失敗しました。')
-      }
+      if (!response.ok || !data.success) throw new Error(data.error || '交換処理に失敗しました。')
 
       setRedeemResultUrl(data.giftUrl)
       setRedeemStep('success')
@@ -331,12 +368,7 @@ export default function MemberMagicPage() {
     }
 
     const { error } = await supabase.from('staffs').update(updateData).eq('id', staff.id)
-    
-    if (error) {
-      setProfileError('情報の更新に失敗しました。')
-      setIsSaving(false)
-      return
-    }
+    if (error) { setProfileError('情報の更新に失敗しました。'); setIsSaving(false); return; }
 
     setStaff({ ...staff, ...updateData })
     setCurrentPinInput('')
@@ -354,6 +386,15 @@ export default function MemberMagicPage() {
     setProfileError('')
   }
 
+  // タイマー更新 (ロックアウト用)
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    if (lockoutUntil) {
+      const interval = setInterval(() => setNow(Date.now()), 1000)
+      return () => clearInterval(interval)
+    }
+  }, [lockoutUntil])
+
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
   if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50 text-gray-500 font-bold">ページが見つかりません。</div>
 
@@ -362,6 +403,30 @@ export default function MemberMagicPage() {
     confirmed: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
     issued: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
     cancel: { label: 'キャンセル', color: 'bg-red-50 text-red-600 border-red-100', icon: <Ban className="w-3 h-3" /> },
+  }
+
+  // ==========================================
+  // 🔒 ロックアウト画面（15分間ロック）
+  // ==========================================
+  if (lockoutUntil && lockoutUntil > now) {
+    const minutesLeft = Math.ceil((lockoutUntil - now) / 60000)
+    return (
+      <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center p-6 bg-white selection:bg-indigo-100 selection:text-indigo-900">
+        <div className="w-full max-w-sm text-center animate-in fade-in zoom-in-95 duration-500">
+          <div className="w-24 h-24 bg-red-50 text-red-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-sm border border-red-100">
+             <Ban className="w-12 h-12" />
+          </div>
+          <h2 className="text-2xl font-black text-gray-900 mb-3">アカウントロック中</h2>
+          <p className="text-sm font-bold text-gray-500 leading-relaxed mb-8">
+            暗証番号の入力を規定回数間違えたため、<br/>セキュリティ保護のため画面をロックしました。
+          </p>
+          <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100">
+            <p className="text-xs font-bold text-gray-400 mb-1">自動解除まで約</p>
+            <p className="text-4xl font-black text-red-600 tabular-nums">{minutesLeft} <span className="text-sm font-bold text-gray-400">分</span></p>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   // ==========================================
@@ -387,12 +452,7 @@ export default function MemberMagicPage() {
           <div className={`flex justify-center gap-4 mb-8 ${pinError ? 'animate-[shake_0.5s_ease-in-out]' : ''}`}>
             {pin.map((digit, index) => (
               <input
-                key={index}
-                ref={pinInputRefs[index]}
-                type="password"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
+                key={index} ref={pinInputRefs[index]} type="password" inputMode="numeric" maxLength={1} value={digit}
                 onChange={(e) => handlePinChange(index, e.target.value)}
                 onKeyDown={(e) => handlePinKeyDown(index, e, false)}
                 className={`w-14 h-16 text-center text-2xl font-black rounded-2xl border-2 outline-none transition-all shadow-sm ${
@@ -403,9 +463,12 @@ export default function MemberMagicPage() {
             ))}
           </div>
           
-          <div className="h-6 flex flex-col items-center">
+          <div className="h-8 flex flex-col items-center">
             {pinError ? (
-              <p className="text-center text-xs font-bold text-red-500 animate-in fade-in">暗証番号が間違っています</p>
+              <>
+                <p className="text-center text-xs font-bold text-red-500 animate-in fade-in mb-1">暗証番号が間違っています</p>
+                <p className="text-[10px] font-bold text-gray-400">残り試行回数: <span className="text-red-500">{attemptsLeft}回</span></p>
+              </>
             ) : (
               <p className="text-center text-[10px] text-gray-400 font-bold">※登録時に設定したPINコードです</p>
             )}
@@ -474,6 +537,12 @@ export default function MemberMagicPage() {
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{shop?.name}</p>
             <h1 className="text-sm font-extrabold text-gray-900">{staff.name} <span className="text-xs font-medium text-gray-500">の専用ページ</span></h1>
           </div>
+        </div>
+        {/* ★ 手動ロックボタン追加 */}
+        <div className="mt-4">
+          <button onClick={handleManualLock} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors" title="画面をロックする">
+            <LogOut className="w-5 h-5" />
+          </button>
         </div>
       </header>
 
