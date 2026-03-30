@@ -38,7 +38,7 @@ const swipeVariants = {
 
 export default function MemberJoinPage() {
   const params = useParams()
-  // ★ 変更：URLパラメータは shop_id ではなく invite_token になります
+  // URLパラメータは invite_token になります
   const inviteToken = params.id as string 
   const router = useRouter()
 
@@ -65,7 +65,7 @@ export default function MemberJoinPage() {
   // --- 店舗情報の取得（invite_token から逆引き検索） ---
   useEffect(() => {
     const fetchShop = async () => {
-      // ★ 変更：invite_tokenを使って店舗を特定し、実際のshop.id（S001など）を取得する
+      // invite_tokenを使って店舗を特定し、実際のshop.id（S0001など）を取得する
       const { data, error } = await supabase
         .from('shops')
         .select('id, name')
@@ -149,18 +149,20 @@ export default function MemberJoinPage() {
       }
 
       // 2. 新規登録処理
-      const { data: allStaffs } = await supabase.from('staffs').select('id')
-      const maxNum = allStaffs?.reduce((max, s) => {
-        const num = parseInt(s.id.replace('ST', ''), 10)
+      // ★ 変更：過去のデータを含めて最大値を計算し、m02, m03 と発番する
+      const { data: allStaffs } = await supabase.from('staffs').select('id').eq('shop_id', shop.id)
+      
+      const maxNum = (allStaffs || []).reduce((max, s) => {
+        const num = parseInt(s.id.replace('m', ''), 10)
         return !isNaN(num) && num > max ? num : max
-      }, 0) || 0
-      const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}`
-
+      }, 0)
+      
+      const nextStaffId = `m${(maxNum + 1).toString().padStart(2, '0')}`
       const secureToken = generateSecureToken()
-      // 紹介コードには本物の店舗ID（S001）を使う
+      // 紹介コードには本物の店舗ID（S0001など）を使う
       const publicReferralCode = `${shop.id}_${nextStaffId}`
 
-      // ★ security_pin を本番のDBカラムに保存
+      // security_pin を本番のDBカラムに保存
       const { error: insertError } = await supabase.from('staffs').insert([{
         id: nextStaffId, shop_id: shop.id, name: name, email: email,
         referral_code: publicReferralCode, secret_token: secureToken,
@@ -194,7 +196,7 @@ export default function MemberJoinPage() {
   }
 
   if (isPageLoading) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
-  if (!shop) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 text-gray-500">無効な招待URLです。</div>
+  if (!shop) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 text-gray-500 font-bold">無効な招待URLです。</div>
 
   return (
     <div className="fixed inset-0 bg-gray-50 flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-gray-800 overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
@@ -219,7 +221,7 @@ export default function MemberJoinPage() {
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><User className="w-5 h-5" /></div>
                   <input required placeholder="例: 山田 太郎" value={name} onChange={e => setName(e.target.value)} disabled={isLoading}
-                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
               </div>
 
@@ -228,7 +230,7 @@ export default function MemberJoinPage() {
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Mail className="w-5 h-5" /></div>
                   <input required type="email" placeholder="example@email.com" value={email} onChange={e => setEmail(e.target.value)} disabled={isLoading}
-                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
+                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
               </div>
 
@@ -242,7 +244,7 @@ export default function MemberJoinPage() {
                     value={pin} onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-lg tracking-[0.5em] font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
-                <p className="text-[10px] text-gray-400 mt-1.5">※設定変更時のロック解除に使用します</p>
+                <p className="text-[10px] text-gray-400 font-bold mt-1.5">※設定変更時のロック解除に使用します</p>
               </div>
             </div>
 
@@ -303,7 +305,7 @@ export default function MemberJoinPage() {
                   <h2 className="text-3xl font-black text-gray-900 leading-tight mb-4">
                     {isReturningUser ? 'おかえりなさい！' : '発行完了しました！'}
                   </h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-auto">
+                  <p className="text-sm text-gray-500 font-bold leading-relaxed mb-auto">
                     {isReturningUser 
                       ? `${name}さんの専用ページは準備万端です。\nさっそく活動を再開しましょう。` 
                       : `${name}さんの専用ページができました。\nお客様に紹介して、\nインセンティブを獲得しましょう。`}
@@ -322,7 +324,7 @@ export default function MemberJoinPage() {
                     <div className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl"><Gift className="w-8 h-8" /></div>
                   </div>
                   <h3 className="text-2xl font-black text-gray-900 mb-5">QRを見せるだけ</h3>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
+                  <p className="text-sm text-gray-500 font-bold leading-relaxed mb-8">
                     購入希望のお客様に、<br/>
                     あなたの<strong className="text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">専用QRコード</strong>を<br/>
                     スキャンしてもらうだけで完了です。
@@ -342,7 +344,7 @@ export default function MemberJoinPage() {
                     <Star className="w-5 h-5 text-yellow-400 absolute -top-2 -right-2 animate-pulse drop-shadow-lg" />
                   </div>
                   <h3 className="text-xl font-black text-gray-900 mb-4">1秒でQRを出すために</h3>
-                  <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">
+                  <p className="text-xs text-gray-500 font-bold leading-relaxed mb-6">
                     接客中にサッと提示できるよう、<br/>
                     <strong className="text-indigo-600">スマートフォンのホーム画面</strong>に<br/>
                     追加しておきましょう。
@@ -351,13 +353,13 @@ export default function MemberJoinPage() {
                   {deviceType === 'ios' ? (
                     <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 shadow-inner mb-auto">
                       <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Apple className="w-4 h-4" /> やり方 (iPhone)</p>
-                      <ol className="text-[11px] text-gray-600 space-y-3 font-medium">
+                      <ol className="text-[11px] text-gray-600 space-y-3 font-bold">
                         <li className="flex items-center gap-3">
                           <span className="w-7 h-7 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-500 shadow-sm"><Share className="w-4 h-4" /></span>
                           Safari下の「共有」ボタンをタップ
                         </li>
                         <li className="flex items-center gap-3">
-                          <span className="w-7 h-7 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-500 font-bold shadow-sm">+</span>
+                          <span className="w-7 h-7 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-500 font-black shadow-sm">+</span>
                           「ホーム画面に追加」を選択
                         </li>
                       </ol>
@@ -365,7 +367,7 @@ export default function MemberJoinPage() {
                   ) : (
                     <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 shadow-inner mb-auto">
                       <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Smartphone className="w-4 h-4" /> やり方 (Android / PC)</p>
-                      <p className="text-[11px] text-gray-600 font-medium leading-relaxed">
+                      <p className="text-[11px] text-gray-600 font-bold leading-relaxed">
                         ブラウザのメニュー（︙）を開き、<br/>
                         <strong className="text-gray-900">「アプリをインストール」</strong> または<br/>
                         <strong className="text-gray-900">「ホーム画面に追加」</strong> を選択してください。
@@ -383,7 +385,7 @@ export default function MemberJoinPage() {
                     <Sparkles className="w-12 h-12 text-white relative z-10" />
                   </div>
                   <h2 className="text-3xl font-black text-gray-900 mb-3">準備完了です！</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-auto">
+                  <p className="text-sm text-gray-500 font-bold leading-relaxed mb-auto">
                     まずはご自身のQRコードを<br/>
                     確認してみましょう。
                   </p>
@@ -401,7 +403,7 @@ export default function MemberJoinPage() {
                         <ChevronRight className="w-5 h-5" />
                       </div>
                     </button>
-                    <p className="text-[10px] text-gray-400 font-medium mt-4">※ホーム画面に追加してから開くのがおすすめです</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-4">※ホーム画面に追加してから開くのがおすすめです</p>
                   </div>
                 </div>
               )}
@@ -412,7 +414,7 @@ export default function MemberJoinPage() {
           {onboardingStep < TOTAL_STEPS && (
             <motion.div 
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 text-[10px] font-bold text-gray-400 tracking-widest uppercase pointer-events-none"
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 text-[10px] font-black text-gray-400 tracking-widest uppercase pointer-events-none"
             >
               <ArrowLeft className="w-3 h-3 animate-pulse" /> Swipe <ArrowRight className="w-3 h-3 animate-pulse" />
             </motion.div>

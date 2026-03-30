@@ -28,7 +28,7 @@ export default function OwnerDashboard() {
   const [activeTab, setActiveTab] = useState<'stats' | 'history' | 'staff'>('stats')
 
   const [shop, setShop] = useState<any>(null)
-  const [category, setCategory] = useState<any>(null) // ★ rankからcategoryに変更
+  const [category, setCategory] = useState<any>(null)
   const [staffs, setStaffs] = useState<any[]>([])
   const [referralHistory, setReferralHistory] = useState<any[]>([])
  
@@ -63,7 +63,6 @@ export default function OwnerDashboard() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return; }
 
-    // ★ 変更点: shop_ranks ではなく shop_categories をJOINする
     const { data: shopData } = await supabase
       .from('shops')
       .select(`*, shop_categories (*), ratio_individual, ratio_team, ratio_owner`)
@@ -81,7 +80,6 @@ export default function OwnerDashboard() {
       owner: shopData.ratio_owner ?? 0
     })
 
-    // ★ 変更点: カテゴリの基本ポイントとボーナス設定を取得
     const currentRewardPoints = shopData.shop_categories?.reward_points || 0
     const firstBonusEnabled = shopData.shop_categories?.first_bonus_enabled || false
     const firstBonusPoints = shopData.shop_categories?.first_bonus_points || 0
@@ -107,7 +105,6 @@ export default function OwnerDashboard() {
       staffCounters[log.staff_id] = (staffCounters[log.staff_id] || 0) + 1;
       const refTxs = pointLogs.filter(tx => tx.referral_id === log.id && (tx.status === 'confirmed' || tx.status === 'paid'));
       
-      // ★ 変更点: 新しいカテゴリの初回ボーナスロジックを反映した仮計上ポイントの計算
       const isOldest = index === 0;
       const isFirstTime = log.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       
@@ -199,15 +196,21 @@ export default function OwnerDashboard() {
     setIsPolicyModalOpen(false);
   };
 
+  // ★ 安全なメンバー追加ロジック（欠番の使い回しを防ぐ）
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newStaffName.trim() || !newStaffEmail.trim()) return alert('名前とメールアドレスを入力してください。');
     
-    const maxNum = staffs.reduce((max, s) => {
-      const num = parseInt(s.id.replace('ST', ''), 10)
+    // DBから削除済みも含めた「過去のすべてのスタッフ」を取得して最大値を計算
+    const { data: allStaffs } = await supabase.from('staffs').select('id').eq('shop_id', shop.id)
+    
+    const maxNum = (allStaffs || []).reduce((max, s) => {
+      const num = parseInt(s.id.replace('m', ''), 10)
       return !isNaN(num) && num > max ? num : max
     }, 0)
-    const nextStaffId = `ST${(maxNum + 1).toString().padStart(3, '0')}`
+    
+    // m02, m03 と2桁でゼロ埋めして発番
+    const nextStaffId = `m${(maxNum + 1).toString().padStart(2, '0')}`
     const secureToken = generateSecureToken()
 
     const { error } = await supabase.from('staffs').insert([{ 
@@ -269,7 +272,6 @@ export default function OwnerDashboard() {
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <h1 className="text-xl font-black text-gray-900 tracking-tight">{shop.name}</h1>
-                        {/* ★ 変更点: カテゴリ名の表示 */}
                         {category && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-bold rounded-full">{category.label}</span>}
                       </div>
                       <p className="text-[10px] text-gray-400 font-mono">ID: {shop.id}</p>
