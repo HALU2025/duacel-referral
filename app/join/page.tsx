@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
@@ -84,13 +84,16 @@ export default function ShopJoinPage() {
     try {
       const finalShopName = shopName.trim() !== '' ? shopName.trim() : ownerName.trim()
 
+      // 1. Supabase Auth にユーザー登録
       const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
       if (authError) throw new Error('アカウント作成エラー: ' + authError.message)
 
       const userId = authData.user?.id
+      // 仮のID（あとで S0001 形式にアップデートする）
       const tempId = `TEMP_${Date.now()}`
       const inviteToken = generateInviteToken()
 
+      // 2. 店舗情報の登録（このタイミングでDB側で shop_number が自動的に連番で発番される）
       const { data: newShop, error: insertError } = await supabase
         .from('shops').insert([{ 
           id: tempId, name: finalShopName, owner_email: email, phone: phone, owner_id: userId, invite_token: inviteToken 
@@ -98,16 +101,21 @@ export default function ShopJoinPage() {
       
       if (insertError) throw new Error('店舗登録エラー: ' + insertError.message)
 
-      const formattedShopId = `S${newShop.shop_number.toString().padStart(3, '0')}`
+      // 3. 発番された shop_number を使って、美しいID（S0001形式）を作り、DBをアップデートする
+      // ※4桁パディング（S0001, S0002...）に変更
+      const formattedShopId = `S${newShop.shop_number.toString().padStart(4, '0')}`
       const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
       if (updateError) throw new Error('店舗ID確定エラー: ' + updateError.message)
 
-      const nextStaffId = `ST${generateSecureToken().toUpperCase()}` 
+      // 4. オーナーのスタッフ情報登録
+      // ★ 変更点：オーナーのIDは必ず 'm01' に固定し、紹介コードは 'S0001_m01' 形式にする
+      const ownerStaffId = 'm01'
       const secureToken = generateSecureToken()
       
       const { error: staffError } = await supabase.from('staffs').insert([{
-        id: nextStaffId, shop_id: formattedShopId, name: ownerName, email: email,
-        referral_code: `${formattedShopId}_${nextStaffId}`, secret_token: secureToken, 
+        id: ownerStaffId, shop_id: formattedShopId, name: ownerName, email: email,
+        referral_code: `${formattedShopId}_${ownerStaffId}`, // 例: S0001_m01
+        secret_token: secureToken, 
         security_pin: pin, is_deleted: false
       }])
       
