@@ -22,6 +22,11 @@ const getGradient = (name: string) => {
   return colors[index];
 }
 
+const generateSecureToken = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
 export default function MemberMagicPage() {
   const params = useParams()
   const magicToken = params.id as string 
