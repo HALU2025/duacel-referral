@@ -235,6 +235,15 @@ export default function MemberMagicPage() {
     setStaff({ ...staff, ...updateData }); setCurrentPinInput(''); setNewPinInput(''); setIsSaving(false); setIsEditMode(false) 
   }
 
+  const handleCancelEdit = () => {
+    setIsEditMode(false)
+    setEditName(staff.name)
+    setEditEmail(staff.email)
+    setCurrentPinInput('')
+    setNewPinInput('')
+    setProfileError('')
+  }
+
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (lockoutUntil) { const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval) }
