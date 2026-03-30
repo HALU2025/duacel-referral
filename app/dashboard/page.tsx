@@ -9,7 +9,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   RefreshCw, LogOut, Clock, CheckCircle2, Wallet, 
   CheckCheck, Users, Plus, Crown, Settings, Link as LinkIcon, 
-  QrCode, Trash2, Coins, Smartphone, ClipboardList, X, Ban, Trophy, Calendar, LayoutDashboard, Share, Edit2, Loader2
+  QrCode, Trash2, Coins, Smartphone, ClipboardList, X, Ban, Trophy, 
+  Calendar, LayoutDashboard, Share, Edit2, Loader2, Mail, Key, ShieldCheck
 } from 'lucide-react'
 
 const generateSecureToken = () => {
@@ -25,7 +26,8 @@ const STATUS_MAP: any = {
 }
 
 export default function OwnerDashboard() {
-  const [activeTab, setActiveTab] = useState<'stats' | 'history' | 'staff'>('stats')
+  // ★ activeTab に 'settings' を追加
+  const [activeTab, setActiveTab] = useState<'stats' | 'history' | 'staff' | 'settings'>('stats')
 
   const [shop, setShop] = useState<any>(null)
   const [category, setCategory] = useState<any>(null)
@@ -48,7 +50,6 @@ export default function OwnerDashboard() {
   const [selectedStaff, setSelectedStaff] = useState<any>(null)
   
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
-
   const [detailStaff, setDetailStaff] = useState<any>(null)
 
   const [summary, setSummary] = useState({
@@ -58,10 +59,22 @@ export default function OwnerDashboard() {
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
+  // ==========================================
+  // ★ オーナーアカウント設定用ステート
+  // ==========================================
+  const [authEmail, setAuthEmail] = useState('')
+  const [newOwnerEmail, setNewOwnerEmail] = useState('')
+  const [newOwnerPassword, setNewOwnerPassword] = useState('')
+  const [isUpdatingAuth, setIsUpdatingAuth] = useState(false)
+  const [authMessage, setAuthMessage] = useState<{type: 'success' | 'error', text: string} | null>(null)
+
+
   const loadData = async () => {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return; }
+
+    setAuthEmail(user.email || '')
 
     const { data: shopData } = await supabase
       .from('shops')
@@ -196,12 +209,10 @@ export default function OwnerDashboard() {
     setIsPolicyModalOpen(false);
   };
 
-  // ★ 安全なメンバー追加ロジック（欠番の使い回しを防ぐ）
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newStaffName.trim() || !newStaffEmail.trim()) return alert('名前とメールアドレスを入力してください。');
     
-    // DBから削除済みも含めた「過去のすべてのスタッフ」を取得して最大値を計算
     const { data: allStaffs } = await supabase.from('staffs').select('id').eq('shop_id', shop.id)
     
     const maxNum = (allStaffs || []).reduce((max, s) => {
@@ -209,7 +220,6 @@ export default function OwnerDashboard() {
       return !isNaN(num) && num > max ? num : max
     }, 0)
     
-    // m02, m03 と2桁でゼロ埋めして発番
     const nextStaffId = `m${(maxNum + 1).toString().padStart(2, '0')}`
     const secureToken = generateSecureToken()
 
@@ -234,6 +244,44 @@ export default function OwnerDashboard() {
   const handleCopy = (text: string) => {
     navigator.clipboard.writeText(text)
     alert('URLをコピーしました！')
+  }
+
+  // ==========================================
+  // ★ オーナーアカウント情報の更新ロジック
+  // ==========================================
+  const handleUpdateEmail = async () => {
+    if (!newOwnerEmail) return
+    setIsUpdatingAuth(true)
+    setAuthMessage(null)
+
+    const { error } = await supabase.auth.updateUser({ email: newOwnerEmail })
+    
+    if (error) {
+      setAuthMessage({ type: 'error', text: 'メールアドレスの変更に失敗しました: ' + error.message })
+    } else {
+      setAuthMessage({ type: 'success', text: '確認メールを送信しました。新しいメールアドレスと古いメールアドレスの両方に届いたリンクをクリックして変更を完了してください。' })
+      setNewOwnerEmail('')
+    }
+    setIsUpdatingAuth(false)
+  }
+
+  const handleUpdatePassword = async () => {
+    if (newOwnerPassword.length < 6) {
+      setAuthMessage({ type: 'error', text: 'パスワードは6文字以上で入力してください。' })
+      return
+    }
+    setIsUpdatingAuth(true)
+    setAuthMessage(null)
+
+    const { error } = await supabase.auth.updateUser({ password: newOwnerPassword })
+    
+    if (error) {
+      setAuthMessage({ type: 'error', text: 'パスワードの変更に失敗しました: ' + error.message })
+    } else {
+      setAuthMessage({ type: 'success', text: 'パスワードを正常に変更しました。' })
+      setNewOwnerPassword('')
+    }
+    setIsUpdatingAuth(false)
   }
 
   useEffect(() => { loadData() }, [router])
@@ -276,9 +324,6 @@ export default function OwnerDashboard() {
                       </div>
                       <p className="text-[10px] text-gray-400 font-mono">ID: {shop.id}</p>
                     </div>
-                    <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="p-2 bg-gray-50 text-gray-400 rounded-full hover:bg-gray-100 transition">
-                      <LogOut className="w-4 h-4" />
-                    </button>
                   </div>
                   
                   {ownerStaff?.secret_token && (
@@ -422,6 +467,77 @@ export default function OwnerDashboard() {
             </div>
           )}
 
+          {/* =========================================
+              ★ 新設タブ: Settings (アカウント設定)
+          ========================================= */}
+          {activeTab === 'settings' && (
+            <div className="p-5 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <h2 className="text-lg font-black text-gray-900 mb-2 flex items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-indigo-500" /> アカウント・セキュリティ設定
+              </h2>
+              <p className="text-xs text-gray-500 font-bold mb-6">
+                店舗の管理者（オーナー）としてのログイン情報を管理します。
+              </p>
+
+              {/* メールアドレス変更セクション */}
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-1"><Mail className="w-4 h-4 text-indigo-500"/> ログイン用メールアドレスの変更</h3>
+                  <p className="text-[10px] text-gray-400 font-bold">現在のメールアドレス: <span className="text-gray-700">{authEmail}</span></p>
+                </div>
+                
+                <input 
+                  type="email" placeholder="新しいメールアドレス" value={newOwnerEmail} onChange={e => setNewOwnerEmail(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+                />
+                
+                <button 
+                  onClick={handleUpdateEmail} disabled={!newOwnerEmail || isUpdatingAuth}
+                  className="w-full py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdatingAuth ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : '確認メールを送信する'}
+                </button>
+              </div>
+
+              {/* パスワード変更セクション */}
+              <div className="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5 mb-1"><Key className="w-4 h-4 text-indigo-500"/> パスワードの変更</h3>
+                  <p className="text-[10px] text-gray-400 font-bold">セキュリティのため定期的な変更をおすすめします。</p>
+                </div>
+                
+                <input 
+                  type="password" placeholder="新しいパスワード（6文字以上）" value={newOwnerPassword} onChange={e => setNewOwnerPassword(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" 
+                />
+                
+                <button 
+                  onClick={handleUpdatePassword} disabled={!newOwnerPassword || isUpdatingAuth}
+                  className="w-full py-3 bg-indigo-50 text-indigo-600 font-bold rounded-xl active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isUpdatingAuth ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'パスワードを変更する'}
+                </button>
+              </div>
+
+              {/* メッセージ表示エリア */}
+              <AnimatePresence>
+                {authMessage && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className={`p-4 rounded-xl text-xs font-bold flex items-start gap-2 leading-relaxed ${authMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                    {authMessage.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <Ban className="w-4 h-4 shrink-0" />}
+                    {authMessage.text}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ログアウトボタン */}
+              <div className="pt-6 border-t border-gray-200">
+                <button onClick={() => supabase.auth.signOut().then(() => router.push('/login'))} className="w-full py-4 bg-gray-900 text-white font-bold rounded-xl shadow-md flex items-center justify-center gap-2 active:scale-95 transition-all">
+                  <LogOut className="w-4 h-4" /> 管理システムからログアウトする
+                </button>
+              </div>
+            </div>
+          )}
+
         </main>
 
         {/* =========================================
@@ -432,9 +548,10 @@ export default function OwnerDashboard() {
             { id: 'stats', icon: <LayoutDashboard className="w-6 h-6" />, label: 'ホーム' },
             { id: 'history', icon: <ClipboardList className="w-6 h-6" />, label: '明細' },
             { id: 'staff', icon: <Users className="w-6 h-6" />, label: 'メンバー' },
+            { id: 'settings', icon: <Settings className="w-6 h-6" />, label: '設定' }, // ★ 新設
           ].map(tab => (
             <button 
-              key={tab.id} onClick={() => setActiveTab(tab.id as any)}
+              key={tab.id} onClick={() => { setActiveTab(tab.id as any); setAuthMessage(null); }}
               className={`flex flex-col items-center justify-center w-full py-3 gap-1 transition-colors ${activeTab === tab.id ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'}`}
             >
               <div className={`transition-transform duration-200 ${activeTab === tab.id ? 'scale-110' : 'scale-100'}`}>
