@@ -103,7 +103,7 @@ export default function ShopJoinPage() {
 
       // 3. 発番された shop_number を使って、美しいID（S0001形式）を作り、DBをアップデートする
       // ※4桁パディング（S0001, S0002...）に変更
-      const formattedShopId = `S${newShop.shop_number.toString().padStart(4, '0')}`
+      const formattedShopId = `s${newShop.shop_number.toString().padStart(4, '0')}`
       const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
       if (updateError) throw new Error('店舗ID確定エラー: ' + updateError.message)
 

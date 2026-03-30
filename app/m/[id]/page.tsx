@@ -63,9 +63,16 @@ export default function MemberMagicPage() {
 
   const [copied, setCopied] = useState(false)
   const [isInviteQrOpen, setIsInviteQrOpen] = useState(false) 
+  
+  // ==========================================
+  // ★ プロフィール・PIN編集用ステート
+  // ==========================================
   const [isEditMode, setIsEditMode] = useState(false) 
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
+  const [currentPinInput, setCurrentPinInput] = useState('') // 追加: 現在のPIN
+  const [newPinInput, setNewPinInput] = useState('')         // 追加: 新しいPIN
+  const [profileError, setProfileError] = useState('')       // 追加: プロフィール保存時のエラー
   const [isSaving, setIsSaving] = useState(false)
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code}` : ''
@@ -112,7 +119,6 @@ export default function MemberMagicPage() {
       const isOwnerAction = shopData.owner_email === staffData.email;
       let myEarnedPoints = 0;
       
-      // ★ バックエンドと同じ厳密な分配計算に統一
       const actualTxPoints = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
 
       if (r.status === 'pending') {
@@ -225,7 +231,6 @@ export default function MemberMagicPage() {
     }
   }
 
-  // ★ サーバーのAPIを呼び出して安全に処理する
   const executeRedemption = async (enteredPin: string) => {
     if (isRedeeming) return;
     setIsRedeeming(true)
@@ -247,10 +252,9 @@ export default function MemberMagicPage() {
         throw new Error(data.error || '交換処理に失敗しました。')
       }
 
-      // サーバーから返ってきた本物のギフトURLをセット
       setRedeemResultUrl(data.giftUrl)
       setRedeemStep('success')
-      await loadData() // ウォレットの数字を最新に更新
+      await loadData() 
 
     } catch (err: any) {
       setRedeemError(err.message)
@@ -261,19 +265,58 @@ export default function MemberMagicPage() {
     }
   }
 
-
   const handlePinKeyDown = (index: number, e: React.KeyboardEvent, isRedeem = false) => {
     if (e.key === 'Backspace' && !(isRedeem ? redeemPin : pin)[index] && index > 0) {
       (isRedeem ? redeemPinRefs : pinInputRefs)[index - 1].current?.focus()
     }
   }
 
+  // ==========================================
+  // ★ プロフィール・PIN更新ロジック
+  // ==========================================
   const handleSaveProfile = async () => {
     setIsSaving(true)
-    await supabase.from('staffs').update({ name: editName, email: editEmail }).eq('id', staff.id)
-    setStaff({ ...staff, name: editName, email: editEmail })
+    setProfileError('')
+
+    let updateData: any = { name: editName, email: editEmail }
+
+    // PINの変更要求がある場合の検証
+    if (newPinInput) {
+      if (newPinInput.length !== 4) {
+        setProfileError('新しいPINは4桁で入力してください。')
+        setIsSaving(false)
+        return
+      }
+      if (staff.security_pin && currentPinInput !== staff.security_pin) {
+        setProfileError('現在の暗証番号が間違っています。')
+        setIsSaving(false)
+        return
+      }
+      updateData.security_pin = newPinInput
+    }
+
+    const { error } = await supabase.from('staffs').update(updateData).eq('id', staff.id)
+    
+    if (error) {
+      setProfileError('情報の更新に失敗しました。')
+      setIsSaving(false)
+      return
+    }
+
+    setStaff({ ...staff, ...updateData })
+    setCurrentPinInput('')
+    setNewPinInput('')
     setIsSaving(false)
     setIsEditMode(false) 
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditMode(false)
+    setEditName(staff.name)
+    setEditEmail(staff.email)
+    setCurrentPinInput('')
+    setNewPinInput('')
+    setProfileError('')
   }
 
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
@@ -380,7 +423,6 @@ export default function MemberMagicPage() {
             {activeTab === 'wallet' && (
                <div className="max-w-md mx-auto space-y-6">
                  
-                 {/* ウォレットカード */}
                  <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-6 rounded-[2rem] shadow-xl shadow-indigo-200 relative overflow-hidden">
                    <div className="absolute top-0 right-0 p-4 opacity-10"><Wallet className="w-24 h-24" /></div>
                    
@@ -409,7 +451,6 @@ export default function MemberMagicPage() {
                    </div>
                  </div>
 
-                 {/* 履歴リスト */}
                  <div>
                    <h3 className="text-sm font-extrabold text-gray-900 mb-4 flex items-center gap-2">
                      <History className="w-5 h-5 text-indigo-500" /> アクション履歴
@@ -468,7 +509,7 @@ export default function MemberMagicPage() {
                         <Edit2 className="w-3 h-3 text-gray-400" /> 編集する
                       </button>
                     ) : (
-                      <button onClick={() => { setIsEditMode(false); setEditName(staff.name); setEditEmail(staff.email); }} className="px-4 py-2 bg-gray-100 text-gray-500 rounded-full text-xs font-bold hover:bg-gray-200 transition-all">
+                      <button onClick={handleCancelEdit} className="px-4 py-2 bg-gray-100 text-gray-500 rounded-full text-xs font-bold hover:bg-gray-200 transition-all">
                         キャンセル
                       </button>
                     )
@@ -496,12 +537,44 @@ export default function MemberMagicPage() {
                       <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider"><Mail className="w-3.5 h-3.5" /> メールアドレス</label>
                       {!isEditMode ? <p className="text-sm font-medium text-gray-600 px-1">{staff.email}</p> : <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full bg-indigo-50/50 border border-indigo-100 rounded-xl px-4 py-3 text-sm font-medium text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />}
                     </div>
+                    
+                    {/* ★ 追加：PIN変更セクション */}
+                    <div className="h-px bg-gray-100" />
+                    <div>
+                      <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">
+                        <Lock className="w-3.5 h-3.5" /> 暗証番号（PIN）の変更
+                      </label>
+                      {!isEditMode ? (
+                        <p className="text-sm font-bold text-gray-600 px-1 tracking-widest">••••</p>
+                      ) : (
+                        <div className="space-y-3">
+                          <input 
+                            type="password" inputMode="numeric" maxLength={4} placeholder="現在のPIN (4桁)" 
+                            value={currentPinInput} onChange={e => setCurrentPinInput(e.target.value.replace(/[^0-9]/g, ''))}
+                            className="w-full bg-indigo-50/50 border border-indigo-100 rounded-xl px-4 py-3 text-sm font-bold tracking-[0.5em] font-mono text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                          />
+                          <input 
+                            type="password" inputMode="numeric" maxLength={4} placeholder="新しいPIN (4桁)" 
+                            value={newPinInput} onChange={e => setNewPinInput(e.target.value.replace(/[^0-9]/g, ''))}
+                            className="w-full bg-indigo-50/50 border border-indigo-100 rounded-xl px-4 py-3 text-sm font-bold tracking-[0.5em] font-mono text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                          />
+                          <p className="text-[10px] text-gray-400 font-bold px-1">※変更しない場合は空欄のままにしてください</p>
+                        </div>
+                      )}
+                    </div>
+                    {/* --- 追加おわり --- */}
                   </div>
 
                   <AnimatePresence>
                     {isEditMode && (
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="p-6 pt-0 border-t border-gray-50 bg-gray-50/30">
-                        <button onClick={handleSaveProfile} disabled={isSaving || (editName === staff.name && editEmail === staff.email)} className="w-full mt-6 py-4 bg-indigo-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 transition-all shadow-lg active:scale-95 flex justify-center items-center gap-2">
+                        {/* エラーメッセージ表示 */}
+                        {profileError && (
+                          <div className="p-3 mb-4 bg-red-50 text-red-600 border border-red-100 rounded-xl text-xs font-bold flex items-start gap-2">
+                            <X className="w-4 h-4 shrink-0" /> {profileError}
+                          </div>
+                        )}
+                        <button onClick={handleSaveProfile} disabled={isSaving || (editName === staff.name && editEmail === staff.email && !newPinInput)} className="w-full py-4 bg-indigo-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 transition-all shadow-lg active:scale-95 flex justify-center items-center gap-2">
                           {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : '変更を保存する'}
                         </button>
                       </motion.div>
