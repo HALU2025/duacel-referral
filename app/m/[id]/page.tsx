@@ -10,7 +10,7 @@ import {
   QrCode, Copy, MessageCircle, Wallet, Gift, Clock, History, 
   Settings, Mail, User, CheckCircle2, ShieldCheck, Loader2, Edit2,
   Lock, X, Smartphone, Crown, LayoutDashboard, ChevronRight, Share, UserPlus,
-  Ban, CheckCheck, ArrowRight, Store, CreditCard
+  Ban, CheckCheck, ArrowRight, Store, CreditCard, Send
 } from 'lucide-react'
 
 const getGradient = (name: string) => {
@@ -42,6 +42,12 @@ export default function MemberMagicPage() {
   const [pinError, setPinError] = useState(false)
   const pinInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
 
+  // ★ PINリセット用ステート
+  const [isForgotPinOpen, setIsForgotPinOpen] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [isResetting, setIsResetting] = useState(false)
+  const [resetResult, setResetResult] = useState<{success?: boolean, message: string} | null>(null)
+
   // ==========================================
   // ★ ポイント交換用ステート
   // ==========================================
@@ -64,15 +70,13 @@ export default function MemberMagicPage() {
   const [copied, setCopied] = useState(false)
   const [isInviteQrOpen, setIsInviteQrOpen] = useState(false) 
   
-  // ==========================================
-  // ★ プロフィール・PIN編集用ステート
-  // ==========================================
+  // プロフィール・PIN編集用ステート
   const [isEditMode, setIsEditMode] = useState(false) 
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
-  const [currentPinInput, setCurrentPinInput] = useState('') // 追加: 現在のPIN
-  const [newPinInput, setNewPinInput] = useState('')         // 追加: 新しいPIN
-  const [profileError, setProfileError] = useState('')       // 追加: プロフィール保存時のエラー
+  const [currentPinInput, setCurrentPinInput] = useState('') 
+  const [newPinInput, setNewPinInput] = useState('')         
+  const [profileError, setProfileError] = useState('')       
   const [isSaving, setIsSaving] = useState(false)
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code}` : ''
@@ -205,6 +209,48 @@ export default function MemberMagicPage() {
     }
   }
 
+  const handlePinKeyDown = (index: number, e: React.KeyboardEvent, isRedeem = false) => {
+    if (e.key === 'Backspace' && !(isRedeem ? redeemPin : pin)[index] && index > 0) {
+      (isRedeem ? redeemPinRefs : pinInputRefs)[index - 1].current?.focus()
+    }
+  }
+
+  // ==========================================
+  // ★ PINリセットロジック
+  // ==========================================
+  const handleForgotPin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsResetting(true)
+    setResetResult(null)
+
+    try {
+      const res = await fetch('/api/reset-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secretToken: magicToken, email: forgotEmail })
+      })
+      const data = await res.json()
+      
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'エラーが発生しました')
+      }
+      
+      setResetResult({ success: true, message: '新しい暗証番号をメールで送信しました！\nメールをご確認ください。' })
+      
+      // 成功したら3秒後にモーダルを閉じる
+      setTimeout(() => {
+         setIsForgotPinOpen(false)
+         setResetResult(null)
+         setForgotEmail('')
+      }, 3000)
+
+    } catch (err: any) {
+      setResetResult({ success: false, message: err.message })
+    } finally {
+      setIsResetting(false)
+    }
+  }
+
   // ==========================================
   // ★ ポイント交換ロジック (バックエンドAPI連携)
   // ==========================================
@@ -239,11 +285,7 @@ export default function MemberMagicPage() {
       const response = await fetch('/api/redeem', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          staffId: staff.id,
-          pin: enteredPin,
-          redeemType: redeemType
-        })
+        body: JSON.stringify({ staffId: staff.id, pin: enteredPin, redeemType: redeemType })
       })
 
       const data = await response.json()
@@ -265,12 +307,6 @@ export default function MemberMagicPage() {
     }
   }
 
-  const handlePinKeyDown = (index: number, e: React.KeyboardEvent, isRedeem = false) => {
-    if (e.key === 'Backspace' && !(isRedeem ? redeemPin : pin)[index] && index > 0) {
-      (isRedeem ? redeemPinRefs : pinInputRefs)[index - 1].current?.focus()
-    }
-  }
-
   // ==========================================
   // ★ プロフィール・PIN更新ロジック
   // ==========================================
@@ -280,7 +316,6 @@ export default function MemberMagicPage() {
 
     let updateData: any = { name: editName, email: editEmail }
 
-    // PINの変更要求がある場合の検証
     if (newPinInput) {
       if (newPinInput.length !== 4) {
         setProfileError('新しいPINは4桁で入力してください。')
@@ -335,6 +370,8 @@ export default function MemberMagicPage() {
   if (!isUnlocked) {
     return (
       <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center p-6 bg-white selection:bg-indigo-100 selection:text-indigo-900">
+        
+        {/* メインのPIN入力画面 */}
         <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
           <div className="text-center mb-10">
             <p className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-2">Duacel 紹介プログラム</p>
@@ -366,18 +403,65 @@ export default function MemberMagicPage() {
             ))}
           </div>
           
-          <div className="h-6">
+          <div className="h-6 flex flex-col items-center">
             {pinError ? (
               <p className="text-center text-xs font-bold text-red-500 animate-in fade-in">暗証番号が間違っています</p>
             ) : (
               <p className="text-center text-[10px] text-gray-400 font-bold">※登録時に設定したPINコードです</p>
             )}
           </div>
+          
+          <div className="mt-8 text-center">
+            <button onClick={() => setIsForgotPinOpen(true)} className="text-xs font-bold text-indigo-500 hover:text-indigo-600 underline underline-offset-4 transition-colors">
+              暗証番号を忘れた方はこちら
+            </button>
+          </div>
         </div>
+
+        {/* PINリセットモーダル */}
+        <AnimatePresence>
+          {isForgotPinOpen && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[110] bg-gray-900/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="bg-white rounded-[2rem] p-6 sm:p-8 w-full max-w-md mx-auto shadow-2xl relative overflow-hidden">
+                <button onClick={() => setIsForgotPinOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X className="w-5 h-5" /></button>
+                
+                <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mb-6">
+                  <Mail className="w-6 h-6" />
+                </div>
+                
+                <h3 className="text-xl font-black text-gray-900 mb-2">暗証番号の再設定</h3>
+                <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">
+                  ご登録されているメールアドレスを入力してください。<br/>新しい暗証番号を発行して送信します。
+                </p>
+
+                <form onSubmit={handleForgotPin} className="space-y-4">
+                  <input 
+                    type="email" required placeholder="example@email.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} disabled={isResetting}
+                    className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none"
+                  />
+
+                  {resetResult && (
+                    <div className={`p-3 rounded-xl text-xs font-bold flex items-start gap-2 whitespace-pre-wrap ${resetResult.success ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+                      {resetResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <Ban className="w-4 h-4 shrink-0" />}
+                      {resetResult.message}
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={isResetting || !forgotEmail} className="w-full py-4 bg-gray-900 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition flex justify-center items-center gap-2 disabled:opacity-50">
+                    {isResetting ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Send className="w-4 h-4" /> 再発行メールを送信する</>}
+                  </button>
+                </form>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     )
   }
 
+  // ==========================================
+  // 🔓 メイン画面
+  // ==========================================
   return (
     <div className="fixed inset-0 bg-gray-50 flex flex-col font-sans text-gray-800 overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
       
@@ -538,7 +622,6 @@ export default function MemberMagicPage() {
                       {!isEditMode ? <p className="text-sm font-medium text-gray-600 px-1">{staff.email}</p> : <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full bg-indigo-50/50 border border-indigo-100 rounded-xl px-4 py-3 text-sm font-medium text-indigo-900 focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />}
                     </div>
                     
-                    {/* ★ 追加：PIN変更セクション */}
                     <div className="h-px bg-gray-100" />
                     <div>
                       <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-wider">
@@ -562,13 +645,11 @@ export default function MemberMagicPage() {
                         </div>
                       )}
                     </div>
-                    {/* --- 追加おわり --- */}
                   </div>
 
                   <AnimatePresence>
                     {isEditMode && (
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="p-6 pt-0 border-t border-gray-50 bg-gray-50/30">
-                        {/* エラーメッセージ表示 */}
                         {profileError && (
                           <div className="p-3 mb-4 bg-red-50 text-red-600 border border-red-100 rounded-xl text-xs font-bold flex items-start gap-2">
                             <X className="w-4 h-4 shrink-0" /> {profileError}
@@ -604,7 +685,7 @@ export default function MemberMagicPage() {
       </main>
 
       {/* ==========================================
-          ★ ポイント交換モーダル（API呼び出し版）
+          ★ ポイント交換モーダル
       ========================================== */}
       <AnimatePresence>
         {isRedeemModalOpen && (
