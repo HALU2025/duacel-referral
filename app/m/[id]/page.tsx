@@ -58,33 +58,93 @@ export default function MemberMagicPage() {
       const { data: staffData, error } = await supabase.from('staffs').select('*').eq('secret_token', magicToken).single()
       if (error || !staffData) { setLoading(false); return; }
 
-      const { data: shopData } = await supabase.from('shops').select('*').eq('id', staffData.shop_id).single()
+      // ★ 変更: shop_categories を結合して取得
+      const { data: shopData } = await supabase.from('shops').select('*, shop_categories(*)').eq('id', staffData.shop_id).single()
 
-      const [refRes, txRes] = await Promise.all([
-        supabase.from('referrals').select('*').eq('staff_id', staffData.id).order('created_at', { ascending: false }),
-        supabase.from('point_transactions').select('*').eq('shop_id', staffData.shop_id)
+      const [refRes, txRes, staffCountRes] = await Promise.all([
+        supabase.from('referrals').select('*').eq('shop_id', staffData.shop_id).order('created_at', { ascending: true }), // 全体実績（計算用）
+        supabase.from('point_transactions').select('*').eq('shop_id', staffData.shop_id), // 全体ポイント（計算用）
+        supabase.from('staffs').select('id', { count: 'exact' }).eq('shop_id', staffData.shop_id).eq('is_deleted', false) // チーム人数
       ])
 
-      const referrals = refRes.data || []
+      const allReferrals = refRes.data || []
       const pointLogs = txRes.data || []
+      const activeStaffCount = staffCountRes.count || 1
 
-      const enriched = referrals.map(r => {
-        const txs = pointLogs.filter(tx => tx.referral_id === r.id)
-        const totalPt = txs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0)
-        return { ...r, totalPt }
-      })
+      // 報酬分配率
+      const ratioInd = shopData.ratio_individual ?? 100;
+      const ratioTeam = shopData.ratio_team ?? 0;
+      const ratioOwner = shopData.ratio_owner ?? 0;
+
+      // カテゴリ設定の取得
+      const category = shopData.shop_categories;
+      const basePoints = category?.reward_points || 0;
+      const firstBonusEnabled = category?.first_bonus_enabled || false;
+      const firstBonusPoints = category?.first_bonus_points || 0;
+
+      const shopHasBonusTx = pointLogs.some(tx => tx.metadata?.is_bonus === true);
+      const myReferrals: any[] = [];
+      let summaryTotal = 0;
+      let summaryPending = 0;
+      let summaryPaid = 0;
+
+      // 古い順にループして、自分の実績だけを抽出しつつ計算
+      allReferrals.forEach((r, index) => {
+        const isMine = r.staff_id === staffData.id;
+        const refTxs = pointLogs.filter(tx => tx.referral_id === r.id && (tx.status === 'confirmed' || tx.status === 'paid'));
+        const isCanceled = r.status === 'cancel';
+        
+        // 初回ボーナス判定
+        const isOldest = index === 0;
+        const isFirstTime = !isCanceled && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
+        const totalBase = basePoints + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
+
+        // 自分に紐づくポイントの計算
+        const isOwnerAction = shopData.owner_email === staffData.email;
+        let myEarnedPoints = 0;
+
+        if (r.status === 'pending') {
+          // 仮計上時は分配率から見込みを計算
+          const indPart = isMine ? totalBase * (ratioInd / 100) : 0;
+          const teamPart = (totalBase * (ratioTeam / 100)) / activeStaffCount;
+          const ownerPart = isOwnerAction ? totalBase * (ratioOwner / 100) : 0;
+          myEarnedPoints = Math.floor(indPart + teamPart + ownerPart);
+        } else {
+          // 確定済・発行済の時は実際のトランザクションから合計
+          myEarnedPoints = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+        }
+
+        // 自分の実績として表示すべきデータか判定（自分が紹介した、またはチーム配分/オーナー配分がある）
+        if (isMine || myEarnedPoints > 0) {
+          const enrichedData = {
+            ...r,
+            totalPt: isCanceled ? 0 : myEarnedPoints,
+            isMine,
+            hasBonus: isFirstTime && firstBonusEnabled && isMine // 自分が獲得したボーナスの場合のみマーク
+          };
+          myReferrals.push(enrichedData);
+
+          if (!isCanceled) {
+            if (r.is_staff_rewarded || r.status === 'issued') {
+              summaryTotal += enrichedData.totalPt;
+              if (r.is_staff_rewarded) summaryPaid += enrichedData.totalPt;
+            }
+            if (r.status === 'pending' || r.status === 'confirmed') {
+              summaryPending++;
+            }
+          }
+        }
+      });
+
+      // 最新順に並び替え
+      myReferrals.reverse();
 
       setStaff(staffData)
       setEditName(staffData.name)
       setEditEmail(staffData.email)
       setShop(shopData)
-      setHistory(enriched)
-
-      setSummary({ 
-        total: enriched.filter(r => r.is_staff_rewarded || r.status === 'issued').reduce((sum, r) => sum + r.totalPt, 0), 
-        pending: enriched.filter(r => r.status === 'pending' || r.status === 'confirmed').length, 
-        paid: enriched.filter(r => r.is_staff_rewarded).reduce((sum, r) => sum + r.totalPt, 0) 
-      })
+      setHistory(myReferrals)
+      setSummary({ total: summaryTotal, pending: summaryPending, paid: summaryPaid })
       setLoading(false)
     }
 
@@ -145,7 +205,14 @@ export default function MemberMagicPage() {
   }
 
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
-  if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50 text-gray-500">ページが見つかりません。</div>
+  if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50 text-gray-500 font-bold">ページが見つかりません。</div>
+
+  const STATUS_MAP: any = {
+    pending: { label: '仮計上', color: 'bg-amber-50 text-amber-700 border-amber-100', icon: <Clock className="w-3 h-3" /> },
+    confirmed: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
+    issued: { label: '清算待ち', color: 'bg-blue-50 text-blue-700 border-blue-100', icon: <Wallet className="w-3 h-3" /> },
+    cancel: { label: 'キャンセル', color: 'bg-red-50 text-red-600 border-red-100', icon: <Ban className="w-3 h-3" /> },
+  }
 
   // ==========================================
   // 🔒 ロック画面（PIN入力）
@@ -188,7 +255,7 @@ export default function MemberMagicPage() {
             {pinError ? (
               <p className="text-center text-xs font-bold text-red-500 animate-in fade-in">暗証番号が間違っています</p>
             ) : (
-              <p className="text-center text-[10px] text-gray-400">※登録時に設定したPINコードです</p>
+              <p className="text-center text-[10px] text-gray-400 font-bold">※登録時に設定したPINコードです</p>
             )}
           </div>
         </div>
@@ -252,11 +319,11 @@ export default function MemberMagicPage() {
 
                    <div className="flex gap-6 border-t border-white/20 pt-4">
                      <div>
-                       <p className="text-[10px] opacity-80 mb-0.5">確定・発行待ち</p>
+                       <p className="text-[10px] opacity-80 mb-0.5 font-bold">確定・発行待ち</p>
                        <p className="text-lg font-bold tabular-nums">{summary.pending} <span className="text-[10px] font-normal">件</span></p>
                      </div>
                      <div>
-                       <p className="text-[10px] opacity-80 mb-0.5">清算済</p>
+                       <p className="text-[10px] opacity-80 mb-0.5 font-bold">清算済</p>
                        <p className="text-lg font-bold tabular-nums">{summary.paid.toLocaleString()} <span className="text-[10px] font-normal">pt</span></p>
                      </div>
                    </div>
@@ -270,28 +337,34 @@ export default function MemberMagicPage() {
                      {history.length === 0 ? (
                        <div className="bg-white rounded-2xl p-8 text-center border border-gray-100 shadow-sm">
                          <MessageCircle className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-                         <p className="text-sm font-bold text-gray-500">まだ紹介実績がありません</p>
+                         <p className="text-sm font-bold text-gray-500">まだ実績がありません</p>
                        </div>
                      ) : (
                        history.map((item, i) => {
                          const isCanceled = item.status === 'cancel';
+                         const status = STATUS_MAP[item.status] || { label: item.status, color: 'bg-gray-100 border-gray-200 text-gray-500' };
                          return (
-                           <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ delay: i*0.05 }} key={item.id} className={`bg-white p-4 rounded-2xl border flex items-center justify-between shadow-sm ${isCanceled ? 'border-red-100 bg-red-50/30' : 'border-gray-100'}`}>
+                           <motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} transition={{ delay: i*0.05 }} key={item.id} className={`bg-white p-4 rounded-2xl border flex items-center justify-between shadow-sm ${isCanceled ? 'border-red-100 bg-red-50/30 opacity-75' : 'border-gray-100'}`}>
                               <div>
                                 <p className="text-[10px] font-bold text-gray-400 mb-1">{new Date(item.created_at).toLocaleDateString('ja-JP')} {new Date(item.created_at).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</p>
-                                <div className="flex items-center gap-2">
-                                  {isCanceled ? <span className="text-[10px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full border border-red-200">キャンセル</span>
-                                  : item.is_staff_rewarded ? <span className="text-[10px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">清算済</span>
-                                  : item.status === 'confirmed' ? <span className="text-[10px] font-bold bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-full border border-emerald-200">確定</span>
-                                  : item.status === 'issued' ? <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-200">発行済(未清算)</span>
-                                  : <span className="text-[10px] font-bold bg-amber-50 text-amber-600 px-2 py-0.5 rounded-full border border-amber-200">仮計上</span>}
-                                  <span className="text-xs font-bold text-gray-700">ID: {item.order_number || '---'}</span>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-sm font-bold text-gray-800">
+                                    {item.isMine ? '自分で紹介' : 'チーム/店舗分配'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  {isCanceled ? <span className="text-[9px] font-bold bg-red-100 text-red-600 px-2 py-0.5 rounded-full border border-red-200">キャンセル</span>
+                                  : item.is_staff_rewarded ? <span className="text-[9px] font-bold bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200 flex items-center gap-1"><CheckCheck className="w-3 h-3"/>清算済</span>
+                                  : <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border flex items-center gap-1 ${status.color}`}>{status.icon} {status.label}</span>}
+                                  <span className="text-[9px] font-bold text-gray-400">ID: {item.order_number || '---'}</span>
                                 </div>
                               </div>
                               <div className="text-right">
                                 <p className={`text-lg font-black tabular-nums ${isCanceled ? 'text-gray-400 line-through' : item.is_staff_rewarded ? 'text-gray-400' : 'text-indigo-600'}`}>
                                   +{item.totalPt.toLocaleString()}<span className="text-[10px] ml-0.5">pt</span>
                                 </p>
+                                {/* ★ カテゴリの初回ボーナス反映用バッジ */}
+                                {item.hasBonus && <p className="text-[9px] font-bold text-emerald-500">初回ボーナス！</p>}
                               </div>
                            </motion.div>
                          )
@@ -310,7 +383,6 @@ export default function MemberMagicPage() {
                     <Settings className="w-5 h-5 text-indigo-500" /> アカウント情報
                   </h2>
                   
-                  {/* ★ 変更: メンバー(非オーナー)のみ「編集する」ボタンを表示。認証済みなので直接編集可能 */}
                   {!isOwner && (
                     !isEditMode ? (
                       <button 
@@ -371,7 +443,6 @@ export default function MemberMagicPage() {
                     </div>
                   </div>
 
-                  {/* 保存ボタン */}
                   <AnimatePresence>
                     {isEditMode && (
                       <motion.div 
@@ -389,7 +460,6 @@ export default function MemberMagicPage() {
                   </AnimatePresence>
                 </div>
                 
-                {/* ★ オーナー専用メニュー */}
                 {isOwner && (
                   <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 shadow-sm">
                     <h3 className="text-xs font-black text-indigo-800 mb-2 flex items-center gap-2">

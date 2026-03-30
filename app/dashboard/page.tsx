@@ -28,7 +28,7 @@ export default function OwnerDashboard() {
   const [activeTab, setActiveTab] = useState<'stats' | 'history' | 'staff'>('stats')
 
   const [shop, setShop] = useState<any>(null)
-  const [rank, setRank] = useState<any>(null)
+  const [category, setCategory] = useState<any>(null) // ★ rankからcategoryに変更
   const [staffs, setStaffs] = useState<any[]>([])
   const [referralHistory, setReferralHistory] = useState<any[]>([])
  
@@ -63,16 +63,17 @@ export default function OwnerDashboard() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return; }
 
+    // ★ 変更点: shop_ranks ではなく shop_categories をJOINする
     const { data: shopData } = await supabase
       .from('shops')
-      .select(`*, shop_ranks (*), ratio_individual, ratio_team, ratio_owner`)
+      .select(`*, shop_categories (*), ratio_individual, ratio_team, ratio_owner`)
       .eq('owner_id', user.id)
       .maybeSingle()
 
     if (!shopData) { setLoading(false); return; }
     
     setShop(shopData)
-    setRank(shopData.shop_ranks)
+    setCategory(shopData.shop_categories)
     
     setRatios({
       individual: shopData.ratio_individual ?? 100,
@@ -80,7 +81,10 @@ export default function OwnerDashboard() {
       owner: shopData.ratio_owner ?? 0
     })
 
-    const currentRewardPoints = shopData.shop_ranks?.reward_points || 5000
+    // ★ 変更点: カテゴリの基本ポイントとボーナス設定を取得
+    const currentRewardPoints = shopData.shop_categories?.reward_points || 0
+    const firstBonusEnabled = shopData.shop_categories?.first_bonus_enabled || false
+    const firstBonusPoints = shopData.shop_categories?.first_bonus_points || 0
 
     const [staffRes, refRes, txRes] = await Promise.all([
       supabase.from('staffs').select('*').eq('shop_id', shopData.id),
@@ -97,12 +101,18 @@ export default function OwnerDashboard() {
 
     const reversedLogs = [...referralLogs].reverse();
     const staffCounters: Record<string, number> = {};
+    const shopHasBonusTx = pointLogs.some(tx => tx.metadata?.is_bonus === true);
 
-    const enrichedReferrals = reversedLogs.map(log => {
+    const enrichedReferrals = reversedLogs.map((log, index) => {
       staffCounters[log.staff_id] = (staffCounters[log.staff_id] || 0) + 1;
       const refTxs = pointLogs.filter(tx => tx.referral_id === log.id && (tx.status === 'confirmed' || tx.status === 'paid'));
       
-      const basePoints = currentRewardPoints;
+      // ★ 変更点: 新しいカテゴリの初回ボーナスロジックを反映した仮計上ポイントの計算
+      const isOldest = index === 0;
+      const isFirstTime = log.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
+      
+      const basePoints = currentRewardPoints + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
+      
       const indPart = basePoints * (ratios.individual / 100);
       const teamPart = (basePoints * (ratios.team / 100)) / staffCount;
       const ownerPart = basePoints * (ratios.owner / 100);
@@ -236,15 +246,13 @@ export default function OwnerDashboard() {
   const ownerStaff = staffs.find(s => s.isOwner);
 
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
-  if (!shop) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-red-500">店舗情報が見つかりません。</div>
+  if (!shop) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-red-500 font-bold">店舗情報が見つかりません。</div>
 
   return (
-    // ★ 変更点: 外側のラッパーを fixed inset-0 にして画面スクロールを完全にロック
     <div className="fixed inset-0 bg-gray-200 flex justify-center font-sans text-gray-800">
-      {/* ★ 変更点: h-full と overflow-hidden を追加し、メインエリアだけスクロールさせる */}
       <div className="w-full max-w-md bg-gray-50 h-full relative shadow-2xl flex flex-col overflow-hidden">
         
-        {/* メインコンテンツエリア（ここだけスクロール可能） */}
+        {/* メインコンテンツエリア */}
         <main className="flex-1 overflow-y-auto pb-6 pt-safe-top">
           
           {/* =========================================
@@ -261,7 +269,8 @@ export default function OwnerDashboard() {
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <h1 className="text-xl font-black text-gray-900 tracking-tight">{shop.name}</h1>
-                        {rank && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-bold rounded-full">{rank.label}</span>}
+                        {/* ★ 変更点: カテゴリ名の表示 */}
+                        {category && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-800 text-[10px] font-bold rounded-full">{category.label}</span>}
                       </div>
                       <p className="text-[10px] text-gray-400 font-mono">ID: {shop.id}</p>
                     </div>
@@ -354,6 +363,7 @@ export default function OwnerDashboard() {
                         <p className={`text-lg font-black tabular-nums ${item.status === 'cancel' ? 'line-through text-gray-300' : 'text-indigo-600'}`}>
                           +{item.totalPoints.toLocaleString()}<span className="text-[10px] ml-0.5">pt</span>
                         </p>
+                        {item.hasBonus && <p className="text-[9px] font-bold text-emerald-500">初回ボーナス！</p>}
                       </div>
                     </div>
                   )
@@ -495,7 +505,7 @@ export default function OwnerDashboard() {
             </motion.div>
           )}
 
-          {/* 3. 店舗招待QRモーダル (invite_tokenを使用) */}
+          {/* 3. 店舗招待QRモーダル */}
           {isInviteModalOpen && shop?.invite_token && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-50 bg-indigo-600/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-white">
               <h2 className="text-2xl font-black mb-2">メンバー招待QR</h2>
