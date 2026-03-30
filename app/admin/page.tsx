@@ -10,10 +10,10 @@ import {
 // 1. 定数・型定義
 // ==========================================
 const STATUS_OPTIONS = [
-  { value: 'pending', label: '仮計上', bgColor: 'bg-amber-100', color: 'text-amber-800' },
-  { value: 'confirmed', label: '報酬確定', bgColor: 'bg-emerald-100', color: 'text-emerald-800' },
-  { value: 'issued', label: '発行済', bgColor: 'bg-blue-100', color: 'text-blue-800' },
-  { value: 'cancel', label: 'キャンセル', bgColor: 'bg-gray-100', color: 'text-gray-600' },
+  { value: 'pending', label: '仮計上', bgColor: 'bg-amber-100', color: 'text-amber-800', border: 'border-amber-200' },
+  { value: 'confirmed', label: '報酬確定', bgColor: 'bg-emerald-100', color: 'text-emerald-800', border: 'border-emerald-200' },
+  { value: 'issued', label: '発行済', bgColor: 'bg-blue-100', color: 'text-blue-800', border: 'border-blue-200' },
+  { value: 'cancel', label: 'キャンセル', bgColor: 'bg-gray-100', color: 'text-gray-600', border: 'border-gray-200' },
 ]
 
 const CANCEL_REASONS = [
@@ -44,7 +44,7 @@ export default function AdminDashboard() {
   const [referrals, setReferrals] = useState<any[]>([])
   const [shops, setShops] = useState<any[]>([])
   const [staffs, setStaffs] = useState<any[]>([])
-  const [categories, setCategories] = useState<any[]>([]) // 旧ranks
+  const [categories, setCategories] = useState<any[]>([])
   const [pointTransactions, setPointTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -160,7 +160,6 @@ export default function AdminDashboard() {
     })
   }
 
-  // ★ 報酬ロジックがカテゴリベースにシンプル化されました
   const issuePoints = async (referral: any, currentShops: any[], currentCategories: any[]) => {
     const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
     if (existing && existing.length > 0) return
@@ -175,14 +174,12 @@ export default function AdminDashboard() {
     const standardPoints = Number(category?.reward_points) || 0
     const transactions = []
     
-    // 通常報酬の付与
     transactions.push({
       shop_id: referral.shop_id, referral_id: referral.id,
       points: standardPoints, reason: `紹介報酬`, status: 'confirmed',
       metadata: { order_number: referral.order_number }
     })
 
-    // 初回ボーナスがONで、かつ対象ショップの初回実績の場合
     if (isFirstTime && category?.first_bonus_enabled) {
       transactions.push({
         shop_id: referral.shop_id, referral_id: referral.id,
@@ -215,12 +212,26 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
+  // ★ ガードレール完全搭載のモーダル保存ロジック
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
     if (originalRef?.status === updatedRef.status && originalRef?.cancel_reason === updatedRef.cancel_reason) {
       setIsRefModalOpen(false); return;
     }
+
+    // 1. 強固なステータス遷移チェック（システム側のロック）
+    if (originalRef?.status === 'cancel') { alert('キャンセル済みのデータは変更できません。'); return; }
+    if (originalRef?.status === 'issued') { alert('発行済のデータは変更できません。'); return; }
+    if (originalRef?.status === 'confirmed' && updatedRef.status === 'pending') { alert('確定済みのデータを仮計上に戻すことはできません。'); return; }
     if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) { alert('キャンセル事由を選択してください。'); return; }
+
+    // 2. ブラウザ標準アラートによる最終警告
+    if (updatedRef.status === 'cancel') {
+      const msg = originalRef?.status === 'confirmed'
+        ? "【⚠️ 重大警告】\nこのデータはすでに「報酬確定」されています。\nキャンセルを実行すると、ユーザーへ付与済みのポイントが没収（マイナス処理）されます。\n\n本当にキャンセルしてよろしいですか？"
+        : "【⚠️ 警告】\nこのデータをキャンセル（無効化）します。\n一度キャンセルすると、今後一切ステータスを戻すことはできません。\n\n本当にキャンセルしてよろしいですか？";
+      if (!confirm(msg)) return;
+    }
 
     setIsProcessing(true)
     await supabase.from('referrals').update({ 
@@ -228,10 +239,14 @@ export default function AdminDashboard() {
       cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null 
     }).eq('id', updatedRef.id)
     
+    // 3. ポイントの増減・確定処理
     if (updatedRef.status === 'confirmed' && originalRef?.status !== 'confirmed') {
       await issuePoints(updatedRef, shops, categories)
     } else if (updatedRef.status !== 'confirmed' && originalRef?.status === 'confirmed') {
       await removePoints(updatedRef.id)
+    } else if (updatedRef.status === 'issued' && originalRef?.status === 'confirmed') {
+      // 個別で発行済みにした場合、ポイント清算ステータスも更新する
+      await supabase.from('point_transactions').update({ status: 'paid' }).eq('referral_id', updatedRef.id).eq('status', 'confirmed')
     }
     
     setIsRefModalOpen(false)
@@ -264,7 +279,6 @@ export default function AdminDashboard() {
     } catch (err) { console.error(err) } finally { setIsProcessing(false) }
   }
 
-  // ★ カテゴリ設定用ハンドラー
   const handleCategoryChange = (id: string, field: string, value: any) => {
     setEditingCategories(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
   }
@@ -311,9 +325,20 @@ export default function AdminDashboard() {
 
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm">読み込み中...</div>
 
+  // ★ モーダル表示用の情報整理
+  const originalRefForModal = editingRef ? referrals.find(r => r.id === editingRef.id) : null
+  const isEditingLocked = originalRefForModal?.status === 'cancel' || originalRefForModal?.status === 'issued'
   const editingShopData = editingRef ? shops.find(s => String(s.id) === String(editingRef.shop_id)) : null
   const editingOwnerName = editingRef ? getShopOwnerName(editingRef.shop_id) : '不明'
   const editingConfirmedTx = editingRef ? pointTransactions.find(tx => tx.referral_id === editingRef.id) : null
+
+  // ★ モーダル内で選べるステータスの制限
+  let availableStatusOptions = STATUS_OPTIONS
+  if (originalRefForModal?.status === 'pending') {
+    availableStatusOptions = STATUS_OPTIONS.filter(opt => ['pending', 'confirmed', 'cancel'].includes(opt.value))
+  } else if (originalRefForModal?.status === 'confirmed') {
+    availableStatusOptions = STATUS_OPTIONS.filter(opt => ['confirmed', 'issued', 'cancel'].includes(opt.value))
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col">
@@ -427,9 +452,12 @@ export default function AdminDashboard() {
                     const bonusPt = (isFirstTime && category?.first_bonus_enabled) ? Number(category.first_bonus_points) : 0;
                     const totalPt = ref.status === 'cancel' ? 0 : (refTxs.length > 0 ? refTxs.reduce((sum, tx) => sum + Number(tx.points), 0) : standardPt + bonusPt);
                     const rewardName = (isFirstTime && category?.first_bonus_enabled) ? `初回ボーナス (${successCount}件目)` : `紹介報酬 (${successCount}件目)`;
+                    
+                    // ★ キャンセル・発行済はOpacityで視認性を下げ、誤操作を防ぐ
+                    const isDead = ref.status === 'cancel' || ref.status === 'issued';
 
                     return (
-                      <tr key={ref.id} className="hover:bg-gray-50">
+                      <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/80 opacity-70' : 'hover:bg-gray-50'}`}>
                         <td className="p-3 text-left"><input type="checkbox" disabled={ref.status !== 'pending'} checked={selectedIds.includes(ref.id)} onChange={() => handleToggleSelect(ref.id)} /></td>
                         <td className="p-3 text-left font-normal tabular-nums">{ref.order_number}</td>
                         <td className="p-3 text-left font-normal">
@@ -444,7 +472,9 @@ export default function AdminDashboard() {
                         <td className="p-3 text-left font-normal tabular-nums">{totalPt.toLocaleString()}</td>
                         <td className="p-3 text-left font-normal tabular-nums text-gray-600">{new Date(ref.created_at).toLocaleString('ja-JP')}</td>
                         <td className="p-3 text-left font-normal">
-                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className="text-blue-600 hover:underline">詳細・編集</button>
+                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className={`text-sm ${isDead ? 'text-gray-500 underline' : 'text-blue-600 hover:underline'}`}>
+                            {isDead ? '詳細を見る' : '詳細・編集'}
+                          </button>
                         </td>
                       </tr>
                     )
@@ -484,7 +514,7 @@ export default function AdminDashboard() {
                   const isAllPaid = unpaidTotal === 0;
 
                   return (
-                    <tr key={shop.id} className="hover:bg-gray-50">
+                    <tr key={shop.id} className={`transition-colors ${isAllPaid ? 'bg-gray-50/80 opacity-70' : 'hover:bg-gray-50'}`}>
                       <td className="p-3 text-left font-normal">{shop.name} <span className="text-gray-400 text-xs">({shop.id})</span></td>
                       <td className="p-3 text-left font-normal tabular-nums text-right">{uniqueReferralCount}</td>
                       <td className="p-3 text-left font-normal tabular-nums text-right">{unpaidTotal + paidTotal}</td>
@@ -581,7 +611,7 @@ export default function AdminDashboard() {
                         <span className="text-xs text-gray-500">pt</span>
                       </div>
                     </td>
-                    <td className="p-3 text-left border-l border-gray-100 bg-blue-50/10">
+                    <td className="p-3 text-left bg-blue-50/10">
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
@@ -596,7 +626,7 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                     </td>
-                    <td className="p-3 text-left border-l border-gray-100 bg-emerald-50/10">
+                    <td className="p-3 text-left bg-emerald-50/10">
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
@@ -648,13 +678,21 @@ export default function AdminDashboard() {
             </div>
 
             <div className="space-y-4 mb-6">
-              <div>
-                <label className="block text-sm text-gray-700 mb-1 font-bold">ステータス更新</label>
-                <select value={editingRef.status} onChange={(e) => setEditingRef({...editingRef, status: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 text-sm outline-none bg-white focus:border-blue-500">
-                  {STATUS_OPTIONS.filter(opt => opt.value !== 'issued').map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                </select>
-              </div>
-              {editingRef.status === 'cancel' && (
+              {isEditingLocked ? (
+                <div className="bg-gray-100 border border-gray-300 rounded-[4px] p-3 text-sm text-gray-600 font-bold">
+                  {originalRefForModal?.status === 'cancel' ? 'キャンセル済（変更不可）' : '発行済（変更不可）'}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-sm text-gray-700 mb-1 font-bold">ステータス更新</label>
+                  <select value={editingRef.status} onChange={(e) => setEditingRef({...editingRef, status: e.target.value, cancel_reason: e.target.value !== 'cancel' ? '' : editingRef.cancel_reason})} className="w-full border border-gray-300 rounded-[4px] p-2 text-sm outline-none bg-white focus:border-blue-500">
+                    {availableStatusOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {/* 編集ロックされていない ＆ キャンセルが選ばれた時だけ事由を表示 */}
+              {!isEditingLocked && editingRef.status === 'cancel' && (
                 <div>
                   <label className="flex items-center gap-1 text-sm text-red-600 font-bold mb-1"><AlertTriangle className="w-4 h-4"/>キャンセル事由</label>
                   <select value={editingRef.cancel_reason || ''} onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})} className="w-full border border-red-300 bg-red-50 p-2 text-sm text-red-800 outline-none rounded-[4px] focus:border-red-500">
@@ -663,10 +701,21 @@ export default function AdminDashboard() {
                   </select>
                 </div>
               )}
+              
+              {/* ▼ 【追加】確定済をキャンセルしようとした時の重大警告UI ▼ */}
+              {!isEditingLocked && originalRefForModal?.status === 'confirmed' && editingRef.status === 'cancel' && (
+                <div className="bg-red-50 border border-red-200 p-3 mt-3 rounded-[4px]">
+                  <p className="text-red-700 text-xs font-bold flex items-center gap-1"><AlertTriangle className="w-4 h-4"/>重大な警告</p>
+                  <p className="text-red-600 text-xs mt-1">すでにユーザーへ付与済みのポイントを没収します。この操作は二度と元に戻せません。</p>
+                </div>
+              )}
             </div>
+
             <div className="flex gap-2 justify-end">
               <button onClick={() => setIsRefModalOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-[4px] hover:bg-gray-50">キャンセル</button>
-              <button onClick={() => handleRefModalSave(editingRef)} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-[4px] hover:bg-blue-700">更新して保存</button>
+              {!isEditingLocked && (
+                <button onClick={() => handleRefModalSave(editingRef)} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-[4px] hover:bg-blue-700">更新して保存</button>
+              )}
             </div>
           </div>
         </div>
