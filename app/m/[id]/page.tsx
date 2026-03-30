@@ -11,7 +11,7 @@ import {
   Settings, Mail, User, CheckCircle2, Ban, CheckCheck, ChevronRight, 
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
-  Sparkles, PlayCircle, ShieldCheck
+  Sparkles, PlayCircle, ShieldCheck, X
 } from 'lucide-react'
 
 const getGradient = (name: string) => {
