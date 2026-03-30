@@ -11,7 +11,7 @@ import {
   CheckCheck, Users, Plus, Crown, Settings, Link as LinkIcon, 
   QrCode, Trash2, Coins, Smartphone, ClipboardList, X, Ban, Trophy, 
   Calendar, LayoutDashboard, Share, Edit2, Loader2, Mail, Key, ShieldCheck,
-  Store, BookOpen, Sparkles, PlayCircle, MessageCircle, Info, Copy
+  Store, BookOpen, Sparkles, PlayCircle, MessageCircle, Info, Copy, ShoppingBag
 } from 'lucide-react'
 
 const generateSecureToken = () => {
