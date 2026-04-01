@@ -12,19 +12,12 @@ import {
   X, Ban, Trophy, Calendar, LayoutDashboard, Share, Edit2, Loader2, 
   Mail, Key, ShieldCheck, Store, BookOpen, Sparkles, PlayCircle, 
   MessageCircle, Info, Copy, ShoppingBag, ThumbsUp, Handshake, Percent,
-  ToggleRight, ToggleLeft, UserPlus
+  ToggleRight, ToggleLeft
 } from 'lucide-react'
 
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-}
-
-const STATUS_MAP: any = {
-  pending: { label: '仮計上', color: 'bg-gray-100 text-gray-600 border-gray-200', icon: <Clock className="w-3 h-3" /> },
-  confirmed: { label: '確定', color: 'bg-gray-900 text-white border-gray-900', icon: <CheckCircle2 className="w-3 h-3" /> },
-  issued: { label: '清算待', color: 'bg-gray-200 text-gray-800 border-gray-300', icon: <Wallet className="w-3 h-3" /> },
-  cancel: { label: '無効', color: 'bg-red-50 text-red-600 border-red-100', icon: <Ban className="w-3 h-3" /> },
 }
 
 const POLICY_PATTERNS = [
@@ -35,7 +28,7 @@ const POLICY_PATTERNS = [
 ]
 
 export default function OwnerDashboard() {
-  const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'staff' | 'info' | 'settings'>('stats')
+  const [activeTab, setActiveTab] = useState<'stats' | 'staff' | 'info' | 'shop' | 'settings'>('stats')
 
   const [shop, setShop] = useState<any>(null)
   const [category, setCategory] = useState<any>(null)
@@ -79,15 +72,16 @@ export default function OwnerDashboard() {
     return match ? match.id : 'custom'
   }
 
-  const loadData = async () => {
-    setLoading(true)
+  // ★ バグ修正: silentフラグを追加。trueの時は「Loading...」画面に切り替わらない（モーダルが閉じない）
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return; }
 
     setAuthEmail(user.email || '')
 
     const { data: shopData } = await supabase.from('shops').select(`*, shop_categories (*), ratio_individual, ratio_team, ratio_owner`).eq('owner_id', user.id).maybeSingle()
-    if (!shopData) { setLoading(false); return; }
+    if (!shopData) { if (!silent) setLoading(false); return; }
     
     setShop(shopData)
     setCategory(shopData.shop_categories)
@@ -141,7 +135,7 @@ export default function OwnerDashboard() {
 
       return { 
         ...log, 
-        type: 'referral', // フィード種別
+        type: 'referral', 
         staffName: staffList.find(s => s.id === log.staff_id)?.name || '不明', 
         staffNthCount: staffCounters[log.staff_id], 
         totalGenerated: basePoints,
@@ -150,16 +144,14 @@ export default function OwnerDashboard() {
       }
     });
 
-    // ★ フィードに「メンバー追加」の履歴をマージする
     const staffAddLogs = staffList.filter(s => s.email !== shopData.owner_email).map(s => ({
       id: `staff_add_${s.id}`,
       type: 'staff_added',
       created_at: s.created_at,
       staffName: s.name,
-      status: 'info' // フィルターに引っかからないように
+      status: 'info' 
     }));
 
-    // 時間順（新しい順）に並び替え
     const combinedFeed = [...enrichedReferrals, ...staffAddLogs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     setReferralHistory(combinedFeed);
 
@@ -186,7 +178,7 @@ export default function OwnerDashboard() {
       issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0
     })
     
-    setLoading(false)
+    if (!silent) setLoading(false)
   }
 
   const handlePatternSelect = (id: string) => {
@@ -258,7 +250,7 @@ export default function OwnerDashboard() {
     setDetailStaff({ ...detailStaff, is_team_pool_eligible: newVal });
     const { error } = await supabase.from('staffs').update({ is_team_pool_eligible: newVal }).eq('id', detailStaff.id);
     if (!error) {
-      await loadData();
+      await loadData(true); // ★ バグ修正：サイレントロードでモーダルを閉じさせない
     } else {
       alert('設定の変更に失敗しました。');
       setDetailStaff({ ...detailStaff, is_team_pool_eligible: currentVal });
@@ -298,7 +290,7 @@ export default function OwnerDashboard() {
   const filteredHistory = useMemo(() => {
     return referralHistory.filter(item => {
       if (filterStatus === '') return true;
-      if (item.type === 'staff_added' && filterStatus !== '') return false; // 絞り込み時はスタッフ追加履歴を隠す
+      if (item.type === 'staff_added' && filterStatus !== '') return false;
       return item.status === filterStatus;
     })
   }, [referralHistory, filterStatus])
@@ -369,18 +361,13 @@ export default function OwnerDashboard() {
     <div className="fixed inset-0 bg-gray-100 flex justify-center font-sans text-gray-900">
       <div className="w-full max-w-md bg-white h-full relative shadow-2xl flex flex-col overflow-hidden">
         
-        {/* =========================================
-            ★ ヘッダー大刷新 (Header)
-        ========================================= */}
         <header className="px-5 pt-safe-top pb-4 flex items-center justify-between border-b border-gray-100 bg-white/90 backdrop-blur-md z-20 shadow-sm">
           <div>
             <p className="text-[9px] font-bold text-indigo-600 tracking-wider mb-1">Duacel紹介システム管理画面</p>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-black text-gray-900">{shop.name}</h1>
-              {/* ★ 管理画面カテゴリ名を利用したランク表示 */}
               <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700">👑 {category?.label || '未設定'}</span>
             </div>
-            {/* ★ ログイン中の管理者名 */}
             <p className="text-[10px] font-semibold text-gray-500 mt-1 flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> 管理者: {ownerStaff?.name || '読込中'}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -389,7 +376,7 @@ export default function OwnerDashboard() {
             </button>
             {activeTab === 'staff' && (
               <button onClick={handleOpenAddStaff} className="text-[10px] font-bold px-2 py-1 bg-gray-900 text-white rounded hover:bg-gray-800 transition active:scale-95 flex items-center gap-1">
-                <Plus className="w-3 h-3" /> メンバー
+                <Plus className="w-3 h-3" /> 手動追加
               </button>
             )}
           </div>
@@ -403,7 +390,6 @@ export default function OwnerDashboard() {
           {activeTab === 'stats' && (
             <div className="p-5 animate-in fade-in duration-300 space-y-6">
               
-              {/* ★ 接客ページ（マイページ）への特大リンク */}
               {ownerStaff?.secret_token && (
                 <button 
                   onClick={() => window.open(`/m/${ownerStaff.secret_token}`, '_blank')} 
@@ -462,8 +448,6 @@ export default function OwnerDashboard() {
 
                 <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-200 before:to-transparent">
                   {filteredHistory.slice(0, visibleCount).map((item) => {
-                    
-                    // ★ メンバー追加の履歴
                     if (item.type === 'staff_added') {
                       return (
                         <div key={item.id} className="relative flex items-start justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
@@ -481,7 +465,6 @@ export default function OwnerDashboard() {
                       )
                     }
 
-                    // 通常の紹介・売上履歴
                     const isPending = item.status === 'pending';
                     const dotColor = isPending ? 'bg-amber-400 border-amber-100' : item.status === 'cancel' ? 'bg-red-400 border-red-100' : 'bg-emerald-400 border-emerald-100';
                     const customerName = item.customer_name || '匿名のお客様';
@@ -526,50 +509,6 @@ export default function OwnerDashboard() {
                     </button>
                   </div>
                 )}
-              </div>
-            </div>
-          )}
-
-          {/* =========================================
-              🛒 SHOP (仕入れ)
-          ========================================= */}
-          {activeTab === 'shop' && (
-            <div className="p-5 animate-in fade-in duration-300">
-              <div className="flex justify-between items-end mb-6">
-                <div>
-                  <h2 className="text-sm font-bold flex items-center gap-1.5"><Store className="w-4 h-4 text-gray-400" /> 仕入れ・交換</h2>
-                  <p className="text-[10px] text-gray-500 mt-1">店舗ポイントで商材をお得に仕入れ</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] text-gray-400 mb-0.5">利用可能</p>
-                  <p className="text-xl font-mono leading-none">{summary.confirmedPoints.toLocaleString()}<span className="text-xs ml-0.5 font-sans text-gray-500">pt</span></p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {MOCK_PRODUCTS.map(product => {
-                  const canBuyWithPoint = summary.confirmedPoints >= product.ptPrice;
-                  return (
-                    <div key={product.id} className="bg-white p-3 rounded-xl border border-gray-100 flex items-center gap-4 hover:border-gray-300 transition-colors">
-                      <div className="w-16 h-16 rounded-lg bg-gray-50 flex items-center justify-center shrink-0 border border-gray-100">
-                        {product.icon}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-xs font-semibold leading-snug mb-2 text-gray-800">{product.name}</h3>
-                        <div className="flex items-end justify-between">
-                          <div>
-                            <p className="text-sm font-mono flex items-baseline gap-1">
-                              {product.ptPrice.toLocaleString()}<span className="text-[9px] font-sans text-gray-500">pt</span>
-                            </p>
-                          </div>
-                          <button className={`px-4 py-1.5 rounded-md text-[10px] font-bold transition-all ${canBuyWithPoint ? 'bg-gray-900 text-white hover:bg-gray-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                            {canBuyWithPoint ? 'ポイント交換' : '通常購入'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
             </div>
           )}
@@ -651,6 +590,50 @@ export default function OwnerDashboard() {
           )}
 
           {/* =========================================
+              🛒 SHOP (仕入れ)
+          ========================================= */}
+          {activeTab === 'shop' && (
+            <div className="p-5 animate-in fade-in duration-300">
+              <div className="flex justify-between items-end mb-6">
+                <div>
+                  <h2 className="text-sm font-bold flex items-center gap-1.5"><Store className="w-4 h-4 text-gray-400" /> 仕入れ・交換</h2>
+                  <p className="text-[10px] text-gray-500 mt-1">店舗ポイントで商材をお得に仕入れ</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-gray-400 mb-0.5">利用可能</p>
+                  <p className="text-xl font-mono leading-none">{summary.confirmedPoints.toLocaleString()}<span className="text-xs ml-0.5 font-sans text-gray-500">pt</span></p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {MOCK_PRODUCTS.map(product => {
+                  const canBuyWithPoint = summary.confirmedPoints >= product.ptPrice;
+                  return (
+                    <div key={product.id} className="bg-white p-3 rounded-xl border border-gray-100 flex items-center gap-4 hover:border-gray-300 transition-colors">
+                      <div className="w-16 h-16 rounded-lg bg-gray-50 flex items-center justify-center shrink-0 border border-gray-100">
+                        {product.icon}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-xs font-semibold leading-snug mb-2 text-gray-800">{product.name}</h3>
+                        <div className="flex items-end justify-between">
+                          <div>
+                            <p className="text-sm font-mono flex items-baseline gap-1">
+                              {product.ptPrice.toLocaleString()}<span className="text-[9px] font-sans text-gray-500">pt</span>
+                            </p>
+                          </div>
+                          <button className={`px-4 py-1.5 rounded-md text-[10px] font-bold transition-all ${canBuyWithPoint ? 'bg-gray-900 text-white hover:bg-gray-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                            {canBuyWithPoint ? 'ポイント交換' : '通常購入'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* =========================================
               ⚙️ SETTINGS (設定)
           ========================================= */}
           {activeTab === 'settings' && (
@@ -677,32 +660,22 @@ export default function OwnerDashboard() {
                   {authMessage.type === 'success' ? <CheckCircle2 className="w-3 h-3 shrink-0" /> : <Ban className="w-3 h-3 shrink-0" />} {authMessage.text}
                 </div>
               )}
-
-              <button onClick={handleLogout} className="w-full py-3 mt-4 bg-white border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 hover:bg-gray-50">
-                <LogOut className="w-4 h-4" /> ログアウト
-              </button>
             </div>
           )}
         </main>
 
-        {/* ボトムナビゲーション */}
+        {/* ★ ボトムナビゲーション (フラットな均等デザインに修正) */}
         <nav className="bg-white border-t border-gray-200 px-1 py-1 flex justify-between items-center z-50 pb-safe shrink-0">
           {[
             { id: 'stats', icon: <LayoutDashboard className="w-5 h-5" />, label: 'Home' },
-            { id: 'shop', icon: <Store className="w-5 h-5" />, label: 'Shop' },
-            { id: 'staff', icon: <QrCode className="w-6 h-6" />, label: 'QR', special: true },
+            { id: 'staff', icon: <Users className="w-5 h-5" />, label: 'Member' },
             { id: 'info', icon: <BookOpen className="w-5 h-5" />, label: 'Guide' },
-            { id: 'settings', icon: <Settings className="w-5 h-5" />, label: 'Config' },
+            { id: 'shop', icon: <Store className="w-5 h-5" />, label: 'Shop' },
+            { id: 'settings', icon: <Settings className="w-5 h-5" />, label: 'Setting' },
           ].map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center justify-center flex-1 py-2 gap-1 transition-colors ${activeTab === tab.id ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
-              {tab.special ? (
-                <div className={`p-3 rounded-full transition-all ${activeTab === tab.id ? 'bg-gray-900 text-white scale-110 shadow-md' : 'bg-gray-100 text-gray-600'}`}>{tab.icon}</div>
-              ) : (
-                <>
-                  <div className={`transition-transform duration-200 ${activeTab === tab.id ? 'scale-110' : 'scale-100'}`}>{tab.icon}</div>
-                  <span className="text-[8px] font-semibold tracking-wide">{tab.label}</span>
-                </>
-              )}
+              <div className={`transition-transform duration-200 ${activeTab === tab.id ? 'scale-110' : 'scale-100'}`}>{tab.icon}</div>
+              <span className="text-[8px] font-semibold tracking-wide">{tab.label}</span>
             </button>
           ))}
         </nav>
@@ -802,7 +775,6 @@ export default function OwnerDashboard() {
               </motion.div>
             </motion.div>
           )}
-
         </AnimatePresence>
       </div>
     </div>
