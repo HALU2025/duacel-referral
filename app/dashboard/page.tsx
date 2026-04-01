@@ -11,12 +11,20 @@ import {
   Link as LinkIcon, QrCode, Trash2, Coins, Smartphone, ClipboardList, 
   X, Ban, Trophy, Calendar, LayoutDashboard, Share, Edit2, Loader2, 
   Mail, Key, ShieldCheck, Store, BookOpen, Sparkles, PlayCircle, 
-  MessageCircle, Info, Copy, ShoppingBag, ThumbsUp, Handshake, Percent
+  MessageCircle, Info, Copy, ShoppingBag, ThumbsUp, Handshake, Percent,
+  ToggleRight, ToggleLeft
 } from 'lucide-react'
 
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+const STATUS_MAP: any = {
+  pending: { label: '仮計上', color: 'bg-gray-100 text-gray-600 border-gray-200', icon: <Clock className="w-3 h-3" /> },
+  confirmed: { label: '確定', color: 'bg-gray-900 text-white border-gray-900', icon: <CheckCircle2 className="w-3 h-3" /> },
+  issued: { label: '清算待', color: 'bg-gray-200 text-gray-800 border-gray-300', icon: <Wallet className="w-3 h-3" /> },
+  cancel: { label: '無効', color: 'bg-red-50 text-red-600 border-red-100', icon: <Ban className="w-3 h-3" /> },
 }
 
 const POLICY_PATTERNS = [
@@ -103,7 +111,8 @@ export default function OwnerDashboard() {
     const pointLogs = txRes.data || []
 
     const activeStaffs = staffList.filter(s => !s.is_deleted);
-    const staffCount = activeStaffs.length || 1;
+    // ★ チーム分配対象者の人数をカウント（is_team_pool_eligible が false でない人）
+    const eligibleStaffCount = activeStaffs.filter(s => s.is_team_pool_eligible !== false).length || 1;
 
     const reversedLogs = [...referralLogs].reverse();
     const staffCounters: Record<string, number> = {};
@@ -117,16 +126,15 @@ export default function OwnerDashboard() {
       const isFirstTime = log.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       const basePoints = currentRewardPoints + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
       
-      // ★ スナップショットがあればそれを優先、なければ現在の比率を使う
       const indRatio = log.snapshot_ratio_individual ?? currentRatios.individual;
       const teamRatio = log.snapshot_ratio_team ?? currentRatios.team;
       const ownerRatio = log.snapshot_ratio_owner ?? currentRatios.owner;
 
       const indPart = basePoints * (indRatio / 100);
-      const teamPart = (basePoints * (teamRatio / 100)) / staffCount;
+      // ★ チーム分配額を、対象者の人数だけで割る
+      const teamPart = (basePoints * (teamRatio / 100)) / eligibleStaffCount;
       const ownerPart = basePoints * (ownerRatio / 100);
 
-      // オーナーが貰えるポイント（店舗留保 ＋ 自分が紹介した場合は個人の取り分も）
       const isOwnerAction = staffList.find(s => s.id === log.staff_id)?.email === shopData.owner_email;
       const ownerEarnedPoints = isOwnerAction ? Math.floor(indPart + teamPart + ownerPart) : Math.floor(teamPart + ownerPart);
       
@@ -137,8 +145,8 @@ export default function OwnerDashboard() {
         ...log, 
         staffName: staffList.find(s => s.id === log.staff_id)?.name || '不明', 
         staffNthCount: staffCounters[log.staff_id], 
-        totalGenerated: basePoints, // 発生した総額
-        ownerPoints: ownerEarnedPoints, // 店舗に入った額
+        totalGenerated: basePoints,
+        ownerPoints: ownerEarnedPoints,
         hasBonus 
       }
     }).reverse();
@@ -147,7 +155,7 @@ export default function OwnerDashboard() {
 
     const staffsWithFinance = staffList.map(s => {
       const staffRefs = enrichedReferrals.filter(r => r.staff_id === s.id);
-      const pendingPts = staffRefs.filter(r => r.status === 'pending').reduce((sum, r) => sum + r.ownerPoints, 0); // オーナー視点での計算
+      const pendingPts = staffRefs.filter(r => r.status === 'pending').reduce((sum, r) => sum + r.ownerPoints, 0);
       const unpaidToStaffPts = staffRefs.filter(r => r.status === 'issued' && !r.is_staff_rewarded).reduce((sum, r) => sum + r.totalPoints, 0);
       const isOwner = s.email === shopData.owner_email;
       return { ...s, count: staffRefs.filter(r => r.status !== 'cancel').length, pendingPts, unpaidToStaffPts, hasUnpaid: unpaidToStaffPts > 0, isOwner }
@@ -161,10 +169,10 @@ export default function OwnerDashboard() {
     const earnedRefs = validRefs.filter(r => r.status === 'issued' || r.is_staff_rewarded || r.status === 'confirmed');
 
     setSummary({
-      totalEarned: earnedRefs.reduce((sum, r) => sum + r.ownerPoints, 0), // オーナーの総獲得
+      totalEarned: earnedRefs.reduce((sum, r) => sum + r.ownerPoints, 0),
       thisMonthEarned: earnedRefs.filter(r => { const d = new Date(r.created_at); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; }).reduce((sum, r) => sum + r.ownerPoints, 0),
-      pendingPoints: validRefs.filter(r => r.status === 'pending').reduce((sum, r) => sum + r.totalGenerated, 0), // パイプラインは総額
-      confirmedPoints: validRefs.filter(r => r.status === 'confirmed' || r.status === 'issued').reduce((sum, r) => sum + r.ownerPoints, 0), // ウォレット残高
+      pendingPoints: validRefs.filter(r => r.status === 'pending').reduce((sum, r) => sum + r.totalGenerated, 0),
+      confirmedPoints: validRefs.filter(r => r.status === 'confirmed' || r.status === 'issued').reduce((sum, r) => sum + r.ownerPoints, 0),
       issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0
     })
     
@@ -194,10 +202,14 @@ export default function OwnerDashboard() {
     setIsSavingPolicy(false); setIsPolicyModalOpen(false);
   };
 
+  // ★ バグ修正：スタッフがすでにいる場合は直接情報入力（info）を開く
   const handleOpenAddStaff = () => {
-    const isFirstStaffAdd = staffs.filter(s => !s.isOwner && !s.is_deleted).length === 0;
-    if (isFirstStaffAdd) setStaffModalStep('policy')
-    else setStaffModalStep('info')
+    const normalStaffCount = staffs.filter(s => !s.isOwner && !s.is_deleted).length;
+    if (normalStaffCount === 0) {
+      setStaffModalStep('policy')
+    } else {
+      setStaffModalStep('info')
+    }
     setIsStaffModalOpen(true)
   }
 
@@ -219,7 +231,7 @@ export default function OwnerDashboard() {
     }, 0)
     const nextStaffId = `m${(maxNum + 1).toString().padStart(2, '0')}`
     const secureToken = generateSecureToken()
-    const { error } = await supabase.from('staffs').insert([{ id: nextStaffId, shop_id: shop.id, name: newStaffName, email: newStaffEmail, referral_code: `${shop.id}_${nextStaffId}`, secret_token: secureToken, is_deleted: false }])
+    const { error } = await supabase.from('staffs').insert([{ id: nextStaffId, shop_id: shop.id, name: newStaffName, email: newStaffEmail, referral_code: `${shop.id}_${nextStaffId}`, secret_token: secureToken, is_deleted: false, is_team_pool_eligible: true }])
     if (error) { alert(`追加に失敗しました。\n${error.message}`); return; }
     setNewStaffName(''); setNewStaffEmail(''); setIsStaffModalOpen(false); await loadData();
   }
@@ -228,6 +240,24 @@ export default function OwnerDashboard() {
     if (!confirm(`スタッフ「${staffName}」を非表示にしますか？`)) return
     await supabase.from('staffs').update({ is_deleted: true }).eq('id', staffId)
     setDetailStaff(null); await loadData()
+  }
+
+  // ★ チーム分配対象のON/OFFトグル処理
+  const handleToggleTeamEligibility = async () => {
+    if (!detailStaff) return;
+    const currentVal = detailStaff.is_team_pool_eligible !== false; // undefinedの場合はtrue扱い
+    const newVal = !currentVal;
+    
+    // UIを即座に更新
+    setDetailStaff({ ...detailStaff, is_team_pool_eligible: newVal });
+    
+    const { error } = await supabase.from('staffs').update({ is_team_pool_eligible: newVal }).eq('id', detailStaff.id);
+    if (!error) {
+      await loadData(); // 再計算のためにリロード
+    } else {
+      alert('設定の変更に失敗しました。');
+      setDetailStaff({ ...detailStaff, is_team_pool_eligible: currentVal }); // 失敗したら元に戻す
+    }
   }
 
   const handleCopy = (text: string) => {
@@ -265,7 +295,6 @@ export default function OwnerDashboard() {
   
   const ownerStaff = staffs.find(s => s.isOwner);
 
-  // ★ ランクの自動計算（モック）
   const shopRank = summary.totalEarned >= 100000 ? 'Platinum Partner' : summary.totalEarned >= 30000 ? 'Gold Partner' : 'Standard Partner'
   const rankColor = summary.totalEarned >= 100000 ? 'text-slate-700 bg-slate-100' : summary.totalEarned >= 30000 ? 'text-amber-700 bg-amber-100' : 'text-gray-600 bg-gray-100'
 
@@ -333,23 +362,19 @@ export default function OwnerDashboard() {
     <div className="fixed inset-0 bg-gray-100 flex justify-center font-sans text-gray-900">
       <div className="w-full max-w-md bg-white h-full relative shadow-2xl flex flex-col overflow-hidden">
         
-        {/* トップヘッダー（メニューバー） */}
         <header className="px-5 pt-safe-top pb-3 flex justify-between items-end border-b border-gray-100 bg-white/80 backdrop-blur-md z-20">
           <div className="flex items-center gap-3">
             <div>
               <p className="text-[10px] font-semibold text-gray-400 tracking-wider">HQ DASHBOARD</p>
               <h1 className="text-sm font-bold text-gray-900">{shop.name}</h1>
             </div>
-            {/* ★ ランクバッジ復活 */}
             <span className={`px-2 py-0.5 rounded-sm text-[9px] font-bold mt-3 ${rankColor}`}>👑 {shopRank}</span>
           </div>
-          {/* ★ 手動追加ボタンをヘッダーに配置 */}
           {activeTab === 'staff' && (
             <button onClick={handleOpenAddStaff} className="text-[10px] font-bold px-3 py-1.5 bg-gray-900 text-white rounded-md hover:bg-gray-800 transition active:scale-95 flex items-center gap-1">
               <Plus className="w-3 h-3" /> 手動追加
             </button>
           )}
-          {/* ★ 接客マイページリンク復活（Statsタブの時のみ表示などお好みで。ここではホーム時表示） */}
           {activeTab === 'stats' && ownerStaff?.secret_token && (
             <button onClick={() => window.open(`/welcome/${ownerStaff.referral_code}`, '_blank')} className="text-[10px] font-bold text-gray-500 hover:text-gray-900 transition flex items-center gap-1 mt-3">
               接客ページへ <LinkIcon className="w-3 h-3" />
@@ -360,12 +385,11 @@ export default function OwnerDashboard() {
         <main className="flex-1 overflow-y-auto pb-6 bg-gray-50/30">
           
           {/* =========================================
-              📊 STATS (ホーム: 自動分配のUI)
+              📊 STATS (ホーム)
           ========================================= */}
           {activeTab === 'stats' && (
             <div className="p-5 animate-in fade-in duration-300 space-y-6">
               
-              {/* 2つの箱：現在の資産 と 未来の資産 */}
               <div className="space-y-3">
                 <div className="bg-gray-900 text-white p-5 rounded-2xl shadow-sm relative overflow-hidden">
                   <div className="absolute right-0 top-0 p-4 opacity-10"><Wallet className="w-16 h-16" /></div>
@@ -381,7 +405,6 @@ export default function OwnerDashboard() {
                 </div>
               </div>
 
-              {/* ★ タイムライン型アクションフィード */}
               <div className="pt-2">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-sm font-bold flex items-center gap-2"><ClipboardList className="w-4 h-4 text-gray-400" /> アクション・フィード</h2>
@@ -400,7 +423,6 @@ export default function OwnerDashboard() {
 
                     return (
                       <div key={item.id} className="relative flex items-start justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                        {/* タイムラインのドット */}
                         <div className={`flex items-center justify-center w-3 h-3 rounded-full border-2 bg-white ${dotColor} absolute left-5 -translate-x-1/2 translate-y-1.5 shadow-sm ring-4 ring-gray-50`}></div>
                         
                         <div className="bg-white p-3.5 rounded-xl border border-gray-100 shadow-sm w-[calc(100%-3rem)] ml-10 hover:border-gray-300 transition-colors">
@@ -507,23 +529,28 @@ export default function OwnerDashboard() {
                   <h2 className="text-sm font-bold flex items-center gap-1.5"><Users className="w-4 h-4 text-gray-400" /> メンバー実績</h2>
                 </div>
                 <div className="space-y-2">
-                  {staffs.filter(s => !s.is_deleted).sort((a, b) => b.count - a.count).map(s => (
-                    <div key={s.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-center justify-between hover:border-gray-300 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 font-semibold text-xs border border-gray-200">
-                          {s.name.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <h3 className="font-semibold text-xs text-gray-900">{s.name}</h3>
-                            {s.isOwner && <Crown className="w-3 h-3 text-gray-400" />}
+                  {staffs.filter(s => !s.is_deleted).sort((a, b) => b.count - a.count).map(s => {
+                    // ★ チーム対象かどうかのバッジ
+                    const isEligible = s.is_team_pool_eligible !== false;
+                    return (
+                      <div key={s.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-center justify-between hover:border-gray-300 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 font-semibold text-xs border border-gray-200">
+                            {s.name.charAt(0)}
                           </div>
-                          <p className="text-[9px] text-gray-500 mt-0.5">獲得: {s.count}件</p>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <h3 className="font-semibold text-xs text-gray-900">{s.name}</h3>
+                              {s.isOwner && <Crown className="w-3 h-3 text-gray-400" />}
+                              {isEligible && <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded text-[8px] font-bold">チーム分配対象</span>}
+                            </div>
+                            <p className="text-[9px] text-gray-500 mt-0.5">獲得: {s.count}件</p>
+                          </div>
                         </div>
+                        <button onClick={() => setDetailStaff(s)} className="p-2 text-gray-400 hover:text-gray-900 transition"><Settings className="w-4 h-4" /></button>
                       </div>
-                      <button onClick={() => setDetailStaff(s)} className="p-2 text-gray-400 hover:text-gray-900 transition"><Settings className="w-4 h-4" /></button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -673,6 +700,21 @@ export default function OwnerDashboard() {
                   <button onClick={() => setDetailStaff(null)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X className="w-4 h-4" /></button>
                 </div>
                 
+                {/* ★ チーム分配のON/OFFトグル */}
+                <div className="mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100 flex items-center justify-between">
+                  <div>
+                    <h4 className="text-xs font-bold text-gray-900">チーム分配の対象にする</h4>
+                    <p className="text-[9px] text-gray-500 mt-0.5">店舗のチーム売上から分配を受け取る権利</p>
+                  </div>
+                  <button onClick={handleToggleTeamEligibility} className="transition-transform active:scale-90">
+                    {detailStaff.is_team_pool_eligible !== false ? (
+                      <ToggleRight className="w-8 h-8 text-emerald-500" />
+                    ) : (
+                      <ToggleLeft className="w-8 h-8 text-gray-300" />
+                    )}
+                  </button>
+                </div>
+
                 <div className="flex justify-center mb-6">
                   <div className="p-3 bg-white rounded-2xl border border-gray-100 shadow-sm">
                     <QRCodeCanvas value={`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${detailStaff.referral_code}`} size={120} level="H" fgColor="#111827" />
