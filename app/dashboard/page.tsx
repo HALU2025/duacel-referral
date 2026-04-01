@@ -111,7 +111,6 @@ export default function OwnerDashboard() {
     const pointLogs = txRes.data || []
 
     const activeStaffs = staffList.filter(s => !s.is_deleted);
-    // ★ チーム分配対象者の人数をカウント（is_team_pool_eligible が false でない人）
     const eligibleStaffCount = activeStaffs.filter(s => s.is_team_pool_eligible !== false).length || 1;
 
     const reversedLogs = [...referralLogs].reverse();
@@ -131,7 +130,6 @@ export default function OwnerDashboard() {
       const ownerRatio = log.snapshot_ratio_owner ?? currentRatios.owner;
 
       const indPart = basePoints * (indRatio / 100);
-      // ★ チーム分配額を、対象者の人数だけで割る
       const teamPart = (basePoints * (teamRatio / 100)) / eligibleStaffCount;
       const ownerPart = basePoints * (ownerRatio / 100);
 
@@ -202,7 +200,6 @@ export default function OwnerDashboard() {
     setIsSavingPolicy(false); setIsPolicyModalOpen(false);
   };
 
-  // ★ バグ修正：スタッフがすでにいる場合は直接情報入力（info）を開く
   const handleOpenAddStaff = () => {
     const normalStaffCount = staffs.filter(s => !s.isOwner && !s.is_deleted).length;
     if (normalStaffCount === 0) {
@@ -242,21 +239,17 @@ export default function OwnerDashboard() {
     setDetailStaff(null); await loadData()
   }
 
-  // ★ チーム分配対象のON/OFFトグル処理
   const handleToggleTeamEligibility = async () => {
     if (!detailStaff) return;
-    const currentVal = detailStaff.is_team_pool_eligible !== false; // undefinedの場合はtrue扱い
+    const currentVal = detailStaff.is_team_pool_eligible !== false;
     const newVal = !currentVal;
-    
-    // UIを即座に更新
     setDetailStaff({ ...detailStaff, is_team_pool_eligible: newVal });
-    
     const { error } = await supabase.from('staffs').update({ is_team_pool_eligible: newVal }).eq('id', detailStaff.id);
     if (!error) {
-      await loadData(); // 再計算のためにリロード
+      await loadData();
     } else {
       alert('設定の変更に失敗しました。');
-      setDetailStaff({ ...detailStaff, is_team_pool_eligible: currentVal }); // 失敗したら元に戻す
+      setDetailStaff({ ...detailStaff, is_team_pool_eligible: currentVal });
     }
   }
 
@@ -405,6 +398,24 @@ export default function OwnerDashboard() {
                 </div>
               </div>
 
+              {/* ★ ポリシー表示（復活！） */}
+              <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-xs font-bold text-gray-900 flex items-center gap-1.5"><Percent className="w-4 h-4 text-gray-400" /> 現在の分配ポリシー</h3>
+                  <button onClick={() => setIsPolicyModalOpen(true)} className="text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-md transition">変更する</button>
+                </div>
+                <div className="flex h-1.5 w-full rounded-full overflow-hidden bg-gray-100 mb-2">
+                  <div style={{width: `${ratios.individual}%`}} className="bg-gray-900" />
+                  <div style={{width: `${ratios.team}%`}} className="bg-gray-400" />
+                  <div style={{width: `${ratios.owner}%`}} className="bg-gray-200" />
+                </div>
+                <div className="flex justify-between text-[9px] font-semibold text-gray-500">
+                  <span className="text-gray-900">本人 {ratios.individual}%</span>
+                  <span>チーム {ratios.team}%</span>
+                  <span>店舗 {ratios.owner}%</span>
+                </div>
+              </div>
+
               <div className="pt-2">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-sm font-bold flex items-center gap-2"><ClipboardList className="w-4 h-4 text-gray-400" /> アクション・フィード</h2>
@@ -530,7 +541,6 @@ export default function OwnerDashboard() {
                 </div>
                 <div className="space-y-2">
                   {staffs.filter(s => !s.is_deleted).sort((a, b) => b.count - a.count).map(s => {
-                    // ★ チーム対象かどうかのバッジ
                     const isEligible = s.is_team_pool_eligible !== false;
                     return (
                       <div key={s.id} className="bg-white rounded-xl border border-gray-100 p-3 flex items-center justify-between hover:border-gray-300 transition-colors">
@@ -700,7 +710,6 @@ export default function OwnerDashboard() {
                   <button onClick={() => setDetailStaff(null)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X className="w-4 h-4" /></button>
                 </div>
                 
-                {/* ★ チーム分配のON/OFFトグル */}
                 <div className="mb-6 bg-gray-50 p-4 rounded-xl border border-gray-100 flex items-center justify-between">
                   <div>
                     <h4 className="text-xs font-bold text-gray-900">チーム分配の対象にする</h4>
