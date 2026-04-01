@@ -1,155 +1,292 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useParams } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { motion } from 'framer-motion'
+import { useParams, useRouter } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
 import { 
-  ArrowRight, Loader2, Sparkles, Gift, 
-  TestTube, CheckCircle2, AlertTriangle 
+  Sparkles, CheckCircle2, Clock, Loader2, ShoppingBag, 
+  ChevronRight, Gift, ShieldCheck, Repeat, Box, Code, 
+  ArrowRight, User, Info, ArrowDownCircle
 } from 'lucide-react'
 
-export default function WelcomePage() {
+const getGradient = (name: string) => {
+  const colors = ['from-indigo-500 to-purple-500', 'from-emerald-400 to-cyan-500', 'from-rose-400 to-orange-400', 'from-blue-500 to-indigo-500'];
+  return colors[name.length % colors.length];
+}
+
+export default function WelcomeTestPage() {
   const params = useParams()
   const referralCode = params.id as string
-  
+  const router = useRouter()
+
+  const [loading, setLoading] = useState(true)
   const [shop, setShop] = useState<any>(null)
   const [staff, setStaff] = useState<any>(null)
-  const [loading, setLoading] = useState(true)
+  const [category, setCategory] = useState<any>(null)
+  
+  // テスト用の履歴データとシミュレーションステート
+  const [testLogs, setTestLogs] = useState<any[]>([])
+  const [isSimulating, setIsSimulating] = useState(false)
+  const [showDevTools, setShowDevTools] = useState(true) // テストツールを表示するかどうか
 
-  // テストコンバージョン用ステート
-  const [isTesting, setIsTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ success?: boolean, message: string } | null>(null)
+  const loadData = async () => {
+    setLoading(true)
+    
+    // 1. スタッフと店舗情報の取得
+    const { data: staffData } = await supabase.from('staffs').select('*').eq('referral_code', referralCode).single()
+    if (!staffData) { setLoading(false); return; }
+    
+    const { data: shopData } = await supabase.from('shops').select('*, shop_categories(*)').eq('id', staffData.shop_id).single()
+    if (!shopData) { setLoading(false); return; }
 
-  useEffect(() => {
-    const fetchData = async () => {
-      // 紹介コード（S0001_m01）からスタッフを検索
-      const { data: staffData } = await supabase.from('staffs').select('*').eq('referral_code', referralCode).maybeSingle()
-      
-      if (staffData) {
-        setStaff(staffData)
-        // スタッフが所属する店舗を検索
-        const { data: shopData } = await supabase.from('shops').select('*').eq('id', staffData.shop_id).maybeSingle()
-        if (shopData) setShop(shopData)
-      }
-      setLoading(false)
-    }
-    if (referralCode) fetchData()
-  }, [referralCode])
+    setStaff(staffData)
+    setShop(shopData)
+    setCategory(shopData.shop_categories)
 
-  // ==========================================
-  // ★ 開発者用：テストコンバージョン発生ロジック
-  // ==========================================
-  const handleTestConversion = async () => {
-    setIsTesting(true)
-    setTestResult(null)
+    // 2. このスタッフの紹介履歴（テストログ）を取得
+    const { data: logs } = await supabase
+      .from('referrals')
+      .select('*')
+      .eq('staff_id', staffData.id)
+      .order('created_at', { ascending: false })
+      .limit(15)
 
-    // ecforceから送られてくるようなランダムなテストデータを生成
-    const mockOrderNumber = `TEST_${Math.floor(Math.random() * 100000000)}`
-    const mockCustomerNumber = `CUST_${Math.floor(Math.random() * 10000)}`
-
-    try {
-      // 実際にecforceが叩くのと同じAPI（自作のWebhook）に対して、GETリクエストを投げる
-      const response = await fetch(`/api/webhooks/ecforce?r=${referralCode}&order_number=${mockOrderNumber}&customer_id=${mockCustomerNumber}`)
-      
-      if (response.ok) {
-        setTestResult({ 
-          success: true, 
-          message: `🎉 成果発生成功！\n受注番号: ${mockOrderNumber}` 
-        })
-      } else {
-        const errorText = await response.text()
-        setTestResult({ 
-          success: false, 
-          message: `❌ エラー: ${response.status} ${errorText}` 
-        })
-      }
-    } catch (error: any) {
-      setTestResult({ 
-        success: false, 
-        message: `❌ 通信エラー: ${error.message}` 
-      })
-    } finally {
-      setIsTesting(false)
-    }
+    setTestLogs(logs || [])
+    setLoading(false)
   }
 
-  if (loading) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
-  if (!staff || !shop) return <div className="min-h-[100dvh] flex items-center justify-center bg-gray-50 text-gray-500 font-bold">無効な紹介リンクです。</div>
+  useEffect(() => { if (referralCode) loadData() }, [referralCode])
 
-  // 本番のLPへのURL
-  const lpUrl = `https://duacel.com/lp?u=rf&r=${referralCode}`
+  // ==========================================
+  // 🧪 テストアクション 1: CV（新規購入）のシミュレート
+  // ==========================================
+  const handleSimulateCV = async () => {
+    setIsSimulating(true)
+    const orderNum = `SUB-${Math.floor(1000 + Math.random() * 9000)}`
+    const customerName = `ゲスト ${Math.floor(100 + Math.random() * 900)}様`
+
+    const indRatio = shop.ratio_individual ?? 100
+    const teamRatio = shop.ratio_team ?? 0
+    const ownerRatio = shop.ratio_owner ?? 0
+
+    const { error } = await supabase.from('referrals').insert([{
+      shop_id: shop.id,
+      staff_id: staff.id,
+      status: 'pending', // 初回は仮計上（配達前）
+      order_number: orderNum,
+      customer_name: customerName,
+      recurring_count: 1, // 定期1回目
+      snapshot_ratio_individual: indRatio,
+      snapshot_ratio_team: teamRatio,
+      snapshot_ratio_owner: ownerRatio
+    }])
+
+    if (!error) {
+      await loadData()
+      alert('【テスト】購入が完了し、ダッシュボードに「仮計上」としてデータが飛びました！\n下部のテストツールから「お届け完了」をシミュレートしてください。')
+    }
+    setIsSimulating(false)
+  }
+
+  // ==========================================
+  // 🧪 テストアクション 2: 1回目お届け完了（API受信）
+  // ==========================================
+  const handle1stDelivery = async (referralId: string) => {
+    setIsSimulating(true)
+    const { error } = await supabase
+      .from('referrals')
+      .update({ status: 'confirmed' }) // 確定に変更（ウォレットに入る）
+      .eq('id', referralId)
+
+    if (!error) await loadData()
+    setIsSimulating(false)
+  }
+
+  // ==========================================
+  // 🧪 テストアクション 3: 2回目以降のお届け完了（即確定API受信）
+  // ==========================================
+  const handleRecurringDelivery = async (originalLog: any) => {
+    setIsSimulating(true)
+    const orderNum = `REC-${Math.floor(1000 + Math.random() * 9000)}`
+    
+    // スナップショット比率を引き継いで、新しい「確定」レコードを作る
+    const { error } = await supabase.from('referrals').insert([{
+      shop_id: shop.id,
+      staff_id: staff.id,
+      status: 'confirmed', // 2回目以降は即確定
+      order_number: orderNum,
+      customer_name: originalLog.customer_name,
+      recurring_count: originalLog.recurring_count + 1, // カウントアップ
+      snapshot_ratio_individual: originalLog.snapshot_ratio_individual,
+      snapshot_ratio_team: originalLog.snapshot_ratio_team,
+      snapshot_ratio_owner: originalLog.snapshot_ratio_owner
+    }])
+
+    if (!error) await loadData()
+    setIsSimulating(false)
+  }
+
+  if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100"><Loader2 className="w-6 h-6 animate-spin text-gray-900" /></div>
+  if (!staff || !shop) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-gray-500 text-sm font-semibold">ページが見つかりません。</div>
+
+  const basePoints = category?.reward_points || 0
 
   return (
-    <div className="min-h-[100dvh] bg-gray-50 flex flex-col justify-center items-center p-4 font-sans text-gray-800">
-      
-      {/* 📱 本番用：お客様に見せるUI */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-sm bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100 relative mb-8"
-      >
-        <div className="absolute top-0 inset-x-0 h-32 bg-gradient-to-b from-indigo-50 to-white" />
+    <div className="min-h-screen bg-gray-100 flex justify-center font-sans text-gray-900 pb-20">
+      <div className="w-full max-w-md bg-white min-h-screen relative shadow-2xl flex flex-col overflow-hidden">
         
-        <div className="relative pt-12 pb-8 px-8 flex flex-col items-center text-center">
-          <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center shadow-xl border-4 border-white mb-6 relative">
-            <Gift className="w-10 h-10 text-indigo-600" />
-            <Sparkles className="w-5 h-5 text-yellow-400 absolute -top-2 -right-2 animate-pulse" />
+        {/* ==========================================
+            💎 お客様向けUI (Customer Facing)
+        ========================================== */}
+        <header className="px-5 pt-safe-top pb-3 flex justify-between items-center border-b border-gray-100 bg-white/80 backdrop-blur-md sticky top-0 z-20">
+          <div>
+            <p className="text-[10px] font-semibold text-gray-400 tracking-wider">OFFICIAL PARTNER</p>
+            <h1 className="text-sm font-bold text-gray-900">{shop.name}</h1>
           </div>
-          
-          <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-2">Duacel Special Offer</p>
-          <h1 className="text-2xl font-black text-gray-900 leading-tight mb-2">
-            特別招待リンクが<br/>適用されました
-          </h1>
-          
-          <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2 mt-4 mb-8 inline-block">
-            <p className="text-xs font-bold text-indigo-800">
-              招待元: {shop.name}
+          <div className="px-2 py-1 bg-gray-50 rounded text-[9px] font-semibold text-gray-500 border border-gray-200">
+            招待専用
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto">
+          {/* Hero Profile */}
+          <div className="p-6 flex flex-col items-center text-center border-b border-gray-50 bg-gray-50/30">
+            <div className={`w-20 h-20 rounded-full bg-gradient-to-tr ${getGradient(staff.name)} flex items-center justify-center text-white font-bold text-3xl shadow-md border-4 border-white mb-4`}>
+              {staff.name.charAt(0)}
+            </div>
+            <h2 className="text-lg font-bold text-gray-900 mb-1">{staff.name} <span className="text-xs font-medium text-gray-500">からの招待</span></h2>
+            <p className="text-xs text-gray-500 leading-relaxed max-w-[280px]">
+              このページからご購入いただくと、特別な特典が適用されます。サロン品質のケアをご自宅でぜひ体験してください。
             </p>
           </div>
 
-          {/* ★ 本番用ボタン（実LPへ飛ぶ） */}
-          <a 
-            href={lpUrl}
-            className="w-full py-4 bg-gray-900 hover:bg-gray-800 text-white rounded-xl font-bold text-sm shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2"
-          >
-            限定ページへ進む <ArrowRight className="w-4 h-4" />
-          </a>
-        </div>
-      </motion.div>
+          {/* Product (Subscription) Card */}
+          <div className="p-5">
+            <div className="bg-gray-900 rounded-3xl p-6 text-white relative overflow-hidden shadow-lg">
+              <div className="absolute right-0 top-0 p-4 opacity-10">
+                <Sparkles className="w-24 h-24" />
+              </div>
+              
+              <div className="relative z-10">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white/20 rounded-md text-[10px] font-semibold mb-4 backdrop-blur-sm">
+                  <Repeat className="w-3 h-3" /> 定期コース
+                </div>
+                <h3 className="text-xl font-bold mb-2">Duacel プレミアムケア<br/>毎月お届けコース</h3>
+                <p className="text-xs text-gray-300 mb-6 leading-relaxed">
+                  専用美容液とケアアイテムを毎月お届けします。いつでも解約・スキップが可能です。
+                </p>
 
-      {/* 🛠️ 開発・テスト用：シークレットメニュー */}
-      <div className="w-full max-w-sm bg-gray-100 border border-gray-200 border-dashed rounded-2xl p-5">
-        <h3 className="text-[10px] font-black text-gray-500 uppercase tracking-wider flex items-center gap-1.5 mb-4">
-          <TestTube className="w-3.5 h-3.5" /> Developer Tools
-        </h3>
-        
-        <div className="space-y-3">
-          <p className="text-xs text-gray-500 font-bold">
-            ※ボタンを押すと、この紹介コード（{referralCode}）で「ecforceから購入通知が来た」という擬似データをシステムに送信します。
-          </p>
+                <div className="flex items-end justify-between mb-6">
+                  <div>
+                    <p className="text-[10px] text-gray-400 line-through">通常単発: ¥12,000</p>
+                    <p className="text-2xl font-mono">¥8,800<span className="text-xs font-sans text-gray-300 ml-1">/月 (税込)</span></p>
+                  </div>
+                </div>
 
-          <button 
-            onClick={handleTestConversion}
-            disabled={isTesting}
-            className="w-full py-3 bg-white border border-gray-300 text-gray-700 rounded-xl font-bold text-xs shadow-sm hover:bg-gray-50 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            {isTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <TestTube className="w-4 h-4" />}
-            テスト成果を発生させる
-          </button>
+                <button 
+                  onClick={handleSimulateCV} 
+                  disabled={isSimulating}
+                  className="w-full py-4 bg-white text-gray-900 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 shadow-sm"
+                >
+                  {isSimulating ? <Loader2 className="w-5 h-5 animate-spin" /> : <><ShoppingBag className="w-4 h-4" /> このコースを申し込む</>}
+                </button>
+              </div>
+            </div>
 
-          {/* テスト結果の表示 */}
-          {testResult && (
-            <motion.div 
-              initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-              className={`p-3 rounded-xl text-xs font-bold whitespace-pre-wrap flex items-start gap-2 ${testResult.success ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}
-            >
-              {testResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
-              {testResult.message}
-            </motion.div>
-          )}
-        </div>
+            <div className="mt-4 p-4 bg-gray-50 rounded-2xl flex items-start gap-3 border border-gray-100">
+              <ShieldCheck className="w-5 h-5 text-emerald-500 shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-gray-900 mb-0.5">安心のお約束</p>
+                <p className="text-[10px] text-gray-500 leading-relaxed">ご解約はお届け予定日の10日前までマイページから可能です。回数縛りはありません。</p>
+              </div>
+            </div>
+          </div>
+
+          {/* ==========================================
+              ⚙️ 開発者向け: API受信シミュレーター
+          ========================================== */}
+          <div className="mt-8 border-t-2 border-dashed border-gray-200 bg-gray-50 pb-10">
+            <div className="p-5 flex items-center justify-between cursor-pointer" onClick={() => setShowDevTools(!showDevTools)}>
+              <div className="flex items-center gap-2">
+                <Code className="w-5 h-5 text-indigo-500" />
+                <h3 className="text-sm font-bold text-gray-900">API受信テスト (開発ツール)</h3>
+              </div>
+              <ArrowDownCircle className={`w-5 h-5 text-gray-400 transition-transform ${showDevTools ? 'rotate-180' : ''}`} />
+            </div>
+
+            <AnimatePresence>
+              {showDevTools && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="px-5 space-y-3 overflow-hidden">
+                  <p className="text-[10px] text-gray-500 font-semibold mb-4 leading-relaxed">
+                    上の「申し込む」ボタンを押すと、この一覧にCV履歴が追加されます。<br/>
+                    下のボタンから、ecforce（カート）から「発送完了Webhook」が届いた状態をシミュレートできます。
+                  </p>
+
+                  {testLogs.length === 0 ? (
+                    <div className="text-center py-8 bg-white rounded-2xl border border-gray-200">
+                      <p className="text-[10px] font-semibold text-gray-400">データがありません。<br/>上の購入ボタンを押してください。</p>
+                    </div>
+                  ) : (
+                    testLogs.map((log) => {
+                      const isPending = log.status === 'pending'
+                      const isConfirmed = log.status === 'confirmed' || log.status === 'issued'
+                      
+                      // 当時の還元率を使って、このスタッフがもらえる（もらう予定の）額を計算
+                      const indRatio = log.snapshot_ratio_individual ?? 100
+                      const staffExpectedPoints = Math.floor(basePoints * (indRatio / 100))
+
+                      return (
+                        <div key={log.id} className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col gap-3">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1">
+                                {isPending ? (
+                                  <span className="px-1.5 py-0.5 bg-amber-50 text-amber-600 text-[9px] font-bold rounded border border-amber-100 flex items-center gap-1"><Clock className="w-2.5 h-2.5"/> 仮計上</span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 bg-gray-900 text-white text-[9px] font-bold rounded flex items-center gap-1"><CheckCircle2 className="w-2.5 h-2.5"/> 確定済</span>
+                                )}
+                                <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">定期 {log.recurring_count}回目</span>
+                              </div>
+                              <p className="text-xs font-bold text-gray-900">{log.customer_name}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[9px] text-gray-400 font-semibold mb-0.5">担当枠: +{staffExpectedPoints}pt</p>
+                              <p className="text-[8px] text-gray-400">{new Date(log.created_at).toLocaleDateString('ja-JP')} {new Date(log.created_at).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            {/* 1回目の仮計上データに対する「お届け完了」ボタン */}
+                            {isPending && log.recurring_count === 1 && (
+                              <button 
+                                onClick={() => handle1stDelivery(log.id)} disabled={isSimulating}
+                                className="flex-1 py-2 bg-indigo-600 text-white text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 hover:bg-indigo-700 transition active:scale-95 disabled:opacity-50"
+                              >
+                                <Box className="w-3.5 h-3.5" /> 初回お届け完了を受信
+                              </button>
+                            )}
+
+                            {/* 確定済みデータに対する「次のお届け完了（継続）」ボタン */}
+                            {isConfirmed && (
+                              <button 
+                                onClick={() => handleRecurringDelivery(log)} disabled={isSimulating}
+                                className="flex-1 py-2 bg-white border border-gray-300 text-gray-700 text-[10px] font-bold rounded-lg flex items-center justify-center gap-1.5 hover:bg-gray-50 transition active:scale-95 disabled:opacity-50"
+                              >
+                                <Repeat className="w-3.5 h-3.5" /> 次の月のお届けを受信
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </main>
       </div>
-
     </div>
   )
 }
