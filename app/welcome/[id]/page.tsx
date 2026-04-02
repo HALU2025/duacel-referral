@@ -28,15 +28,16 @@ export default function WelcomeTestPage() {
   // テスト用の履歴データとシミュレーションステート
   const [testLogs, setTestLogs] = useState<any[]>([])
   const [isSimulating, setIsSimulating] = useState(false)
-  const [showDevTools, setShowDevTools] = useState(true) // テストツールを表示するかどうか
+  const [showDevTools, setShowDevTools] = useState(true)
 
   const loadData = async () => {
     setLoading(true)
     
-    // 1. スタッフと店舗情報の取得
+    // 1. スタッフ情報の取得
     const { data: staffData } = await supabase.from('staffs').select('*').eq('referral_code', referralCode).single()
     if (!staffData) { setLoading(false); return; }
     
+    // 2. 店舗情報の取得
     const { data: shopData } = await supabase.from('shops').select('*, shop_categories(*)').eq('id', staffData.shop_id).single()
     if (!shopData) { setLoading(false); return; }
 
@@ -44,7 +45,7 @@ export default function WelcomeTestPage() {
     setShop(shopData)
     setCategory(shopData.shop_categories)
 
-    // 2. このスタッフの紹介履歴（テストログ）を取得
+    // 3. このスタッフの紹介履歴（テストログ）を取得
     const { data: logs } = await supabase
       .from('referrals')
       .select('*')
@@ -66,9 +67,12 @@ export default function WelcomeTestPage() {
     const orderNum = `SUB-${Math.floor(1000 + Math.random() * 9000)}`
     const customerName = `ゲスト ${Math.floor(100 + Math.random() * 900)}様`
 
-    const indRatio = shop.ratio_individual ?? 100
-    const teamRatio = shop.ratio_team ?? 0
-    const ownerRatio = shop.ratio_owner ?? 0
+    // ★ 修正：確実に「今の店舗の最新設定」を再取得する
+    const { data: latestShop } = await supabase.from('shops').select('ratio_individual, ratio_team, ratio_owner').eq('id', shop.id).single()
+
+    const indRatio = latestShop?.ratio_individual ?? 100
+    const teamRatio = latestShop?.ratio_team ?? 0
+    const ownerRatio = latestShop?.ratio_owner ?? 0
 
     const { error } = await supabase.from('referrals').insert([{
       shop_id: shop.id,
@@ -85,6 +89,8 @@ export default function WelcomeTestPage() {
     if (!error) {
       await loadData()
       alert('【テスト】購入が完了し、ダッシュボードに「仮計上」としてデータが飛びました！\n下部のテストツールから「お届け完了」をシミュレートしてください。')
+    } else {
+      alert('エラーが発生しました。')
     }
     setIsSimulating(false)
   }
@@ -110,7 +116,13 @@ export default function WelcomeTestPage() {
     setIsSimulating(true)
     const orderNum = `REC-${Math.floor(1000 + Math.random() * 9000)}`
     
-    // スナップショット比率を引き継いで、新しい「確定」レコードを作る
+    // ★ 修正：次回以降も、その時点の最新の店舗ルールを取得して適用する
+    const { data: latestShop } = await supabase.from('shops').select('ratio_individual, ratio_team, ratio_owner').eq('id', shop.id).single()
+    
+    const indRatio = latestShop?.ratio_individual ?? 100
+    const teamRatio = latestShop?.ratio_team ?? 0
+    const ownerRatio = latestShop?.ratio_owner ?? 0
+
     const { error } = await supabase.from('referrals').insert([{
       shop_id: shop.id,
       staff_id: staff.id,
@@ -118,9 +130,9 @@ export default function WelcomeTestPage() {
       order_number: orderNum,
       customer_name: originalLog.customer_name,
       recurring_count: originalLog.recurring_count + 1, // カウントアップ
-      snapshot_ratio_individual: originalLog.snapshot_ratio_individual,
-      snapshot_ratio_team: originalLog.snapshot_ratio_team,
-      snapshot_ratio_owner: originalLog.snapshot_ratio_owner
+      snapshot_ratio_individual: indRatio,
+      snapshot_ratio_team: teamRatio,
+      snapshot_ratio_owner: ownerRatio
     }])
 
     if (!error) await loadData()
@@ -232,7 +244,7 @@ export default function WelcomeTestPage() {
                       const isPending = log.status === 'pending'
                       const isConfirmed = log.status === 'confirmed' || log.status === 'issued'
                       
-                      // 当時の還元率を使って、このスタッフがもらえる（もらう予定の）額を計算
+                      // ここでも「DBに保存されている当時のスナップショット」を使って計算して表示
                       const indRatio = log.snapshot_ratio_individual ?? 100
                       const staffExpectedPoints = Math.floor(basePoints * (indRatio / 100))
 
