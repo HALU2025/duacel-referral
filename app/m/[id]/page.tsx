@@ -11,18 +11,12 @@ import {
   Settings, Mail, User, CheckCircle2, Ban, CheckCheck, ChevronRight, 
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
-  Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Percent,
-  Handshake, ClipboardList, Users
+  Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList
 } from 'lucide-react'
 
 const getGradient = (name: string) => {
   const colors = ['from-indigo-500 to-purple-500', 'from-emerald-400 to-cyan-500', 'from-rose-400 to-orange-400', 'from-blue-500 to-indigo-500'];
   return colors[name.length % colors.length];
-}
-
-const generateSecureToken = () => {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
 export default function MemberMagicPage() {
@@ -49,14 +43,13 @@ export default function MemberMagicPage() {
   const [resetResult, setResetResult] = useState<{success?: boolean, message: string} | null>(null)
 
   // ★ メインコンテンツ用ステート (5つのタブ)
-  const [activeTab, setActiveTab] = useState<'stats' | 'qr' | 'info' | 'shop' | 'settings'>('stats')
+  const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'qr' | 'info' | 'settings'>('qr')
   const [staff, setStaff] = useState<any>(null)
   const [shop, setShop] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [summary, setSummary] = useState({ total: 0, pending: 0, confirmed: 0, paid: 0 })
 
   const [copied, setCopied] = useState(false)
-  const [isInviteQrOpen, setIsInviteQrOpen] = useState(false) 
   
   // プロフィール・PIN編集用ステート
   const [isEditMode, setIsEditMode] = useState(false) 
@@ -126,6 +119,10 @@ export default function MemberMagicPage() {
 
     const isMeEligible = staffData.is_team_pool_eligible !== false;
 
+    // 最新のスタッフ名リストを取得するためのマッピング用
+    const { data: allStaffsData } = await supabase.from('staffs').select('id, name').eq('shop_id', staffData.shop_id);
+    const staffNameMap = new Map((allStaffsData || []).map(s => [s.id, s.name]));
+
     allReferrals.forEach((r, index) => {
       const isMine = r.staff_id === staffData.id;
       const refTxs = pointLogs.filter(tx => tx.referral_id === r.id && (tx.status === 'confirmed' || tx.status === 'paid'));
@@ -134,33 +131,33 @@ export default function MemberMagicPage() {
       const isFirstTime = !isCanceled && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       const basePoints = basePointsDefault + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
 
-      const isOwnerAction = shopData.owner_email === staffData.email;
       let myEarnedPoints = 0;
-      
       const actualTxPoints = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
       const totalBase = r.status === 'pending' ? basePoints : actualTxPoints;
 
-      // ★ スナップショット比率を利用（なければ現在の店舗設定）
+      // スナップショット比率を利用（なければ現在の店舗設定）
       const ratioInd = r.snapshot_ratio_individual ?? (shopData.ratio_individual ?? 100);
       const ratioTeam = r.snapshot_ratio_team ?? (shopData.ratio_team ?? 0);
-      const ratioOwner = r.snapshot_ratio_owner ?? (shopData.ratio_owner ?? 0);
 
       const indPart = isMine ? totalBase * (ratioInd / 100) : 0;
       const teamPart = isMeEligible ? (totalBase * (ratioTeam / 100)) / activeStaffCount : 0;
-      const ownerPart = isOwnerAction ? totalBase * (ratioOwner / 100) : 0;
-      myEarnedPoints = Math.floor(indPart + teamPart + ownerPart);
+      myEarnedPoints = Math.floor(indPart + teamPart);
 
-      if (myEarnedPoints > 0) {
-        // ★ バグ修正：足りていなかった内訳用の変数（totalGeneratedなど）を一緒に配列にプッシュする
+      // ★ スタッフに見せる「総発生ポイント」は、店舗留保分を除外した額（本人枠＋チーム枠の合計額）にする
+      const totalIndPool = Math.floor(totalBase * (ratioInd / 100));
+      const totalTeamPool = Math.floor(totalBase * (ratioTeam / 100));
+      const staffVisibleTotal = totalIndPool + totalTeamPool;
+
+      if (myEarnedPoints > 0 || staffVisibleTotal > 0) {
         myReferrals.push({ 
           ...r, 
+          staffName: staffNameMap.get(r.staff_id) || '不明',
           totalPt: isCanceled ? 0 : myEarnedPoints, 
           myIndPart: isCanceled ? 0 : Math.floor(indPart),
           myTeamPart: isCanceled ? 0 : Math.floor(teamPart),
-          totalGenerated: totalBase,
+          staffVisibleTotal: staffVisibleTotal, // 店舗分を除いた総額
           snapshot_ratio_individual: ratioInd,
           snapshot_ratio_team: ratioTeam,
-          snapshot_ratio_owner: ratioOwner,
           isMine, 
           hasBonus: isFirstTime && firstBonusEnabled && isMine 
         });
@@ -189,10 +186,9 @@ export default function MemberMagicPage() {
 
   useEffect(() => { if (magicToken) loadData() }, [magicToken])
 
-  const handleCopy = (url: string, type: 'referral' | 'invite' | 'gift' = 'referral') => {
+  const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url)
-    if (type === 'referral') { setCopied(true); setTimeout(() => setCopied(false), 2000) }
-    else { alert(type === 'gift' ? 'ギフトURLをコピーしました！' : '招待用URLをコピーしました！') }
+    setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
   // ★ PIN関連の処理
@@ -285,13 +281,6 @@ export default function MemberMagicPage() {
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
   if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-gray-50 text-gray-500 font-bold">ページが見つかりません。</div>
 
-  const STATUS_MAP: any = {
-    pending: { label: '仮計上', color: 'bg-amber-50 text-amber-700 border-amber-100', icon: <Clock className="w-3 h-3" /> },
-    confirmed: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
-    issued: { label: '確定', color: 'bg-emerald-50 text-emerald-700 border-emerald-100', icon: <CheckCircle2 className="w-3 h-3" /> },
-    cancel: { label: 'キャンセル', color: 'bg-red-50 text-red-600 border-red-100', icon: <Ban className="w-3 h-3" /> },
-  }
-
   return (
     <div className="fixed inset-0 bg-gray-50 flex flex-col font-sans text-gray-800 overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
       
@@ -343,7 +332,7 @@ export default function MemberMagicPage() {
         </div>
       ) : (
         <>
-          {/* ★ ヘッダー (ダッシュボードと統一) */}
+          {/* ★ ヘッダー */}
           <header className="px-5 pt-safe-top pb-4 flex items-center justify-between border-b border-gray-100 bg-white/90 backdrop-blur-md z-20 shadow-sm">
             <div>
               <p className="text-[9px] font-bold text-indigo-600 tracking-wider mb-1 uppercase">{shop?.name}</p>
@@ -361,9 +350,9 @@ export default function MemberMagicPage() {
             </div>
           </header>
 
-          <main className="flex-1 relative overflow-y-auto pb-32 -webkit-overflow-scrolling-touch bg-gray-50/30">
+          <main className="flex-1 relative overflow-hidden bg-gray-50/30">
             <AnimatePresence mode="wait">
-              <motion.div key={activeTab} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.25, ease: "easeOut" }} className="p-5">
+              <motion.div key={activeTab} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.25, ease: "easeOut" }} className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-5 -webkit-overflow-scrolling-touch">
                 
                 {/* 📊 TAB 1: ウォレット (Stats) */}
                 {activeTab === 'stats' && (
@@ -424,20 +413,20 @@ export default function MemberMagicPage() {
                                 </div>
                                 
                                 <div className="flex items-center justify-between mb-3 mt-2">
-                                  <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">
-                                    {item.isMine ? 'あなたが紹介' : '他のスタッフの紹介'}
+                                  <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                    <User className="w-2.5 h-2.5" /> 紹介者: {item.staffName}
                                   </span>
                                   <p className={`text-sm font-mono font-bold ${isCanceled ? 'line-through text-gray-300' : 'text-gray-900'}`}>
                                     獲得: +{item.totalPt.toLocaleString()} <span className="text-[9px] font-sans text-gray-500">pt</span>
                                   </p>
                                 </div>
                                 
-                                {/* 店舗留保を見せず、総発生と自分の取り分だけを明記 */}
+                                {/* 店舗留保を見せず、総発生（店舗分控除）と自分の取り分だけを明記 */}
                                 {!isPending && !isCanceled && (
                                   <div className="pt-3 mt-3 border-t border-gray-100/80">
                                     <div className="flex justify-between text-[10px] mb-1.5">
-                                      <span className="text-gray-500">対象の総発生ポイント</span>
-                                      <span className="font-mono text-gray-700">{item.totalGenerated?.toLocaleString()}pt</span>
+                                      <span className="text-gray-500">還元対象ポイント</span>
+                                      <span className="font-mono text-gray-700">{item.staffVisibleTotal?.toLocaleString()}pt</span>
                                     </div>
                                     <div className="flex justify-between text-[10px] mb-1.5 pl-2 border-l-2 border-gray-200">
                                       <span className="text-gray-500 flex items-center gap-1"><User className="w-3 h-3"/> 本人還元 ({item.snapshot_ratio_individual}%)</span>
@@ -460,51 +449,7 @@ export default function MemberMagicPage() {
                   </div>
                 )}
 
-                {/* 📱 TAB 2: スタッフQR (Staff) */}
-                {activeTab === 'qr' && (
-                  <div className="flex flex-col items-center max-w-sm mx-auto h-full justify-center">
-                    <div className="w-full bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col items-center relative overflow-hidden mb-6">
-                      <div className="p-6 bg-white rounded-[2rem] shadow-sm border-2 border-gray-50 mb-2 flex items-center justify-center relative z-10">
-                        <QRCodeCanvas value={referralUrl} size={190} level={"H"} fgColor="#111827" />
-                      </div>
-                      <p className="text-xs font-bold text-gray-600 mt-4 tracking-wider">お客様のスマートフォンで<br/>読み込んでください</p>
-                    </div>
-                    <div className="w-full space-y-3">
-                      <button onClick={() => handleCopy(referralUrl)} className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 active:scale-95 shadow-sm ${copied ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}>
-                        {copied ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-                        {copied ? 'URLをコピーしました！' : '接客用URLをコピー'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* 📖 TAB 3: マニュアル (Info) */}
-                {activeTab === 'info' && (
-                  <div className="max-w-md mx-auto">
-                    <div className="mb-6">
-                      <h2 className="text-sm font-bold flex items-center gap-1.5"><BookOpen className="w-4 h-4 text-gray-400" /> ドキュメント</h2>
-                      <p className="text-[10px] text-gray-500 mt-1">運用マニュアルやトークスクリプト</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { icon: <LayoutDashboard className="w-5 h-5"/>, title: '使い方ガイド', desc: 'マイページの見方' },
-                        { icon: <ShoppingBag className="w-5 h-5"/>, title: '製品カタログ', desc: '成分・効果の詳細' },
-                        { icon: <MessageCircle className="w-5 h-5"/>, title: 'トーク集', desc: 'お客様への声かけ例' },
-                        { icon: <PlayCircle className="w-5 h-5"/>, title: '施術動画', desc: '機器の正しい使い方' },
-                      ].map((item, i) => (
-                        <button key={i} className="bg-white p-4 rounded-2xl border border-gray-100 text-left hover:border-gray-300 transition-all flex flex-col justify-between aspect-square active:scale-95">
-                          <div className="w-8 h-8 bg-gray-50 text-gray-600 rounded-md flex items-center justify-center mb-3">{item.icon}</div>
-                          <div>
-                            <h3 className="text-xs font-semibold text-gray-900 mb-1">{item.title}</h3>
-                            <p className="text-[9px] text-gray-500 leading-tight">{item.desc}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* 🛒 TAB 4: 仕入れ (Shop) */}
+                {/* 🛒 TAB 2: 仕入れ (Shop) */}
                 {activeTab === 'shop' && (
                   <div className="max-w-md mx-auto">
                     <div className="flex justify-between items-end mb-6">
@@ -554,6 +499,50 @@ export default function MemberMagicPage() {
                       <p className="text-[10px] font-semibold text-gray-600 leading-relaxed">
                         ポイントが足りない場合でも、クレジットカード決済でそのままご購入いただけます。（店舗宛の掛け払いはオーナーのみ可能です）
                       </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* 📱 TAB 3: QRコード (中央のメインタブ) */}
+                {activeTab === 'qr' && (
+                  <div className="flex flex-col items-center max-w-sm mx-auto h-full justify-center mt-4">
+                    <div className="w-full bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col items-center relative overflow-hidden mb-6">
+                      <div className="p-6 bg-white rounded-[2rem] shadow-sm border-2 border-gray-50 mb-2 flex items-center justify-center relative z-10">
+                        <QRCodeCanvas value={referralUrl} size={190} level={"H"} fgColor="#111827" />
+                      </div>
+                      <p className="text-xs font-bold text-gray-600 mt-4 tracking-wider">お客様のスマートフォンで<br/>読み込んでください</p>
+                    </div>
+                    <div className="w-full space-y-3">
+                      <button onClick={() => handleCopy(referralUrl)} className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 active:scale-95 shadow-sm ${copied ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}>
+                        {copied ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                        {copied ? 'URLをコピーしました！' : '接客用URLをコピー'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* 📖 TAB 4: マニュアル (Info) */}
+                {activeTab === 'info' && (
+                  <div className="max-w-md mx-auto">
+                    <div className="mb-6">
+                      <h2 className="text-sm font-bold flex items-center gap-1.5"><BookOpen className="w-4 h-4 text-gray-400" /> ドキュメント</h2>
+                      <p className="text-[10px] text-gray-500 mt-1">運用マニュアルやトークスクリプト</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { icon: <LayoutDashboard className="w-5 h-5"/>, title: '使い方ガイド', desc: 'マイページの見方' },
+                        { icon: <ShoppingBag className="w-5 h-5"/>, title: '製品カタログ', desc: '成分・効果の詳細' },
+                        { icon: <MessageCircle className="w-5 h-5"/>, title: 'トーク集', desc: 'お客様への声かけ例' },
+                        { icon: <PlayCircle className="w-5 h-5"/>, title: '施術動画', desc: '機器の正しい使い方' },
+                      ].map((item, i) => (
+                        <button key={i} className="bg-white p-4 rounded-2xl border border-gray-100 text-left hover:border-gray-300 transition-all flex flex-col justify-between aspect-square active:scale-95">
+                          <div className="w-8 h-8 bg-gray-50 text-gray-600 rounded-md flex items-center justify-center mb-3">{item.icon}</div>
+                          <div>
+                            <h3 className="text-xs font-semibold text-gray-900 mb-1">{item.title}</h3>
+                            <p className="text-[9px] text-gray-500 leading-tight">{item.desc}</p>
+                          </div>
+                        </button>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -634,20 +623,33 @@ export default function MemberMagicPage() {
             </AnimatePresence>
           </main>
 
-          {/* ★ ダークテーマのボトムナビ (ダッシュボードと統一) */}
-          <nav className="bg-gray-900 border-t border-gray-800 px-1 py-1 flex justify-between items-center z-50 pb-safe shrink-0">
-            {[
-              { id: 'stats', icon: <LayoutDashboard className="w-5 h-5" />, label: 'Home' },
-              { id: 'qr', icon: <QrCode className="w-5 h-5" />, label: 'QR' },
-              { id: 'info', icon: <BookOpen className="w-5 h-5" />, label: 'Guide' },
-              { id: 'shop', icon: <Store className="w-5 h-5" />, label: 'Shop' },
-              { id: 'settings', icon: <Settings className="w-5 h-5" />, label: 'Setting' },
-            ].map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center justify-center flex-1 py-2 gap-1 transition-colors ${activeTab === tab.id ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                <div className={`transition-transform duration-200 ${activeTab === tab.id ? 'scale-110' : 'scale-100'}`}>{tab.icon}</div>
-                <span className="text-[8px] font-semibold tracking-wide">{tab.label}</span>
+          {/* ★ ダークテーマのボトムナビ (QRボタン特大化) */}
+          <nav className="bg-gray-900 border-t border-gray-800 px-2 py-2 flex justify-between items-center z-50 pb-safe relative shadow-[0_-10px_40px_rgba(0,0,0,0.2)]">
+            <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'stats' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+              <Wallet className={`w-5 h-5 transition-transform ${activeTab === 'stats' ? 'scale-110' : ''}`} />
+              <span className="text-[8px] font-semibold tracking-wide">実績</span>
+            </button>
+            
+            <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'shop' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+              <Store className={`w-5 h-5 transition-transform ${activeTab === 'shop' ? 'scale-110' : ''}`} />
+              <span className="text-[8px] font-semibold tracking-wide">仕入れ</span>
+            </button>
+
+            <div className="relative -mt-8 px-2 flex-shrink-0 z-50">
+              <button onClick={() => setActiveTab('qr')} className={`p-4 rounded-full shadow-2xl border-4 border-gray-900 transition-all active:scale-95 ${activeTab === 'qr' ? 'bg-indigo-500 text-white shadow-indigo-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
+                <QrCode className="w-7 h-7" />
               </button>
-            ))}
+            </div>
+
+            <button onClick={() => setActiveTab('info')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'info' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+              <BookOpen className={`w-5 h-5 transition-transform ${activeTab === 'info' ? 'scale-110' : ''}`} />
+              <span className="text-[8px] font-semibold tracking-wide">情報</span>
+            </button>
+
+            <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'settings' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
+              <Settings className={`w-5 h-5 transition-transform ${activeTab === 'settings' ? 'scale-110' : ''}`} />
+              <span className="text-[8px] font-semibold tracking-wide">設定</span>
+            </button>
           </nav>
 
           {/* ★ えらべるPay 交換モーダル */}
