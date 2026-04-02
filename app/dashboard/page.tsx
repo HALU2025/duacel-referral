@@ -7,18 +7,13 @@ import { QRCodeCanvas } from 'qrcode.react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 import { 
-  LogOut, Clock, CheckCircle2, Wallet, Users, Plus, Crown, Settings, 
+  LogOut, Clock, CheckCircle2, Wallet, Users, Crown, Settings, 
   Link as LinkIcon, QrCode, Trash2, Coins, Smartphone, ClipboardList, 
   X, Ban, Trophy, Calendar, LayoutDashboard, Share, Edit2, Loader2, 
   Mail, Key, ShieldCheck, Store, BookOpen, Sparkles, PlayCircle, 
   MessageCircle, Info, Copy, ShoppingBag, ThumbsUp, Handshake, Percent,
   ToggleRight, ToggleLeft, User, UserPlus
 } from 'lucide-react'
-
-const generateSecureToken = () => {
-  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-}
 
 const POLICY_PATTERNS = [
   { id: 'pattern1', icon: <ThumbsUp className="w-4 h-4" />, label: 'スタッフ全力還元', desc: '個人のモチベーションを最大化', ratios: { individual: 100, team: 0, owner: 0 } },
@@ -43,10 +38,8 @@ export default function OwnerDashboard() {
   const [filterStatus, setFilterStatus] = useState('') 
   const [visibleCount, setVisibleCount] = useState(20) 
 
-  const [isStaffModalOpen, setIsStaffModalOpen] = useState(false)
-  const [staffModalStep, setStaffModalStep] = useState<'policy' | 'info'>('info') 
-  const [newStaffName, setNewStaffName] = useState('')
-  const [newStaffEmail, setNewStaffEmail] = useState('')
+  // ★ 追加：QRコード表示用モーダル
+  const [isQRModalOpen, setIsQRModalOpen] = useState(false)
   
   const [detailStaff, setDetailStaff] = useState<any>(null)
   const [copied, setCopied] = useState(false)
@@ -121,9 +114,9 @@ export default function OwnerDashboard() {
       const isFirstTime = log.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       const basePoints = currentRewardPoints + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
       
-      const indRatio = log.snapshot_ratio_individual ?? currentRatios.individual;
-      const teamRatio = log.snapshot_ratio_team ?? currentRatios.team;
-      const ownerRatio = log.snapshot_ratio_owner ?? currentRatios.owner;
+      const indRatio = currentRatios.individual;
+      const teamRatio = currentRatios.team;
+      const ownerRatio = currentRatios.owner;
 
       const totalIndPart = Math.floor(basePoints * (indRatio / 100));
       const totalTeamPool = Math.floor(basePoints * (teamRatio / 100));
@@ -219,39 +212,6 @@ export default function OwnerDashboard() {
     setIsSavingPolicy(false); setIsPolicyModalOpen(false);
   };
 
-  const handleOpenAddStaff = () => {
-    const normalStaffCount = staffs.filter(s => !s.isOwner && !s.is_deleted).length;
-    if (normalStaffCount === 0) {
-      setStaffModalStep('policy')
-    } else {
-      setStaffModalStep('info')
-    }
-    setIsStaffModalOpen(true)
-  }
-
-  const handleNextStepInWizard = async () => {
-    setIsSavingPolicy(true);
-    await supabase.from('shops').update({ ratio_individual: ratios.individual, ratio_team: ratios.team, ratio_owner: ratios.owner }).eq('id', shop.id);
-    await loadData(true)
-    setIsSavingPolicy(false);
-    setStaffModalStep('info')
-  }
-
-  const handleAddStaff = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newStaffName.trim() || !newStaffEmail.trim()) return alert('名前とメールアドレスを入力してください。');
-    const { data: allStaffs } = await supabase.from('staffs').select('id').eq('shop_id', shop.id)
-    const maxNum = (allStaffs || []).reduce((max, s) => {
-      const num = parseInt(s.id.replace('m', ''), 10)
-      return !isNaN(num) && num > max ? num : max
-    }, 0)
-    const nextStaffId = `m${(maxNum + 1).toString().padStart(2, '0')}`
-    const secureToken = generateSecureToken()
-    const { error } = await supabase.from('staffs').insert([{ id: nextStaffId, shop_id: shop.id, name: newStaffName, email: newStaffEmail, referral_code: `${shop.id}_${nextStaffId}`, secret_token: secureToken, is_deleted: false, is_team_pool_eligible: true }])
-    if (error) { alert(`追加に失敗しました。\n${error.message}`); return; }
-    setNewStaffName(''); setNewStaffEmail(''); setIsStaffModalOpen(false); await loadData(true);
-  }
-
   const handleDeleteStaff = async (staffId: string, staffName: string) => {
     if (!confirm(`スタッフ「${staffName}」を非表示にしますか？`)) return
     await supabase.from('staffs').update({ is_deleted: true }).eq('id', staffId)
@@ -315,6 +275,8 @@ export default function OwnerDashboard() {
   }, [referralHistory])
   
   const ownerStaff = staffs.find(s => s.isOwner);
+  const inviteUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/reg/${shop?.invite_token}`;
+  const inviteText = `【${shop?.name || '店舗'}】Duacel紹介システムへの招待です。以下のURLからスタッフ登録を完了してください。\n\n${inviteUrl}`;
 
   const policyEditorJSX = (
     <div className="space-y-4 mb-8">
@@ -393,11 +355,6 @@ export default function OwnerDashboard() {
             <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-gray-900 transition-colors bg-gray-50 hover:bg-gray-100 rounded-full active:scale-95">
               <LogOut className="w-4 h-4" />
             </button>
-            {activeTab === 'staff' && (
-              <button onClick={handleOpenAddStaff} className="text-[10px] font-bold px-2 py-1 bg-gray-900 text-white rounded hover:bg-gray-800 transition active:scale-95 flex items-center gap-1">
-                <Plus className="w-3 h-3" /> 手動追加
-              </button>
-            )}
           </div>
         </header>
 
@@ -424,7 +381,7 @@ export default function OwnerDashboard() {
                 </button>
               )}
 
-              {/* ★ 新機能：Pickup News (仮計上アラート詳細版) */}
+              {/* Pickup News (仮計上アラート詳細版) */}
               {pendingReferrals.length > 0 && (
                 <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
                   <div className="flex items-center gap-2 mb-3">
@@ -469,7 +426,7 @@ export default function OwnerDashboard() {
                 </div>
               )}
 
-              {/* ★ 新UI：店舗全体のポイントサマリー完全統合版 */}
+              {/* 店舗全体のポイントサマリー */}
               <div className="bg-gray-900 text-white p-5 rounded-2xl shadow-sm relative overflow-hidden">
                 <div className="absolute right-0 top-0 p-4 opacity-5"><Wallet className="w-32 h-32 text-white -mt-4 -mr-4" /></div>
                 <div className="relative z-10">
@@ -647,15 +604,30 @@ export default function OwnerDashboard() {
           ========================================= */}
           {activeTab === 'staff' && (
             <div className="p-5 flex flex-col items-center max-w-sm mx-auto animate-in fade-in duration-300">
-              <div className="w-full bg-white p-8 rounded-3xl border border-gray-100 flex flex-col items-center mb-6">
-                <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 mb-4">
-                  <QRCodeCanvas value={`${typeof window !== 'undefined' ? window.location.origin : ''}/reg/${shop?.invite_token}`} size={160} level="H" fgColor="#111827" />
+              
+              {/* ★ 新機能：メンバー招待の4ボタンUI */}
+              <div className="w-full mb-8">
+                <h2 className="text-sm font-bold flex items-center gap-1.5 mb-3"><UserPlus className="w-4 h-4 text-gray-400" /> メンバー招待</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => setIsQRModalOpen(true)} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center gap-2 hover:border-gray-300 transition-all active:scale-95">
+                    <div className="w-10 h-10 bg-gray-50 rounded-full flex items-center justify-center text-gray-700"><QrCode className="w-5 h-5" /></div>
+                    <span className="text-[10px] font-bold text-gray-700">QRで招待</span>
+                  </button>
+                  <button onClick={() => window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からの招待')}&body=${encodeURIComponent(inviteText)}`} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center gap-2 hover:border-gray-300 transition-all active:scale-95">
+                    <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600"><Mail className="w-5 h-5" /></div>
+                    <span className="text-[10px] font-bold text-gray-700">メールで招待</span>
+                  </button>
+                  <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(inviteText)}`, '_blank')} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-col items-center justify-center gap-2 hover:border-gray-300 transition-all active:scale-95">
+                    <div className="w-10 h-10 bg-emerald-50 rounded-full flex items-center justify-center text-emerald-600"><MessageCircle className="w-5 h-5" /></div>
+                    <span className="text-[10px] font-bold text-gray-700">LINEで招待</span>
+                  </button>
+                  <button onClick={() => handleCopy(inviteUrl)} className={`bg-white p-4 rounded-2xl border shadow-sm flex flex-col items-center justify-center gap-2 transition-all active:scale-95 ${copied ? 'border-indigo-200 bg-indigo-50' : 'border-gray-100 hover:border-gray-300'}`}>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${copied ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-50 text-gray-700'}`}>
+                      {copied ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                    </div>
+                    <span className={`text-[10px] font-bold ${copied ? 'text-indigo-700' : 'text-gray-700'}`}>{copied ? 'コピー完了' : 'URLをコピー'}</span>
+                  </button>
                 </div>
-                <p className="text-[10px] font-medium text-gray-500 text-center">スタッフにQRを読み込ませて<br/>登録を完了させてください</p>
-                <button onClick={() => handleCopy(`${typeof window !== 'undefined' ? window.location.origin : ''}/reg/${shop?.invite_token}`)} className={`mt-6 w-full py-3 rounded-xl font-semibold text-xs transition-all flex items-center justify-center gap-2 ${copied ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}>
-                  {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                  {copied ? 'コピー完了' : '招待用URLをコピー'}
-                </button>
               </div>
 
               <div className="w-full">
@@ -780,37 +752,21 @@ export default function OwnerDashboard() {
             </motion.div>
           )}
 
-          {isStaffModalOpen && (
+          {/* ★ QRコード表示用モーダル（新規追加） */}
+          {isQRModalOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-gray-900/40 backdrop-blur-sm flex flex-col justify-end">
-              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="bg-white rounded-t-3xl p-6 w-full shadow-2xl pb-safe max-h-[90vh] overflow-y-auto">
-                <div className="flex justify-between items-center mb-6">
-                  <h3 className="text-sm font-bold text-gray-900">{staffModalStep === 'policy' ? '初期設定 (1/2)' : 'メンバー手動追加'}</h3>
-                  <button onClick={() => setIsStaffModalOpen(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X className="w-4 h-4" /></button>
+              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="bg-white rounded-t-3xl p-8 w-full shadow-2xl pb-safe max-h-[90vh] overflow-y-auto flex flex-col items-center">
+                <div className="w-full flex justify-between items-center mb-6">
+                  <h3 className="text-sm font-bold text-gray-900">QRコードで招待</h3>
+                  <button onClick={() => setIsQRModalOpen(false)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X className="w-4 h-4" /></button>
                 </div>
-
-                {staffModalStep === 'policy' ? (
-                  <motion.div key="policy" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }}>
-                    <p className="text-[10px] text-gray-500 mb-6">メンバーを追加する前に、紹介ポイントの<strong className="text-gray-900">分配ルール</strong>を決めましょう。（後からいつでも変更できます）</p>
-                    {policyEditorJSX}
-                    <button onClick={handleNextStepInWizard} disabled={isSavingPolicy} className="w-full py-3.5 bg-gray-900 text-white text-xs font-semibold rounded-xl transition flex items-center justify-center">
-                      {isSavingPolicy ? <Loader2 className="w-4 h-4 animate-spin" /> : '次へ進む'}
-                    </button>
-                  </motion.div>
-                ) : (
-                  <motion.div key="info" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }}>
-                    <form onSubmit={handleAddStaff} className="space-y-4 mb-2">
-                      <div>
-                        <label className="text-[10px] font-semibold text-gray-500 mb-1 block">お名前</label>
-                        <input required placeholder="山田 太郎" value={newStaffName} onChange={e => setNewStaffName(e.target.value)} className="w-full px-3 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:border-gray-400 outline-none transition-colors" />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-semibold text-gray-500 mb-1 block">メールアドレス</label>
-                        <input required type="email" placeholder="example@email.com" value={newStaffEmail} onChange={e => setNewStaffEmail(e.target.value)} className="w-full px-3 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:border-gray-400 outline-none transition-colors" />
-                      </div>
-                      <button type="submit" className="w-full mt-2 py-3.5 bg-gray-900 text-white text-xs font-semibold rounded-xl transition">メンバーを追加</button>
-                    </form>
-                  </motion.div>
-                )}
+                <div className="p-4 bg-white rounded-2xl shadow-sm border border-gray-100 mb-6">
+                  <QRCodeCanvas value={inviteUrl} size={200} level="H" fgColor="#111827" />
+                </div>
+                <p className="text-[10px] font-medium text-gray-500 text-center leading-relaxed">
+                  スタッフのスマートフォンでカメラを開き、<br/>このQRコードを読み込んでもらってください。
+                </p>
+                <button onClick={() => setIsQRModalOpen(false)} className="mt-8 w-full py-3.5 bg-gray-100 text-gray-900 font-bold text-xs rounded-xl hover:bg-gray-200 transition">閉じる</button>
               </motion.div>
             </motion.div>
           )}
