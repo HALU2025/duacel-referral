@@ -51,7 +51,11 @@ export default function OwnerDashboard() {
   const [detailStaff, setDetailStaff] = useState<any>(null)
   const [copied, setCopied] = useState(false)
 
-  const [summary, setSummary] = useState({ totalEarned: 0, thisMonthEarned: 0, pendingPoints: 0, confirmedPoints: 0, issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0 })
+  // ★ サマリーのステートを拡張
+  const [summary, setSummary] = useState({ 
+    totalEarned: 0, thisMonthEarned: 0, pendingPoints: 0, confirmedPoints: 0, issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0,
+    storeTotalGenerated: 0, storeTotalIndividual: 0, storeTotalTeam: 0, storeTotalOwner: 0, pendingCount: 0
+  })
   const [loading, setLoading] = useState(true)
   const router = useRouter()
 
@@ -118,7 +122,6 @@ export default function OwnerDashboard() {
       const isFirstTime = log.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       const basePoints = currentRewardPoints + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
       
-      // ★ 過去の事実（スナップショット）で計算する
       const indRatio = log.snapshot_ratio_individual ?? currentRatios.individual;
       const teamRatio = log.snapshot_ratio_team ?? currentRatios.team;
       const ownerRatio = log.snapshot_ratio_owner ?? currentRatios.owner;
@@ -129,9 +132,9 @@ export default function OwnerDashboard() {
       const ownerPart = Math.floor(basePoints * (ownerRatio / 100));
 
       const isOwnerAction = staffList.find(s => s.id === log.staff_id)?.email === shopData.owner_email;
-      // オーナーのウォレットに入る合計額（店舗留保 + オーナー自身のチーム分配 + オーナー自身が紹介した場合は本人還元も合算）
       const ownerEarnedPoints = isOwnerAction ? Math.floor(totalIndPart + teamPartPerPerson + ownerPart) : Math.floor(teamPartPerPerson + ownerPart);
       
+      const totalPointsInTx = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
       const hasBonus = refTxs.some(tx => tx.metadata?.is_bonus === true);
 
       return { 
@@ -141,7 +144,6 @@ export default function OwnerDashboard() {
         staffNthCount: staffCounters[log.staff_id], 
         totalGenerated: basePoints,
         ownerPoints: ownerEarnedPoints,
-        // ★ 内訳表示用のデータ
         snapshot_ratio_individual: indRatio,
         snapshot_ratio_team: teamRatio,
         snapshot_ratio_owner: ownerRatio,
@@ -177,13 +179,22 @@ export default function OwnerDashboard() {
     const currentYear = now.getFullYear();
     const validRefs = enrichedReferrals.filter(r => r.status !== 'cancel');
     const earnedRefs = validRefs.filter(r => r.status === 'issued' || r.is_staff_rewarded || r.status === 'confirmed');
+    const pendingRefs = validRefs.filter(r => r.status === 'pending');
 
+    // ★ 全体のサマリーを計算
     setSummary({
       totalEarned: earnedRefs.reduce((sum, r) => sum + r.ownerPoints, 0),
       thisMonthEarned: earnedRefs.filter(r => { const d = new Date(r.created_at); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; }).reduce((sum, r) => sum + r.ownerPoints, 0),
-      pendingPoints: validRefs.filter(r => r.status === 'pending').reduce((sum, r) => sum + r.totalGenerated, 0),
-      confirmedPoints: validRefs.filter(r => r.status === 'confirmed' || r.status === 'issued').reduce((sum, r) => sum + r.ownerPoints, 0),
-      issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0
+      pendingPoints: pendingRefs.reduce((sum, r) => sum + r.totalGenerated, 0),
+      confirmedPoints: earnedRefs.reduce((sum, r) => sum + r.ownerPart, 0), // ショップで使えるのは店舗留保分のみ
+      issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0,
+      
+      // 新規：全体の内訳
+      storeTotalGenerated: earnedRefs.reduce((sum, r) => sum + r.totalGenerated, 0),
+      storeTotalIndividual: earnedRefs.reduce((sum, r) => sum + r.totalIndPart, 0),
+      storeTotalTeam: earnedRefs.reduce((sum, r) => sum + r.totalTeamPool, 0),
+      storeTotalOwner: earnedRefs.reduce((sum, r) => sum + r.ownerPart, 0),
+      pendingCount: pendingRefs.length
     })
     
     if (!silent) setLoading(false)
@@ -347,7 +358,7 @@ export default function OwnerDashboard() {
       </AnimatePresence>
 
       <div className="p-4 bg-gray-100 rounded-xl border border-gray-200 flex flex-col gap-2">
-        <p className="text-[10px] font-bold text-gray-500">変更後の分配シミュレーション</p>
+        <p className="text-[10px] font-bold text-gray-500">分配シミュレーション</p>
         <div className="flex h-2 w-full rounded-full overflow-hidden bg-gray-300">
           <div style={{width: `${ratios.individual}%`}} className="bg-gray-900 transition-all duration-300" />
           <div style={{width: `${ratios.team}%`}} className="bg-gray-500 transition-all duration-300" />
@@ -396,7 +407,7 @@ export default function OwnerDashboard() {
               📊 STATS (ホーム)
           ========================================= */}
           {activeTab === 'stats' && (
-            <div className="p-5 animate-in fade-in duration-300 space-y-6">
+            <div className="p-5 animate-in fade-in duration-300 space-y-5">
               
               {ownerStaff?.secret_token && (
                 <button 
@@ -413,18 +424,42 @@ export default function OwnerDashboard() {
                 </button>
               )}
 
-              <div className="space-y-3">
-                <div className="bg-white border border-gray-200 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                  <div className="absolute right-0 top-0 p-4 opacity-5"><Wallet className="w-16 h-16 text-gray-900" /></div>
-                  <p className="text-[10px] font-bold text-gray-500 mb-1">💰 仕入れに使える店舗ポイント</p>
-                  <p className="text-3xl font-mono font-black text-gray-900 tracking-tight">{summary.confirmedPoints.toLocaleString()}<span className="text-xs ml-1 text-gray-400 font-sans">pt</span></p>
-                </div>
-                <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] font-bold text-gray-500 mb-0.5">🚀 確定待ちのパイプライン (店舗総額)</p>
-                    <p className="text-lg font-mono font-bold tracking-tight text-gray-800">{summary.pendingPoints.toLocaleString()}<span className="text-[10px] ml-1 text-gray-400 font-sans">pt</span></p>
+              {/* ★ 新機能：Pickup News (仮計上アラート) */}
+              {summary.pendingCount > 0 && (
+                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm flex items-start gap-3">
+                  <div className="bg-white p-1.5 rounded-full shadow-sm shrink-0">
+                    <Sparkles className="w-4 h-4 text-amber-500" />
                   </div>
-                  <Clock className="w-6 h-6 text-gray-300" />
+                  <div>
+                    <h3 className="text-xs font-bold text-amber-900 mb-1">🎉 {summary.pendingCount}件の新しい購入（仮計上）が発生しました！</h3>
+                    <p className="text-[10px] text-amber-700/80 leading-relaxed">
+                      現在はお届け待ちです。お客様へのお届けが完了すると、自動的にポイントが確定し、スタッフと店舗へ分配されます。
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ★ 新UI：店舗全体のポイントサマリー完全統合版 */}
+              <div className="bg-gray-900 text-white p-5 rounded-2xl shadow-sm relative overflow-hidden">
+                <div className="absolute right-0 top-0 p-4 opacity-5"><Wallet className="w-32 h-32 text-white -mt-4 -mr-4" /></div>
+                <div className="relative z-10">
+                  <p className="text-[10px] font-bold text-gray-400 mb-1">店舗全体の累計獲得ポイント</p>
+                  <p className="text-3xl font-mono font-black tracking-tight mb-5">{summary.storeTotalGenerated?.toLocaleString() || 0}<span className="text-xs ml-1 text-gray-400 font-sans">pt</span></p>
+                  
+                  <div className="grid grid-cols-3 gap-3 pt-4 border-t border-gray-800">
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 mb-0.5">👤 本人還元</p>
+                      <p className="text-sm font-mono font-bold text-gray-200">{summary.storeTotalIndividual?.toLocaleString() || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-gray-400 mb-0.5">🤝 チーム分配</p>
+                      <p className="text-sm font-mono font-bold text-gray-200">{summary.storeTotalTeam?.toLocaleString() || 0}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-indigo-300 mb-0.5">🏢 店舗留保 (利用可能)</p>
+                      <p className="text-sm font-mono font-bold text-indigo-400">{summary.storeTotalOwner?.toLocaleString() || 0}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -454,85 +489,78 @@ export default function OwnerDashboard() {
                   </div>
                 </div>
 
-                <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-gray-200 before:to-transparent">
+                {/* ★ アクションフィードのUI変更 (左の丸をなくし100%幅に) */}
+                <div className="space-y-3">
                   {filteredHistory.slice(0, visibleCount).map((item) => {
                     if (item.type === 'staff_added') {
                       return (
-                        <div key={item.id} className="relative flex items-start justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                          <div className="flex items-center justify-center w-3 h-3 rounded-full border-2 bg-blue-400 border-blue-100 absolute left-5 -translate-x-1/2 translate-y-1.5 shadow-sm ring-4 ring-gray-50"></div>
-                          <div className="bg-white p-3.5 rounded-xl border border-gray-100 shadow-sm w-[calc(100%-3rem)] ml-10">
-                            <div className="flex justify-between items-start mb-1">
-                              <p className="text-[10px] font-bold text-gray-900 flex items-center gap-1.5">👤 【メンバー追加】</p>
-                              <span className="text-[8px] text-gray-400 whitespace-nowrap ml-2">
-                                {new Date(item.created_at).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}
-                              </span>
-                            </div>
-                            <p className="text-[11px] font-bold text-gray-700 leading-relaxed"><span className="text-gray-900">{item.staffName}</span> さんがシステムに登録されました。</p>
+                        <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm w-full">
+                          <div className="flex justify-between items-start mb-1">
+                            <p className="text-[10px] font-bold text-gray-900 flex items-center gap-1.5">👤 【メンバー追加】</p>
+                            <span className="text-[8px] text-gray-400 whitespace-nowrap ml-2">
+                              {new Date(item.created_at).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}
+                            </span>
                           </div>
+                          <p className="text-[11px] font-bold text-gray-700 leading-relaxed"><span className="text-gray-900">{item.staffName}</span> さんがシステムに登録されました。</p>
                         </div>
                       )
                     }
 
                     const isPending = item.status === 'pending';
-                    const dotColor = isPending ? 'bg-amber-400 border-amber-100' : item.status === 'cancel' ? 'bg-red-400 border-red-100' : 'bg-emerald-400 border-emerald-100';
                     const customerName = item.customer_name || '匿名のお客様';
                     const isRecurring = item.recurring_count > 1;
 
                     return (
-                      <div key={item.id} className="relative flex items-start justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                        <div className={`flex items-center justify-center w-3 h-3 rounded-full border-2 bg-white ${dotColor} absolute left-5 -translate-x-1/2 translate-y-1.5 shadow-sm ring-4 ring-gray-50`}></div>
-                        
-                        <div className="bg-white p-3.5 rounded-xl border border-gray-100 shadow-sm w-[calc(100%-3rem)] ml-10 hover:border-gray-300 transition-colors">
-                          <div className="flex justify-between items-start mb-1.5">
-                            <p className="text-[10px] font-bold text-gray-900">
-                              {isPending ? '🟡 【仮計上】' : item.status === 'cancel' ? '🔴 【無効】' : '🟢 【自動分配完了】'}
-                              {customerName}の{isRecurring ? `定期${item.recurring_count}回目お届け` : '初回購入'}
-                            </p>
-                            <span className="text-[8px] text-gray-400 whitespace-nowrap ml-2">
-                              {new Date(item.created_at).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}
-                            </span>
-                          </div>
-                          
-                          {/* ★ 修正：紹介者と総発生額をメインに表示 */}
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">
-                              紹介者: {item.staffName}
-                            </span>
-                            <p className={`text-sm font-mono font-bold ${item.status === 'cancel' ? 'line-through text-gray-300' : 'text-gray-900'}`}>
-                              総発生: +{item.totalGenerated.toLocaleString()} <span className="text-[9px] font-sans text-gray-500">pt</span>
-                            </p>
-                          </div>
-                          
-                          {/* ★ 修正：本人 / チーム / 店舗 の内訳をアコーディオン風のリストで表示 */}
-                          {!isPending && item.status !== 'cancel' ? (
-                            <div className="pt-3 mt-3 border-t border-gray-100/80">
-                              <div className="flex justify-between text-[10px] mb-1.5">
-                                <span className="text-gray-500">├ 👤 本人還元 ({item.snapshot_ratio_individual}%)</span>
-                                <span className="font-mono text-gray-700">+{item.totalIndPart.toLocaleString()}pt</span>
-                              </div>
-                              <div className="flex justify-between text-[10px] mb-1.5">
-                                <span className="text-gray-500">├ 🤝 チーム分配 ({item.snapshot_ratio_team}%)</span>
-                                <span className="font-mono text-gray-700">+{item.totalTeamPool.toLocaleString()}pt</span>
-                              </div>
-                              <div className="flex justify-between text-[10px]">
-                                <span className="text-gray-500">└ 🏢 店舗留保 ({item.snapshot_ratio_owner}%)</span>
-                                <span className="font-mono font-bold text-indigo-600">+{item.ownerPart.toLocaleString()}pt</span>
-                              </div>
-                            </div>
-                          ) : isPending ? (
-                            <p className="text-[9px] text-gray-400 bg-gray-50 p-2 rounded-lg border border-gray-100 mt-2">
-                              お届け完了後に {item.snapshot_ratio_individual} : {item.snapshot_ratio_team} : {item.snapshot_ratio_owner} の比率で自動分配されます。
-                            </p>
-                          ) : null}
+                      <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm w-full hover:border-gray-300 transition-colors">
+                        <div className="flex justify-between items-start mb-1.5">
+                          <p className="text-[10px] font-bold text-gray-900">
+                            {isPending ? '🟡 【仮計上】' : item.status === 'cancel' ? '🔴 【無効】' : '🟢 【自動分配完了】'}
+                            {customerName}の{isRecurring ? `定期${item.recurring_count}回目お届け` : '初回購入'}
+                          </p>
+                          <span className="text-[8px] text-gray-400 whitespace-nowrap ml-2">
+                            {new Date(item.created_at).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}
+                          </span>
                         </div>
+                        
+                        {/* ★ 総発生を主役に、紹介者を添える */}
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">
+                            紹介者: {item.staffName}
+                          </span>
+                          <p className={`text-sm font-mono font-bold ${item.status === 'cancel' ? 'line-through text-gray-300' : 'text-gray-900'}`}>
+                            総発生: +{item.totalGenerated.toLocaleString()} <span className="text-[9px] font-sans text-gray-500">pt</span>
+                          </p>
+                        </div>
+                        
+                        {/* ★ 当時のスナップショット比率と内訳 */}
+                        {!isPending && item.status !== 'cancel' ? (
+                          <div className="pt-3 mt-3 border-t border-gray-100/80">
+                            <div className="flex justify-between text-[10px] mb-1.5">
+                              <span className="text-gray-500">├ 👤 本人還元 ({item.snapshot_ratio_individual}%)</span>
+                              <span className="font-mono text-gray-700">+{item.totalIndPart.toLocaleString()}pt</span>
+                            </div>
+                            <div className="flex justify-between text-[10px] mb-1.5">
+                              <span className="text-gray-500">├ 🤝 チーム分配 ({item.snapshot_ratio_team}%)</span>
+                              <span className="font-mono text-gray-700">+{item.totalTeamPool.toLocaleString()}pt</span>
+                            </div>
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-gray-500">└ 🏢 店舗留保 ({item.snapshot_ratio_owner}%)</span>
+                              <span className="font-mono font-bold text-indigo-600">+{item.ownerPart.toLocaleString()}pt</span>
+                            </div>
+                          </div>
+                        ) : isPending ? (
+                          <p className="text-[9px] text-gray-400 bg-gray-50 p-2 rounded-lg border border-gray-100 mt-2">
+                            お届け完了後に {item.snapshot_ratio_individual} : {item.snapshot_ratio_team} : {item.snapshot_ratio_owner} の比率で自動分配されます。
+                          </p>
+                        ) : null}
                       </div>
                     )
                   })}
-                  {filteredHistory.length === 0 && <div className="text-center py-10 text-gray-400 text-xs relative z-10">データがありません</div>}
+                  {filteredHistory.length === 0 && <div className="text-center py-10 text-gray-400 text-xs">データがありません</div>}
                 </div>
                 
                 {filteredHistory.length > visibleCount && (
-                  <div className="text-center mt-4 relative z-10">
+                  <div className="text-center mt-4">
                     <button onClick={() => setVisibleCount(v => v + 20)} className="px-4 py-2 bg-white border border-gray-200 text-gray-500 text-[10px] font-bold rounded-full hover:bg-gray-50 transition shadow-sm">
                       さらに読み込む
                     </button>
@@ -693,6 +721,7 @@ export default function OwnerDashboard() {
           )}
         </main>
 
+        {/* ボトムナビゲーション */}
         <nav className="bg-white border-t border-gray-200 px-1 py-1 flex justify-between items-center z-50 pb-safe shrink-0">
           {[
             { id: 'stats', icon: <LayoutDashboard className="w-5 h-5" />, label: 'Home' },
@@ -708,6 +737,7 @@ export default function OwnerDashboard() {
           ))}
         </nav>
 
+        {/* モーダル群 */}
         <AnimatePresence>
           {isPolicyModalOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4">
