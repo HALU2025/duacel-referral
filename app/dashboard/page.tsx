@@ -72,7 +72,6 @@ export default function OwnerDashboard() {
     return match ? match.id : 'custom'
   }
 
-  // ★ バグ修正: silentフラグを追加。trueの時は「Loading...」画面に切り替わらない（モーダルが閉じない）
   const loadData = async (silent = false) => {
     if (!silent) setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
@@ -119,18 +118,20 @@ export default function OwnerDashboard() {
       const isFirstTime = log.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       const basePoints = currentRewardPoints + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
       
+      // ★ 過去の事実（スナップショット）で計算する
       const indRatio = log.snapshot_ratio_individual ?? currentRatios.individual;
       const teamRatio = log.snapshot_ratio_team ?? currentRatios.team;
       const ownerRatio = log.snapshot_ratio_owner ?? currentRatios.owner;
 
-      const indPart = basePoints * (indRatio / 100);
-      const teamPart = (basePoints * (teamRatio / 100)) / eligibleStaffCount;
-      const ownerPart = basePoints * (ownerRatio / 100);
+      const totalIndPart = Math.floor(basePoints * (indRatio / 100));
+      const totalTeamPool = Math.floor(basePoints * (teamRatio / 100));
+      const teamPartPerPerson = totalTeamPool / eligibleStaffCount;
+      const ownerPart = Math.floor(basePoints * (ownerRatio / 100));
 
       const isOwnerAction = staffList.find(s => s.id === log.staff_id)?.email === shopData.owner_email;
-      const ownerEarnedPoints = isOwnerAction ? Math.floor(indPart + teamPart + ownerPart) : Math.floor(teamPart + ownerPart);
+      // オーナーのウォレットに入る合計額（店舗留保 + オーナー自身のチーム分配 + オーナー自身が紹介した場合は本人還元も合算）
+      const ownerEarnedPoints = isOwnerAction ? Math.floor(totalIndPart + teamPartPerPerson + ownerPart) : Math.floor(teamPartPerPerson + ownerPart);
       
-      const totalPointsInTx = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
       const hasBonus = refTxs.some(tx => tx.metadata?.is_bonus === true);
 
       return { 
@@ -140,6 +141,13 @@ export default function OwnerDashboard() {
         staffNthCount: staffCounters[log.staff_id], 
         totalGenerated: basePoints,
         ownerPoints: ownerEarnedPoints,
+        // ★ 内訳表示用のデータ
+        snapshot_ratio_individual: indRatio,
+        snapshot_ratio_team: teamRatio,
+        snapshot_ratio_owner: ownerRatio,
+        totalIndPart,
+        totalTeamPool,
+        ownerPart,
         hasBonus 
       }
     });
@@ -158,7 +166,7 @@ export default function OwnerDashboard() {
     const staffsWithFinance = staffList.map(s => {
       const staffRefs = enrichedReferrals.filter(r => r.staff_id === s.id);
       const pendingPts = staffRefs.filter(r => r.status === 'pending').reduce((sum, r) => sum + r.ownerPoints, 0);
-      const unpaidToStaffPts = staffRefs.filter(r => r.status === 'issued' && !r.is_staff_rewarded).reduce((sum, r) => sum + r.totalPoints, 0);
+      const unpaidToStaffPts = staffRefs.filter(r => r.status === 'issued' && !r.is_staff_rewarded).reduce((sum, r) => sum + r.totalIndPart, 0);
       const isOwner = s.email === shopData.owner_email;
       return { ...s, count: staffRefs.filter(r => r.status !== 'cancel').length, pendingPts, unpaidToStaffPts, hasUnpaid: unpaidToStaffPts > 0, isOwner }
     })
@@ -200,7 +208,7 @@ export default function OwnerDashboard() {
   const handleSavePolicy = async () => {
     setIsSavingPolicy(true);
     const { error } = await supabase.from('shops').update({ ratio_individual: ratios.individual, ratio_team: ratios.team, ratio_owner: ratios.owner }).eq('id', shop.id);
-    if (error) alert('保存に失敗しました'); else { alert('報酬ポリシーを更新しました！'); await loadData(); }
+    if (error) alert('保存に失敗しました'); else { alert('報酬ポリシーを更新しました！'); await loadData(true); }
     setIsSavingPolicy(false); setIsPolicyModalOpen(false);
   };
 
@@ -217,7 +225,7 @@ export default function OwnerDashboard() {
   const handleNextStepInWizard = async () => {
     setIsSavingPolicy(true);
     await supabase.from('shops').update({ ratio_individual: ratios.individual, ratio_team: ratios.team, ratio_owner: ratios.owner }).eq('id', shop.id);
-    await loadData()
+    await loadData(true)
     setIsSavingPolicy(false);
     setStaffModalStep('info')
   }
@@ -234,13 +242,13 @@ export default function OwnerDashboard() {
     const secureToken = generateSecureToken()
     const { error } = await supabase.from('staffs').insert([{ id: nextStaffId, shop_id: shop.id, name: newStaffName, email: newStaffEmail, referral_code: `${shop.id}_${nextStaffId}`, secret_token: secureToken, is_deleted: false, is_team_pool_eligible: true }])
     if (error) { alert(`追加に失敗しました。\n${error.message}`); return; }
-    setNewStaffName(''); setNewStaffEmail(''); setIsStaffModalOpen(false); await loadData();
+    setNewStaffName(''); setNewStaffEmail(''); setIsStaffModalOpen(false); await loadData(true);
   }
 
   const handleDeleteStaff = async (staffId: string, staffName: string) => {
     if (!confirm(`スタッフ「${staffName}」を非表示にしますか？`)) return
     await supabase.from('staffs').update({ is_deleted: true }).eq('id', staffId)
-    setDetailStaff(null); await loadData()
+    setDetailStaff(null); await loadData(true)
   }
 
   const handleToggleTeamEligibility = async () => {
@@ -250,7 +258,7 @@ export default function OwnerDashboard() {
     setDetailStaff({ ...detailStaff, is_team_pool_eligible: newVal });
     const { error } = await supabase.from('staffs').update({ is_team_pool_eligible: newVal }).eq('id', detailStaff.id);
     if (!error) {
-      await loadData(true); // ★ バグ修正：サイレントロードでモーダルを閉じさせない
+      await loadData(true); 
     } else {
       alert('設定の変更に失敗しました。');
       setDetailStaff({ ...detailStaff, is_team_pool_eligible: currentVal });
@@ -339,7 +347,7 @@ export default function OwnerDashboard() {
       </AnimatePresence>
 
       <div className="p-4 bg-gray-100 rounded-xl border border-gray-200 flex flex-col gap-2">
-        <p className="text-[10px] font-bold text-gray-500">分配シミュレーション</p>
+        <p className="text-[10px] font-bold text-gray-500">変更後の分配シミュレーション</p>
         <div className="flex h-2 w-full rounded-full overflow-hidden bg-gray-300">
           <div style={{width: `${ratios.individual}%`}} className="bg-gray-900 transition-all duration-300" />
           <div style={{width: `${ratios.team}%`}} className="bg-gray-500 transition-all duration-300" />
@@ -485,15 +493,36 @@ export default function OwnerDashboard() {
                             </span>
                           </div>
                           
-                          <p className="text-[9px] text-gray-500 mb-2">紹介者: {item.staffName} / 総発生: {item.totalGenerated.toLocaleString()}pt</p>
+                          {/* ★ 修正：紹介者と総発生額をメインに表示 */}
+                          <div className="flex items-center justify-between mb-3">
+                            <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">
+                              紹介者: {item.staffName}
+                            </span>
+                            <p className={`text-sm font-mono font-bold ${item.status === 'cancel' ? 'line-through text-gray-300' : 'text-gray-900'}`}>
+                              総発生: +{item.totalGenerated.toLocaleString()} <span className="text-[9px] font-sans text-gray-500">pt</span>
+                            </p>
+                          </div>
                           
+                          {/* ★ 修正：本人 / チーム / 店舗 の内訳をアコーディオン風のリストで表示 */}
                           {!isPending && item.status !== 'cancel' ? (
-                            <div className="p-2 bg-gray-50 rounded-lg flex justify-between items-center border border-gray-100">
-                              <span className="text-[10px] font-semibold text-gray-600">店舗にチャージ</span>
-                              <span className="text-sm font-mono font-bold text-gray-900">+{item.ownerPoints.toLocaleString()} <span className="text-[9px] font-sans text-gray-500">pt</span></span>
+                            <div className="pt-3 mt-3 border-t border-gray-100/80">
+                              <div className="flex justify-between text-[10px] mb-1.5">
+                                <span className="text-gray-500">├ 👤 本人還元 ({item.snapshot_ratio_individual}%)</span>
+                                <span className="font-mono text-gray-700">+{item.totalIndPart.toLocaleString()}pt</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] mb-1.5">
+                                <span className="text-gray-500">├ 🤝 チーム分配 ({item.snapshot_ratio_team}%)</span>
+                                <span className="font-mono text-gray-700">+{item.totalTeamPool.toLocaleString()}pt</span>
+                              </div>
+                              <div className="flex justify-between text-[10px]">
+                                <span className="text-gray-500">└ 🏢 店舗留保 ({item.snapshot_ratio_owner}%)</span>
+                                <span className="font-mono font-bold text-indigo-600">+{item.ownerPart.toLocaleString()}pt</span>
+                              </div>
                             </div>
                           ) : isPending ? (
-                            <p className="text-[9px] text-gray-400 bg-gray-50 p-2 rounded-lg border border-gray-100">お届け完了後に自動でポイントが分配されます。</p>
+                            <p className="text-[9px] text-gray-400 bg-gray-50 p-2 rounded-lg border border-gray-100 mt-2">
+                              お届け完了後に {item.snapshot_ratio_individual} : {item.snapshot_ratio_team} : {item.snapshot_ratio_owner} の比率で自動分配されます。
+                            </p>
                           ) : null}
                         </div>
                       </div>
@@ -509,6 +538,50 @@ export default function OwnerDashboard() {
                     </button>
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* =========================================
+              🛒 SHOP (仕入れ)
+          ========================================= */}
+          {activeTab === 'shop' && (
+            <div className="p-5 animate-in fade-in duration-300">
+              <div className="flex justify-between items-end mb-6">
+                <div>
+                  <h2 className="text-sm font-bold flex items-center gap-1.5"><Store className="w-4 h-4 text-gray-400" /> 仕入れ・交換</h2>
+                  <p className="text-[10px] text-gray-500 mt-1">店舗ポイントで商材をお得に仕入れ</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-gray-400 mb-0.5">利用可能</p>
+                  <p className="text-xl font-mono leading-none">{summary.confirmedPoints.toLocaleString()}<span className="text-xs ml-0.5 font-sans text-gray-500">pt</span></p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {MOCK_PRODUCTS.map(product => {
+                  const canBuyWithPoint = summary.confirmedPoints >= product.ptPrice;
+                  return (
+                    <div key={product.id} className="bg-white p-3 rounded-xl border border-gray-100 flex items-center gap-4 hover:border-gray-300 transition-colors">
+                      <div className="w-16 h-16 rounded-lg bg-gray-50 flex items-center justify-center shrink-0 border border-gray-100">
+                        {product.icon}
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-xs font-semibold leading-snug mb-2 text-gray-800">{product.name}</h3>
+                        <div className="flex items-end justify-between">
+                          <div>
+                            <p className="text-sm font-mono flex items-baseline gap-1">
+                              {product.ptPrice.toLocaleString()}<span className="text-[9px] font-sans text-gray-500">pt</span>
+                            </p>
+                          </div>
+                          <button className={`px-4 py-1.5 rounded-md text-[10px] font-bold transition-all ${canBuyWithPoint ? 'bg-gray-900 text-white hover:bg-gray-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
+                            {canBuyWithPoint ? 'ポイント交換' : '通常購入'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -590,50 +663,6 @@ export default function OwnerDashboard() {
           )}
 
           {/* =========================================
-              🛒 SHOP (仕入れ)
-          ========================================= */}
-          {activeTab === 'shop' && (
-            <div className="p-5 animate-in fade-in duration-300">
-              <div className="flex justify-between items-end mb-6">
-                <div>
-                  <h2 className="text-sm font-bold flex items-center gap-1.5"><Store className="w-4 h-4 text-gray-400" /> 仕入れ・交換</h2>
-                  <p className="text-[10px] text-gray-500 mt-1">店舗ポイントで商材をお得に仕入れ</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] text-gray-400 mb-0.5">利用可能</p>
-                  <p className="text-xl font-mono leading-none">{summary.confirmedPoints.toLocaleString()}<span className="text-xs ml-0.5 font-sans text-gray-500">pt</span></p>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {MOCK_PRODUCTS.map(product => {
-                  const canBuyWithPoint = summary.confirmedPoints >= product.ptPrice;
-                  return (
-                    <div key={product.id} className="bg-white p-3 rounded-xl border border-gray-100 flex items-center gap-4 hover:border-gray-300 transition-colors">
-                      <div className="w-16 h-16 rounded-lg bg-gray-50 flex items-center justify-center shrink-0 border border-gray-100">
-                        {product.icon}
-                      </div>
-                      <div className="flex-1">
-                        <h3 className="text-xs font-semibold leading-snug mb-2 text-gray-800">{product.name}</h3>
-                        <div className="flex items-end justify-between">
-                          <div>
-                            <p className="text-sm font-mono flex items-baseline gap-1">
-                              {product.ptPrice.toLocaleString()}<span className="text-[9px] font-sans text-gray-500">pt</span>
-                            </p>
-                          </div>
-                          <button className={`px-4 py-1.5 rounded-md text-[10px] font-bold transition-all ${canBuyWithPoint ? 'bg-gray-900 text-white hover:bg-gray-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>
-                            {canBuyWithPoint ? 'ポイント交換' : '通常購入'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* =========================================
               ⚙️ SETTINGS (設定)
           ========================================= */}
           {activeTab === 'settings' && (
@@ -664,7 +693,6 @@ export default function OwnerDashboard() {
           )}
         </main>
 
-        {/* ★ ボトムナビゲーション (フラットな均等デザインに修正) */}
         <nav className="bg-white border-t border-gray-200 px-1 py-1 flex justify-between items-center z-50 pb-safe shrink-0">
           {[
             { id: 'stats', icon: <LayoutDashboard className="w-5 h-5" />, label: 'Home' },
@@ -680,7 +708,6 @@ export default function OwnerDashboard() {
           ))}
         </nav>
 
-        {/* モーダル群 */}
         <AnimatePresence>
           {isPolicyModalOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-gray-900/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -775,6 +802,7 @@ export default function OwnerDashboard() {
               </motion.div>
             </motion.div>
           )}
+
         </AnimatePresence>
       </div>
     </div>
