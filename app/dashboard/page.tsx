@@ -12,7 +12,7 @@ import {
   X, Ban, Trophy, Calendar, LayoutDashboard, Share, Edit2, Loader2, 
   Mail, Key, ShieldCheck, Store, BookOpen, Sparkles, PlayCircle, 
   MessageCircle, Info, Copy, ShoppingBag, ThumbsUp, Handshake, Percent,
-  ToggleRight, ToggleLeft
+  ToggleRight, ToggleLeft, User, UserPlus
 } from 'lucide-react'
 
 const generateSecureToken = () => {
@@ -51,7 +51,6 @@ export default function OwnerDashboard() {
   const [detailStaff, setDetailStaff] = useState<any>(null)
   const [copied, setCopied] = useState(false)
 
-  // ★ サマリーのステートを拡張
   const [summary, setSummary] = useState({ 
     totalEarned: 0, thisMonthEarned: 0, pendingPoints: 0, confirmedPoints: 0, issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0,
     storeTotalGenerated: 0, storeTotalIndividual: 0, storeTotalTeam: 0, storeTotalOwner: 0, pendingCount: 0
@@ -181,15 +180,12 @@ export default function OwnerDashboard() {
     const earnedRefs = validRefs.filter(r => r.status === 'issued' || r.is_staff_rewarded || r.status === 'confirmed');
     const pendingRefs = validRefs.filter(r => r.status === 'pending');
 
-    // ★ 全体のサマリーを計算
     setSummary({
       totalEarned: earnedRefs.reduce((sum, r) => sum + r.ownerPoints, 0),
       thisMonthEarned: earnedRefs.filter(r => { const d = new Date(r.created_at); return d.getMonth() === currentMonth && d.getFullYear() === currentYear; }).reduce((sum, r) => sum + r.ownerPoints, 0),
       pendingPoints: pendingRefs.reduce((sum, r) => sum + r.totalGenerated, 0),
-      confirmedPoints: earnedRefs.reduce((sum, r) => sum + r.ownerPart, 0), // ショップで使えるのは店舗留保分のみ
+      confirmedPoints: earnedRefs.reduce((sum, r) => sum + r.ownerPart, 0), 
       issuedPoints: 0, rewardedPoints: 0, canceledPoints: 0,
-      
-      // 新規：全体の内訳
       storeTotalGenerated: earnedRefs.reduce((sum, r) => sum + r.totalGenerated, 0),
       storeTotalIndividual: earnedRefs.reduce((sum, r) => sum + r.totalIndPart, 0),
       storeTotalTeam: earnedRefs.reduce((sum, r) => sum + r.totalTeamPool, 0),
@@ -313,6 +309,10 @@ export default function OwnerDashboard() {
       return item.status === filterStatus;
     })
   }, [referralHistory, filterStatus])
+
+  const pendingReferrals = useMemo(() => {
+    return referralHistory.filter(r => r.type === 'referral' && r.status === 'pending')
+  }, [referralHistory])
   
   const ownerStaff = staffs.find(s => s.isOwner);
 
@@ -358,16 +358,16 @@ export default function OwnerDashboard() {
       </AnimatePresence>
 
       <div className="p-4 bg-gray-100 rounded-xl border border-gray-200 flex flex-col gap-2">
-        <p className="text-[10px] font-bold text-gray-500">分配シミュレーション</p>
+        <p className="text-[10px] font-bold text-gray-500">変更後の分配シミュレーション</p>
         <div className="flex h-2 w-full rounded-full overflow-hidden bg-gray-300">
           <div style={{width: `${ratios.individual}%`}} className="bg-gray-900 transition-all duration-300" />
           <div style={{width: `${ratios.team}%`}} className="bg-gray-500 transition-all duration-300" />
           <div style={{width: `${ratios.owner}%`}} className="bg-gray-300 transition-all duration-300" />
         </div>
         <div className="flex justify-between text-[10px] font-semibold mt-1 text-gray-600">
-          <span>本人 {ratios.individual}%</span>
-          <span>チーム {ratios.team}%</span>
-          <span>店舗 {ratios.owner}%</span>
+          <span className="flex items-center gap-1"><User className="w-2.5 h-2.5"/> 本人 {ratios.individual}%</span>
+          <span className="flex items-center gap-1"><Handshake className="w-2.5 h-2.5"/> チーム {ratios.team}%</span>
+          <span className="flex items-center gap-1"><Store className="w-2.5 h-2.5"/> 店舗 {ratios.owner}%</span>
         </div>
       </div>
     </div>
@@ -385,7 +385,7 @@ export default function OwnerDashboard() {
             <p className="text-[9px] font-bold text-indigo-600 tracking-wider mb-1">Duacel紹介システム管理画面</p>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-black text-gray-900">{shop.name}</h1>
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700">👑 {category?.label || '未設定'}</span>
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 flex items-center gap-1"><Crown className="w-2.5 h-2.5"/> {category?.label || '未設定'}</span>
             </div>
             <p className="text-[10px] font-semibold text-gray-500 mt-1 flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> 管理者: {ownerStaff?.name || '読込中'}</p>
           </div>
@@ -407,7 +407,7 @@ export default function OwnerDashboard() {
               📊 STATS (ホーム)
           ========================================= */}
           {activeTab === 'stats' && (
-            <div className="p-5 animate-in fade-in duration-300 space-y-5">
+            <div className="p-5 animate-in fade-in duration-300 space-y-6">
               
               {ownerStaff?.secret_token && (
                 <button 
@@ -424,18 +424,48 @@ export default function OwnerDashboard() {
                 </button>
               )}
 
-              {/* ★ 新機能：Pickup News (仮計上アラート) */}
-              {summary.pendingCount > 0 && (
-                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm flex items-start gap-3">
-                  <div className="bg-white p-1.5 rounded-full shadow-sm shrink-0">
-                    <Sparkles className="w-4 h-4 text-amber-500" />
+              {/* ★ 新機能：Pickup News (仮計上アラート詳細版) */}
+              {pendingReferrals.length > 0 && (
+                <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="bg-white p-1.5 rounded-full shadow-sm shrink-0">
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                    </div>
+                    <h3 className="text-xs font-bold text-amber-900">
+                      🎉 {pendingReferrals.length}件の新しい購入（仮計上）が発生しました！
+                    </h3>
                   </div>
-                  <div>
-                    <h3 className="text-xs font-bold text-amber-900 mb-1">🎉 {summary.pendingCount}件の新しい購入（仮計上）が発生しました！</h3>
-                    <p className="text-[10px] text-amber-700/80 leading-relaxed">
-                      現在はお届け待ちです。お客様へのお届けが完了すると、自動的にポイントが確定し、スタッフと店舗へ分配されます。
-                    </p>
+                  
+                  <div className="space-y-2 mb-3">
+                    {pendingReferrals.slice(0, 3).map((item) => (
+                      <div key={item.id} className="bg-white/80 p-3 rounded-xl border border-amber-100 shadow-sm">
+                        <div className="flex justify-between items-start mb-1.5">
+                          <p className="text-[10px] font-bold text-gray-900">{item.customer_name || '匿名のお客様'} <span className="font-normal text-gray-500 text-[9px] ml-1">の{item.recurring_count > 1 ? `定期${item.recurring_count}回目` : '初回購入'}</span></p>
+                          <span className="text-[8px] text-gray-500">
+                            {new Date(item.created_at).toLocaleDateString('ja-JP')} {new Date(item.created_at).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}
+                          </span>
+                        </div>
+                        <div className="flex items-end justify-between">
+                          <p className="text-[9px] font-semibold text-amber-700 bg-amber-100/50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <User className="w-2.5 h-2.5" /> 紹介者: {item.staffName}
+                          </p>
+                          <p className="text-xs font-mono font-bold text-amber-600">
+                            予定: +{item.totalGenerated.toLocaleString()}<span className="text-[9px] font-sans ml-0.5">pt</span>
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                    {pendingReferrals.length > 3 && (
+                      <p className="text-[10px] text-center text-amber-600 font-semibold pt-1">
+                        他 {pendingReferrals.length - 3} 件の仮計上があります
+                      </p>
+                    )}
                   </div>
+
+                  <p className="text-[10px] text-amber-800/80 leading-relaxed font-medium">
+                    <Info className="w-3 h-3 inline mr-1 -mt-0.5" />
+                    現在はお届け待ちです。お客様へのお届けが完了すると、自動的にポイントが確定し、スタッフと店舗へ分配されます。
+                  </p>
                 </div>
               )}
 
@@ -443,20 +473,20 @@ export default function OwnerDashboard() {
               <div className="bg-gray-900 text-white p-5 rounded-2xl shadow-sm relative overflow-hidden">
                 <div className="absolute right-0 top-0 p-4 opacity-5"><Wallet className="w-32 h-32 text-white -mt-4 -mr-4" /></div>
                 <div className="relative z-10">
-                  <p className="text-[10px] font-bold text-gray-400 mb-1">店舗全体の累計獲得ポイント</p>
+                  <p className="text-[10px] font-bold text-gray-400 mb-1">店舗全体の累計総発生額</p>
                   <p className="text-3xl font-mono font-black tracking-tight mb-5">{summary.storeTotalGenerated?.toLocaleString() || 0}<span className="text-xs ml-1 text-gray-400 font-sans">pt</span></p>
                   
                   <div className="grid grid-cols-3 gap-3 pt-4 border-t border-gray-800">
                     <div>
-                      <p className="text-[9px] font-bold text-gray-400 mb-0.5">👤 本人還元</p>
+                      <p className="text-[9px] font-bold text-gray-400 mb-0.5 flex items-center gap-1"><User className="w-3 h-3"/> 本人還元</p>
                       <p className="text-sm font-mono font-bold text-gray-200">{summary.storeTotalIndividual?.toLocaleString() || 0}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] font-bold text-gray-400 mb-0.5">🤝 チーム分配</p>
+                      <p className="text-[9px] font-bold text-gray-400 mb-0.5 flex items-center gap-1"><Handshake className="w-3 h-3"/> チーム分配</p>
                       <p className="text-sm font-mono font-bold text-gray-200">{summary.storeTotalTeam?.toLocaleString() || 0}</p>
                     </div>
                     <div>
-                      <p className="text-[9px] font-bold text-indigo-300 mb-0.5">🏢 店舗留保 (利用可能)</p>
+                      <p className="text-[9px] font-bold text-indigo-300 mb-0.5 flex items-center gap-1"><Store className="w-3 h-3"/> 店舗留保</p>
                       <p className="text-sm font-mono font-bold text-indigo-400">{summary.storeTotalOwner?.toLocaleString() || 0}</p>
                     </div>
                   </div>
@@ -474,9 +504,9 @@ export default function OwnerDashboard() {
                   <div style={{width: `${ratios.owner}%`}} className="bg-gray-200" />
                 </div>
                 <div className="flex justify-between text-[9px] font-semibold text-gray-500">
-                  <span className="text-gray-900">本人 {ratios.individual}%</span>
-                  <span>チーム {ratios.team}%</span>
-                  <span>店舗 {ratios.owner}%</span>
+                  <span className="flex items-center gap-1"><User className="w-2.5 h-2.5"/> 本人 {ratios.individual}%</span>
+                  <span className="flex items-center gap-1"><Handshake className="w-2.5 h-2.5"/> チーム {ratios.team}%</span>
+                  <span className="flex items-center gap-1"><Store className="w-2.5 h-2.5"/> 店舗 {ratios.owner}%</span>
                 </div>
               </div>
 
@@ -489,14 +519,13 @@ export default function OwnerDashboard() {
                   </div>
                 </div>
 
-                {/* ★ アクションフィードのUI変更 (左の丸をなくし100%幅に) */}
                 <div className="space-y-3">
                   {filteredHistory.slice(0, visibleCount).map((item) => {
                     if (item.type === 'staff_added') {
                       return (
                         <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm w-full">
                           <div className="flex justify-between items-start mb-1">
-                            <p className="text-[10px] font-bold text-gray-900 flex items-center gap-1.5">👤 【メンバー追加】</p>
+                            <p className="text-[10px] font-bold text-gray-900 flex items-center gap-1.5"><UserPlus className="w-3 h-3 text-blue-500"/> 【メンバー追加】</p>
                             <span className="text-[8px] text-gray-400 whitespace-nowrap ml-2">
                               {new Date(item.created_at).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}
                             </span>
@@ -513,8 +542,9 @@ export default function OwnerDashboard() {
                     return (
                       <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm w-full hover:border-gray-300 transition-colors">
                         <div className="flex justify-between items-start mb-1.5">
-                          <p className="text-[10px] font-bold text-gray-900">
-                            {isPending ? '🟡 【仮計上】' : item.status === 'cancel' ? '🔴 【無効】' : '🟢 【自動分配完了】'}
+                          <p className="text-[10px] font-bold text-gray-900 flex items-center gap-1">
+                            {isPending ? <Clock className="w-3 h-3 text-amber-500"/> : item.status === 'cancel' ? <Ban className="w-3 h-3 text-red-500"/> : <CheckCircle2 className="w-3 h-3 text-emerald-500"/>}
+                            {isPending ? '【仮計上】' : item.status === 'cancel' ? '【無効】' : '【自動分配完了】'}
                             {customerName}の{isRecurring ? `定期${item.recurring_count}回目お届け` : '初回購入'}
                           </p>
                           <span className="text-[8px] text-gray-400 whitespace-nowrap ml-2">
@@ -522,29 +552,27 @@ export default function OwnerDashboard() {
                           </span>
                         </div>
                         
-                        {/* ★ 総発生を主役に、紹介者を添える */}
-                        <div className="flex items-center justify-between mb-3">
-                          <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">
-                            紹介者: {item.staffName}
+                        <div className="flex items-center justify-between mb-3 mt-2">
+                          <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded flex items-center gap-1">
+                            <User className="w-2.5 h-2.5" /> 紹介者: {item.staffName}
                           </span>
                           <p className={`text-sm font-mono font-bold ${item.status === 'cancel' ? 'line-through text-gray-300' : 'text-gray-900'}`}>
                             総発生: +{item.totalGenerated.toLocaleString()} <span className="text-[9px] font-sans text-gray-500">pt</span>
                           </p>
                         </div>
                         
-                        {/* ★ 当時のスナップショット比率と内訳 */}
                         {!isPending && item.status !== 'cancel' ? (
                           <div className="pt-3 mt-3 border-t border-gray-100/80">
                             <div className="flex justify-between text-[10px] mb-1.5">
-                              <span className="text-gray-500">├ 👤 本人還元 ({item.snapshot_ratio_individual}%)</span>
+                              <span className="text-gray-500 flex items-center gap-1"><User className="w-3 h-3"/> 本人還元 ({item.snapshot_ratio_individual}%)</span>
                               <span className="font-mono text-gray-700">+{item.totalIndPart.toLocaleString()}pt</span>
                             </div>
                             <div className="flex justify-between text-[10px] mb-1.5">
-                              <span className="text-gray-500">├ 🤝 チーム分配 ({item.snapshot_ratio_team}%)</span>
+                              <span className="text-gray-500 flex items-center gap-1"><Handshake className="w-3 h-3"/> チーム分配 ({item.snapshot_ratio_team}%)</span>
                               <span className="font-mono text-gray-700">+{item.totalTeamPool.toLocaleString()}pt</span>
                             </div>
                             <div className="flex justify-between text-[10px]">
-                              <span className="text-gray-500">└ 🏢 店舗留保 ({item.snapshot_ratio_owner}%)</span>
+                              <span className="text-gray-500 flex items-center gap-1"><Store className="w-3 h-3"/> 店舗留保 ({item.snapshot_ratio_owner}%)</span>
                               <span className="font-mono font-bold text-indigo-600">+{item.ownerPart.toLocaleString()}pt</span>
                             </div>
                           </div>
@@ -647,7 +675,7 @@ export default function OwnerDashboard() {
                             <div className="flex items-center gap-1.5">
                               <h3 className="font-semibold text-xs text-gray-900">{s.name}</h3>
                               {s.isOwner && <Crown className="w-3 h-3 text-gray-400" />}
-                              {isEligible && <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded text-[8px] font-bold">チーム分配対象</span>}
+                              {isEligible && <span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded text-[8px] font-bold flex items-center gap-0.5"><Handshake className="w-2.5 h-2.5"/> チーム対象</span>}
                             </div>
                             <p className="text-[9px] text-gray-500 mt-0.5">獲得: {s.count}件</p>
                           </div>
@@ -721,8 +749,8 @@ export default function OwnerDashboard() {
           )}
         </main>
 
-        {/* ボトムナビゲーション */}
-        <nav className="bg-white border-t border-gray-200 px-1 py-1 flex justify-between items-center z-50 pb-safe shrink-0">
+        {/* ★ ボトムナビゲーション (ダークテーマに変更) */}
+        <nav className="bg-gray-900 border-t border-gray-800 px-1 py-1 flex justify-between items-center z-50 pb-safe shrink-0">
           {[
             { id: 'stats', icon: <LayoutDashboard className="w-5 h-5" />, label: 'Home' },
             { id: 'staff', icon: <Users className="w-5 h-5" />, label: 'Member' },
@@ -730,7 +758,7 @@ export default function OwnerDashboard() {
             { id: 'shop', icon: <Store className="w-5 h-5" />, label: 'Shop' },
             { id: 'settings', icon: <Settings className="w-5 h-5" />, label: 'Setting' },
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center justify-center flex-1 py-2 gap-1 transition-colors ${activeTab === tab.id ? 'text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center justify-center flex-1 py-2 gap-1 transition-colors ${activeTab === tab.id ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
               <div className={`transition-transform duration-200 ${activeTab === tab.id ? 'scale-110' : 'scale-100'}`}>{tab.icon}</div>
               <span className="text-[8px] font-semibold tracking-wide">{tab.label}</span>
             </button>
