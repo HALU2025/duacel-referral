@@ -89,7 +89,29 @@ export default function ShopJoinPage() {
       }
     }
     
-    if (currentStep === 4 && !phone.trim()) return setErrorMessage('電話番号を入力してください。')
+  // --- STEP 4: 電話番号の重複チェック (追加！) ---
+    if (currentStep === 4) {
+      if (!phone.trim()) return setErrorMessage('電話番号を入力してください。')
+      
+      // 入力された番号からハイフンなどを除去して数字だけにする
+      const cleanPhone = phone.replace(/\D/g, '')
+      if (cleanPhone.length < 10) return setErrorMessage('有効な電話番号を入力してください。')
+
+      setIsLoading(true)
+      // shopsテーブルに同じ電話番号（数字のみ比較）がないか確認
+      // ※ DB側でもハイフンなしで保存している、または比較時に加工する場合を想定
+      const { data: existingShop } = await supabase
+        .from('shops')
+        .select('id')
+        .eq('phone', phone) // 一旦そのまま比較（DBの形式に合わせるのがベスト）
+        .maybeSingle()
+        
+      setIsLoading(false)
+
+      if (existingShop) {
+        return setErrorMessage('この電話番号は既に他の店舗で登録されています。')
+      }
+    }
     
     setStepDirection([currentStep + 1, 1])
   }
