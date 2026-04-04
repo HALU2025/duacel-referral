@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
+import { translateAuthError } from '@/lib/errorTranslator' // ★ 翻訳フィルターをインポート
 
 import { 
   ArrowRight, ArrowLeft, CheckCircle2, Loader2, 
@@ -86,7 +87,8 @@ export default function ShopJoinPage() {
 
       // 1. Supabase Auth にユーザー登録
       const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
-      if (authError) throw new Error('アカウント作成エラー: ' + authError.message)
+      // ★ 修正：エラー時に翻訳フィルターを通す！
+      if (authError) throw new Error(translateAuthError(authError.message))
 
       const userId = authData.user?.id
       // 仮のID（あとで S0001 形式にアップデートする）
@@ -126,7 +128,7 @@ export default function ShopJoinPage() {
       setStepDirection([6, 1])
 
     } catch (err: any) {
-      setErrorMessage(err.message)
+      setErrorMessage(err.message) // ★ throw で投げられた翻訳済みのメッセージがここに入ります
       setIsLoading(false)
     }
   }
