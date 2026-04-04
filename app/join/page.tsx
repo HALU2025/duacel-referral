@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
-import { translateAuthError } from '@/lib/errorTranslator' // ★ 翻訳フィルターをインポート
+import { translateAuthError } from '@/lib/errorTranslator'
 
 import { 
   ArrowRight, ArrowLeft, CheckCircle2, Loader2, 
@@ -62,10 +62,33 @@ export default function ShopJoinPage() {
     }
   }
 
-  const handleNext = () => {
+  // ★ 変更点: async関数にして、途中でDBチェック（非同期通信）できるようにしました
+  const handleNext = async () => {
     setErrorMessage('')
+    
     if (currentStep === 2 && !ownerName.trim()) return setErrorMessage('お名前を入力してください。')
-    if (currentStep === 3 && (!email.trim() || password.length < 6)) return setErrorMessage('有効なメールアドレスと6文字以上のパスワードを入力してください。')
+    
+    // ★ STEP 3: 次へ進む前に、メールアドレスの重複をチェックする
+    if (currentStep === 3) {
+      if (!email.trim() || password.length < 6) {
+        return setErrorMessage('有効なメールアドレスと6文字以上のパスワードを入力してください。')
+      }
+      
+      setIsLoading(true)
+      // staffsテーブルに同じメアドが存在しないかサクッと確認
+      const { data: existingUser, error } = await supabase
+        .from('staffs')
+        .select('id')
+        .eq('email', email)
+        .maybeSingle()
+        
+      setIsLoading(false)
+
+      if (existingUser) {
+        return setErrorMessage('このメールアドレスは既に登録されています。別のメールアドレスをご利用ください。')
+      }
+    }
+    
     if (currentStep === 4 && !phone.trim()) return setErrorMessage('電話番号を入力してください。')
     
     setStepDirection([currentStep + 1, 1])
@@ -87,15 +110,13 @@ export default function ShopJoinPage() {
 
       // 1. Supabase Auth にユーザー登録
       const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
-      // ★ 修正：エラー時に翻訳フィルターを通す！
       if (authError) throw new Error(translateAuthError(authError.message))
 
       const userId = authData.user?.id
-      // 仮のID（あとで S0001 形式にアップデートする）
       const tempId = `TEMP_${Date.now()}`
       const inviteToken = generateInviteToken()
 
-      // 2. 店舗情報の登録（このタイミングでDB側で shop_number が自動的に連番で発番される）
+      // 2. 店舗情報の登録
       const { data: newShop, error: insertError } = await supabase
         .from('shops').insert([{ 
           id: tempId, name: finalShopName, owner_email: email, phone: phone, owner_id: userId, invite_token: inviteToken 
@@ -103,20 +124,18 @@ export default function ShopJoinPage() {
       
       if (insertError) throw new Error('店舗登録エラー: ' + insertError.message)
 
-      // 3. 発番された shop_number を使って、美しいID（S0001形式）を作り、DBをアップデートする
-      // ※4桁パディング（S0001, S0002...）に変更
+      // 3. IDのアップデート (S0001形式)
       const formattedShopId = `s${newShop.shop_number.toString().padStart(4, '0')}`
       const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
       if (updateError) throw new Error('店舗ID確定エラー: ' + updateError.message)
 
       // 4. オーナーのスタッフ情報登録
-      // ★ 変更点：オーナーのIDは必ず 'm01' に固定し、紹介コードは 'S0001_m01' 形式にする
       const ownerStaffId = 'm01'
       const secureToken = generateSecureToken()
       
       const { error: staffError } = await supabase.from('staffs').insert([{
         id: ownerStaffId, shop_id: formattedShopId, name: ownerName, email: email,
-        referral_code: `${formattedShopId}_${ownerStaffId}`, // 例: S0001_m01
+        referral_code: `${formattedShopId}_${ownerStaffId}`,
         secret_token: secureToken, 
         security_pin: pin, is_deleted: false
       }])
@@ -128,7 +147,7 @@ export default function ShopJoinPage() {
       setStepDirection([6, 1])
 
     } catch (err: any) {
-      setErrorMessage(err.message) // ★ throw で投げられた翻訳済みのメッセージがここに入ります
+      setErrorMessage(err.message) 
       setIsLoading(false)
     }
   }
@@ -181,15 +200,15 @@ export default function ShopJoinPage() {
                   <div className="mt-auto space-y-4">
                     <input 
                       placeholder="例: Duacel サロン 表参道店" value={shopName} onChange={e => setShopName(e.target.value)}
-                      onKeyDown={e => handleKeyDown(e, handleNext)}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
+                      onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
+                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
                     />
                     <div className="flex flex-col gap-3">
-                      <button onClick={handleNext} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2">
-                        次へ進む <ArrowRight className="w-4 h-4" />
+                      <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
                       </button>
                       {shopName.trim() === '' && (
-                        <button onClick={handleNext} className="w-full py-3 text-gray-400 font-bold text-xs hover:text-gray-900 transition-colors">
+                        <button onClick={handleNext} disabled={isLoading} className="w-full py-3 text-gray-400 font-bold text-xs hover:text-gray-900 transition-colors disabled:opacity-50">
                           店舗名がないのでスキップする
                         </button>
                       )}
@@ -211,19 +230,19 @@ export default function ShopJoinPage() {
                   <div className="mt-auto space-y-4">
                     <input 
                       placeholder="例: 山田 太郎" value={ownerName} onChange={e => setOwnerName(e.target.value)}
-                      onKeyDown={e => handleKeyDown(e, handleNext)}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
+                      onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
+                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
                     />
                     {errorMessage && <p className="text-xs font-bold text-red-500">{errorMessage}</p>}
-                    <button onClick={handleNext} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2">
-                      次へ進む <ArrowRight className="w-4 h-4" />
+                    <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
                     </button>
                   </div>
                 </div>
               )}
 
               {/* ==========================================
-                  STEP 3: ログイン情報
+                  STEP 3: ログイン情報 (★ここで重複チェック発動)
               ========================================== */}
               {currentStep === 3 && (
                 <div className="flex flex-col h-full">
@@ -237,8 +256,8 @@ export default function ShopJoinPage() {
                       <label className="text-[10px] font-bold text-gray-400 block mb-1">メールアドレス</label>
                       <input 
                         type="email" placeholder="admin@example.com" value={email} onChange={e => setEmail(e.target.value)}
-                        onKeyDown={e => handleKeyDown(e, handleNext)}
-                        className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
+                        onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
+                        className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
                       />
                     </div>
                     <div>
@@ -246,17 +265,17 @@ export default function ShopJoinPage() {
                       <div className="relative">
                         <input 
                           type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)}
-                          onKeyDown={e => handleKeyDown(e, handleNext)}
-                          className="w-full pl-4 pr-12 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
+                          onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
+                          className="w-full pl-4 pr-12 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
                         />
-                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-900 transition-colors">
+                        <button type="button" onClick={() => setShowPassword(!showPassword)} disabled={isLoading} className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-900 transition-colors disabled:opacity-50">
                           {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                         </button>
                       </div>
                     </div>
-                    {errorMessage && <p className="text-xs font-bold text-red-500">{errorMessage}</p>}
-                    <button onClick={handleNext} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 mt-2">
-                      次へ進む <ArrowRight className="w-4 h-4" />
+                    {errorMessage && <p className="text-xs font-bold text-red-500 bg-red-50 p-2 rounded-lg">{errorMessage}</p>}
+                    <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 mt-2 disabled:opacity-50">
+                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
                     </button>
                   </div>
                 </div>
@@ -275,12 +294,12 @@ export default function ShopJoinPage() {
                   <div className="mt-auto space-y-4">
                     <input 
                       type="tel" placeholder="03-1234-5678" value={phone} onChange={e => setPhone(e.target.value)}
-                      onKeyDown={e => handleKeyDown(e, handleNext)}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
+                      onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
+                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
                     />
                     {errorMessage && <p className="text-xs font-bold text-red-500">{errorMessage}</p>}
-                    <button onClick={handleNext} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2">
-                      次へ進む <ArrowRight className="w-4 h-4" />
+                    <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
+                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
                     </button>
                   </div>
                 </div>
@@ -301,7 +320,7 @@ export default function ShopJoinPage() {
                       type="password" inputMode="numeric" maxLength={4} placeholder="••••" 
                       value={pin} onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
                       onKeyDown={e => handleKeyDown(e, handleRegisterShop)}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-2xl tracking-[1em] text-center font-mono font-black text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none" 
+                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-2xl tracking-[1em] text-center font-mono font-black text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
                     />
                     {errorMessage && <p className="text-xs font-bold text-red-500 text-center">{errorMessage}</p>}
                     <button 
