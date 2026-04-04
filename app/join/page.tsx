@@ -146,20 +146,25 @@ export default function ShopJoinPage() {
       
       if (insertError) throw new Error('店舗登録エラー: ' + insertError.message)
 
-      // 3. IDのアップデート (S0001形式)
+// 3. IDのアップデート (S0001形式)
       const formattedShopId = `s${newShop.shop_number.toString().padStart(4, '0')}`
       const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
       if (updateError) throw new Error('店舗ID確定エラー: ' + updateError.message)
 
       // 4. オーナーのスタッフ情報登録
-      const ownerStaffId = 'm01'
+      // ★ 修正：全店舗で絶対に被らないように「店舗ID_m01」の形にする！（例: s0001_m01）
+      const ownerStaffId = `${formattedShopId}_m01`
       const secureToken = generateSecureToken()
       
       const { error: staffError } = await supabase.from('staffs').insert([{
-        id: ownerStaffId, shop_id: formattedShopId, name: ownerName, email: email,
-        referral_code: `${formattedShopId}_${ownerStaffId}`,
+        id: ownerStaffId, 
+        shop_id: formattedShopId, 
+        name: ownerName, 
+        email: email,
+        referral_code: ownerStaffId, // ★ referral_code もこれ（s0001_m01）で統一できて綺麗になります
         secret_token: secureToken, 
-        security_pin: pin, is_deleted: false
+        security_pin: pin, 
+        is_deleted: false
       }])
       
       if (staffError) throw new Error('管理者情報の初期設定に失敗しました: ' + staffError.message)

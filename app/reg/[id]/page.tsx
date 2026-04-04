@@ -149,24 +149,36 @@ export default function MemberJoinPage() {
       }
 
       // 2. 新規登録処理
-      // ★ 変更：過去のデータを含めて最大値を計算し、m02, m03 と発番する
+      // ★ 修正：過去のデータを含めて最大値を計算し、店舗ID付きで s0001_m02 のように発番する
       const { data: allStaffs } = await supabase.from('staffs').select('id').eq('shop_id', shop.id)
       
       const maxNum = (allStaffs || []).reduce((max, s) => {
-        const num = parseInt(s.id.replace('m', ''), 10)
-        return !isNaN(num) && num > max ? num : max
+        // "_m" で分割して後ろの数字を取り出す (例: "s0001_m02" -> "02")
+        const parts = s.id.split('_m')
+        if (parts.length === 2) {
+          const num = parseInt(parts[1], 10)
+          return !isNaN(num) && num > max ? num : max
+        }
+        return max
       }, 0)
       
-      const nextStaffId = `m${(maxNum + 1).toString().padStart(2, '0')}`
+      // 絶対に被らないユニークな新しいIDを生成（例: s0001_m02）
+      const nextStaffId = `${shop.id}_m${(maxNum + 1).toString().padStart(2, '0')}`
       const secureToken = generateSecureToken()
-      // 紹介コードには本物の店舗ID（S0001など）を使う
-      const publicReferralCode = `${shop.id}_${nextStaffId}`
+      // 紹介コードにも生成したユニークなIDを使用する
+      const publicReferralCode = nextStaffId
 
-      // security_pin を本番のDBカラムに保存
+      // DBに保存（★ is_team_pool_eligible: true を追加）
       const { error: insertError } = await supabase.from('staffs').insert([{
-        id: nextStaffId, shop_id: shop.id, name: name, email: email,
-        referral_code: publicReferralCode, secret_token: secureToken,
-        security_pin: pin, is_deleted: false 
+        id: nextStaffId, 
+        shop_id: shop.id, 
+        name: name, 
+        email: email,
+        referral_code: publicReferralCode, 
+        secret_token: secureToken,
+        security_pin: pin, 
+        is_deleted: false,
+        is_team_pool_eligible: true // 初期状態ではチーム分配対象にする
       }])
 
       if (insertError) throw insertError
