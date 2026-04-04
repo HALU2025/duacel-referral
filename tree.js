@@ -5,8 +5,8 @@ const path = require('path');
 const IGNORE = ['node_modules', '.next', '.git', 'dist', '.vercel'];
 
 function printTree(dir, depth = 0, prefix = '') {
-  // 3階層目まで取得
-  if (depth >= 3) return; 
+  // ★ ここを 3 から 4 に変更しました（4階層目まで取得）
+  if (depth >= 4) return; 
 
   let files;
   try {
