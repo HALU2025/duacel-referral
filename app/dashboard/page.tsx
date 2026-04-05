@@ -262,6 +262,43 @@ export default function OwnerDashboard() {
 
   useEffect(() => { loadData() }, [router])
 
+  // ★ リアルタイム監視設定 (Supabase Realtime)
+  useEffect(() => {
+    if (!shop?.id) return;
+
+    const channel = supabase
+      .channel('dashboard-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'referrals', filter: `shop_id=eq.${shop.id}` },
+        () => {
+          console.log('🔄 Dashboard: referrals updated - reloading data...');
+          loadData(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'point_transactions', filter: `shop_id=eq.${shop.id}` },
+        () => {
+          console.log('🔄 Dashboard: point_transactions updated - reloading data...');
+          loadData(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'staffs', filter: `shop_id=eq.${shop.id}` },
+        () => {
+          console.log('🔄 Dashboard: staffs updated - reloading data...');
+          loadData(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [shop?.id]);
+
   const filteredHistory = useMemo(() => {
     return referralHistory.filter(item => {
       if (filterStatus === '') return true;
@@ -583,6 +620,7 @@ export default function OwnerDashboard() {
                         <h3 className="text-xs font-semibold leading-snug mb-2 text-gray-800">{product.name}</h3>
                         <div className="flex items-end justify-between">
                           <div>
+                            <p className="text-[10px] text-gray-400 line-through">通常: ¥{product.price.toLocaleString()}</p>
                             <p className="text-sm font-mono flex items-baseline gap-1">
                               {product.ptPrice.toLocaleString()}<span className="text-[9px] font-sans text-gray-500">pt</span>
                             </p>
@@ -605,7 +643,6 @@ export default function OwnerDashboard() {
           {activeTab === 'staff' && (
             <div className="p-5 flex flex-col items-center max-w-sm mx-auto animate-in fade-in duration-300">
               
-              {/* ★ 新機能：メンバー招待の4ボタンUI */}
               <div className="w-full mb-8">
                 <h2 className="text-sm font-bold flex items-center gap-1.5 mb-3"><UserPlus className="w-4 h-4 text-gray-400" /> メンバー招待</h2>
                 <div className="grid grid-cols-2 gap-3">
@@ -721,7 +758,7 @@ export default function OwnerDashboard() {
           )}
         </main>
 
-        {/* ★ ボトムナビゲーション (ダークテーマに変更) */}
+        {/* ★ ボトムナビゲーション (ダークテーマ) */}
         <nav className="bg-gray-900 border-t border-gray-800 px-1 py-1 flex justify-between items-center z-50 pb-safe shrink-0">
           {[
             { id: 'stats', icon: <LayoutDashboard className="w-5 h-5" />, label: 'Home' },
@@ -752,7 +789,7 @@ export default function OwnerDashboard() {
             </motion.div>
           )}
 
-          {/* ★ QRコード表示用モーダル（新規追加） */}
+          {/* ★ QRコード表示用モーダル */}
           {isQRModalOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-gray-900/40 backdrop-blur-sm flex flex-col justify-end">
               <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="bg-white rounded-t-3xl p-8 w-full shadow-2xl pb-safe max-h-[90vh] overflow-y-auto flex flex-col items-center">
@@ -795,12 +832,12 @@ export default function OwnerDashboard() {
 
                 <div className="flex justify-center mb-6">
                   <div className="p-3 bg-white rounded-2xl border border-gray-100 shadow-sm">
-                    <QRCodeCanvas value={`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${detailStaff.referral_code}`} size={120} level="H" fgColor="#111827" />
+                    <QRCodeCanvas value={`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${(detailStaff.referral_code || '').toLowerCase()}`} size={120} level="H" fgColor="#111827" />
                   </div>
                 </div>
 
                 <div className="space-y-2 mb-6">
-                  <button onClick={() => handleCopy(`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${detailStaff.referral_code}`)} className="w-full py-3 bg-gray-50 text-gray-800 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
+                  <button onClick={() => handleCopy(`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${(detailStaff.referral_code || '').toLowerCase()}`)} className="w-full py-3 bg-gray-50 text-gray-800 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
                     <LinkIcon className="w-3.5 h-3.5 text-gray-400" /> 接客用URLをコピー
                   </button>
                   <button onClick={() => handleCopy(`${typeof window !== 'undefined' ? window.location.origin : ''}/m/${detailStaff.secret_token}`)} className="w-full py-3 bg-gray-50 text-gray-800 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
