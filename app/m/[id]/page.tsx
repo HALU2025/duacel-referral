@@ -185,34 +185,41 @@ export default function MemberMagicPage() {
 
   useEffect(() => { if (magicToken) loadData() }, [magicToken])
 
-  // ★ リアルタイム監視設定 (Supabase Realtime)
+// ★ リアルタイム監視設定 (デバッグ用ログ付き)
   useEffect(() => {
     if (!staff?.shop_id) return;
+
+    console.log('📡 Realtime: 監視カメラを設置します... 対象店舗:', staff.shop_id);
 
     const channel = supabase
       .channel('member-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'referrals', filter: `shop_id=eq.${staff.shop_id}` },
-        () => {
-          console.log('🔄 referrals updated - reloading data...');
+        (payload) => {
+          console.log('🎉 Realtime: referrals に変更がありました！', payload);
           loadData(true);
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'point_transactions', filter: `shop_id=eq.${staff.shop_id}` },
-        () => {
-          console.log('🔄 point_transactions updated - reloading data...');
+        (payload) => {
+          console.log('💰 Realtime: point_transactions に変更がありました！', payload);
           loadData(true);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        // ここで接続が成功したかどうかが分かります！
+        console.log('🔌 Realtime 接続ステータス:', status);
+      });
 
     return () => {
+      console.log('🛑 Realtime: 画面が閉じられたので監視を解除します');
       supabase.removeChannel(channel);
     };
   }, [staff?.shop_id]);
+  // （※ loadData を依存配列に入れると無限ループする可能性があるため、ここでは外しています）
 
   const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url)
