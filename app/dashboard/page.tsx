@@ -832,12 +832,12 @@ export default function OwnerDashboard() {
 
                 <div className="flex justify-center mb-6">
                   <div className="p-3 bg-white rounded-2xl border border-gray-100 shadow-sm">
-                    <QRCodeCanvas value={`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${(detailStaff.referral_code || '').toLowerCase()}`} size={120} level="H" fgColor="#111827" />
+                    <QRCodeCanvas value={`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${detailStaff.referral_code || ''}`} size={120} level="H" fgColor="#111827" />
                   </div>
                 </div>
 
                 <div className="space-y-2 mb-6">
-                  <button onClick={() => handleCopy(`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${(detailStaff.referral_code || '').toLowerCase()}`)} className="w-full py-3 bg-gray-50 text-gray-800 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
+                  <button onClick={() => handleCopy(`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${detailStaff.referral_code || ''}`)} className="w-full py-3 bg-gray-50 text-gray-800 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">
                     <LinkIcon className="w-3.5 h-3.5 text-gray-400" /> 接客用URLをコピー
                   </button>
                   <button onClick={() => handleCopy(`${typeof window !== 'undefined' ? window.location.origin : ''}/m/${detailStaff.secret_token}`)} className="w-full py-3 bg-gray-50 text-gray-800 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 active:scale-95 transition">

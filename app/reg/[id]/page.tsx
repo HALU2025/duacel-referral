@@ -11,9 +11,16 @@ import {
   ChevronRight, Apple, Share, Zap, Coins, Star, Gift, Lock
 } from 'lucide-react'
 
+// マイページURL用のシークレットトークン（4桁）
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
+// ★追加：お客様に渡す紹介URL用のランダムコード（ref_ + 8桁）
+const generateReferralCode = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return 'ref_' + Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
 const swipeVariants = {
@@ -65,7 +72,7 @@ export default function MemberJoinPage() {
   // --- 店舗情報の取得（invite_token から逆引き検索） ---
   useEffect(() => {
     const fetchShop = async () => {
-      // invite_tokenを使って店舗を特定し、実際のshop.id（S0001など）を取得する
+      // invite_tokenを使って店舗を特定し、実際のshop.id（UUID）を取得する
       const { data, error } = await supabase
         .from('shops')
         .select('id, name')
@@ -73,7 +80,7 @@ export default function MemberJoinPage() {
         .single()
         
       if (data) {
-        setShop(data) // data.id に本物の店舗IDが入っている
+        setShop(data)
       }
       setIsPageLoading(false)
     }
@@ -126,7 +133,7 @@ export default function MemberJoinPage() {
     }
 
     try {
-      // 1. 既存ユーザーチェック (本物の shop.id を使用)
+      // 1. 既存ユーザーチェック
       const { data: existingStaff } = await supabase
         .from('staffs').select('secret_token, name').eq('shop_id', shop.id).eq('email', email).maybeSingle()
 
@@ -149,28 +156,12 @@ export default function MemberJoinPage() {
       }
 
       // 2. 新規登録処理
-      // ★ 修正：過去のデータを含めて最大値を計算し、店舗ID付きで s0001_m02 のように発番する
-      const { data: allStaffs } = await supabase.from('staffs').select('id').eq('shop_id', shop.id)
-      
-      const maxNum = (allStaffs || []).reduce((max, s) => {
-        // "_m" で分割して後ろの数字を取り出す (例: "s0001_m02" -> "02")
-        const parts = s.id.split('_m')
-        if (parts.length === 2) {
-          const num = parseInt(parts[1], 10)
-          return !isNaN(num) && num > max ? num : max
-        }
-        return max
-      }, 0)
-      
-      // 絶対に被らないユニークな新しいIDを生成（例: s0001_m02）
-      const nextStaffId = `${shop.id}_m${(maxNum + 1).toString().padStart(2, '0')}`
+      // ★修正：連番IDを作る処理を全削除し、安全なランダム文字列を生成
       const secureToken = generateSecureToken()
-      // 紹介コードにも生成したユニークなIDを使用する
-      const publicReferralCode = nextStaffId
+      const publicReferralCode = generateReferralCode()
 
-      // DBに保存（★ is_team_pool_eligible: true を追加）
+      // DBに保存（★ id は指定しない＝Supabaseが自動でUUIDを発行する）
       const { error: insertError } = await supabase.from('staffs').insert([{
-        id: nextStaffId, 
         shop_id: shop.id, 
         name: name, 
         email: email,
@@ -178,7 +169,7 @@ export default function MemberJoinPage() {
         secret_token: secureToken,
         security_pin: pin, 
         is_deleted: false,
-        is_team_pool_eligible: true // 初期状態ではチーム分配対象にする
+        is_team_pool_eligible: true
       }])
 
       if (insertError) throw insertError

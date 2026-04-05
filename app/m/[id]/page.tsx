@@ -73,7 +73,7 @@ export default function MemberMagicPage() {
     { id: 3, name: '店販用パンフレット (100部セット)', price: 2000, ptPrice: 2000, icon: <BookOpen className="w-6 h-6 text-gray-400" /> },
   ]
 
-  const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${(staff.referral_code || '').toLowerCase()}` : ''
+  const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code || ''}` : ''
   const isOwner = shop?.owner_email === staff?.email
   const shareText = `【${shop?.name || '店舗'}】Duacelスカルプセラムの専用購入ページです。\n以下のURLからご購入いただけます。\n\n${referralUrl}`
 
