@@ -98,13 +98,14 @@ export default function MemberMagicPage() {
 
     const { data: shopData } = await supabase.from('shops').select('*, shop_categories(*)').eq('id', staffData.shop_id).single()
 
+    // ★ 修正: Dashboardと全く同じように order('created_at', { ascending: false }) で取得
     const [refRes, txRes, staffCountRes] = await Promise.all([
-      supabase.from('referrals').select('*').eq('shop_id', staffData.shop_id).order('created_at', { ascending: true }),
+      supabase.from('referrals').select('*').eq('shop_id', staffData.shop_id).order('created_at', { ascending: false }),
       supabase.from('point_transactions').select('*').eq('shop_id', staffData.shop_id), 
       supabase.from('staffs').select('id', { count: 'exact' }).eq('shop_id', staffData.shop_id).eq('is_deleted', false)
     ])
 
-    const allReferrals = refRes.data || []
+    const referralLogs = refRes.data || []
     const pointLogs = txRes.data || []
     const activeStaffCount = staffCountRes.count || 1
 
@@ -114,41 +115,44 @@ export default function MemberMagicPage() {
     const firstBonusPoints = category?.first_bonus_points || 0;
 
     const shopHasBonusTx = pointLogs.some(tx => tx.metadata?.is_bonus === true);
-    const myReferrals: any[] = [];
+    
+    // ★ 修正: Dashboard同様にここで reverse することで、index === 0 が最古になる
+    const reversedLogs = [...referralLogs].reverse();
+
     let sTotal = 0; let sPending = 0; let sConfirmed = 0; let sPaid = 0;
+    const myReferrals: any[] = [];
 
     const isMeEligible = staffData.is_team_pool_eligible !== false;
 
-    // 最新のスタッフ名リストを取得するためのマッピング用
     const { data: allStaffsData } = await supabase.from('staffs').select('id, name').eq('shop_id', staffData.shop_id);
     const staffNameMap = new Map((allStaffsData || []).map(s => [s.id, s.name]));
 
-    allReferrals.forEach((r, index) => {
+    reversedLogs.forEach((r, index) => {
       const isMine = r.staff_id === staffData.id;
       const refTxs = pointLogs.filter(tx => tx.referral_id === r.id && (tx.status === 'confirmed' || tx.status === 'paid'));
       const isCanceled = r.status === 'cancel';
       const isOldest = index === 0;
+      
       const isFirstTime = !isCanceled && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
+      
+      // ★ 修正: actualTxPointsに依存せず、常にbasePointsを使って計算する（Dashboardと完全一致）
       const basePoints = basePointsDefault + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
+      const totalBase = basePoints;
 
-      let myEarnedPoints = 0;
-      const actualTxPoints = refTxs.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-      const totalBase = r.status === 'pending' ? basePoints : actualTxPoints;
-
-      // スナップショット比率を利用（なければ現在の店舗設定）
       const ratioInd = r.snapshot_ratio_individual ?? (shopData.ratio_individual ?? 100);
       const ratioTeam = r.snapshot_ratio_team ?? (shopData.ratio_team ?? 0);
+      const ratioOwner = r.snapshot_ratio_owner ?? (shopData.ratio_owner ?? 0);
 
-      const indPart = isMine ? totalBase * (ratioInd / 100) : 0;
-      const teamPart = isMeEligible ? (totalBase * (ratioTeam / 100)) / activeStaffCount : 0;
-      myEarnedPoints = Math.floor(indPart + teamPart);
-
-      // ★ スタッフに見せる「総発生ポイント」は、店舗留保分を除外した額（本人枠＋チーム枠の合計額）にする
-      const totalIndPool = Math.floor(totalBase * (ratioInd / 100));
+      const totalIndPart = Math.floor(totalBase * (ratioInd / 100));
       const totalTeamPool = Math.floor(totalBase * (ratioTeam / 100));
-      const staffVisibleTotal = totalIndPool + totalTeamPool;
 
-      // ★ 修正：獲得ポイントが0でも、自分が紹介したかチーム対象なら履歴に残す（バグ修正）
+      const indPart = isMine ? totalIndPart : 0;
+      const teamPart = isMeEligible ? (totalTeamPool / activeStaffCount) : 0;
+      const myEarnedPoints = Math.floor(indPart + teamPart);
+
+      const staffVisibleTotal = totalIndPart + totalTeamPool;
+
+      // キャンセル以外で、自分が紹介したか、チーム分配を受け取れるなら履歴に残す
       if (!isCanceled && (isMine || isMeEligible)) {
         myReferrals.push({ 
           ...r, 
@@ -163,13 +167,13 @@ export default function MemberMagicPage() {
           hasBonus: isFirstTime && firstBonusEnabled && isMine 
         });
 
-        if (r.is_staff_rewarded || r.status === 'issued') {
+        // サマリーの計算（Dashboardと一致させる）
+        if (r.status === 'pending') {
+          sPending += myEarnedPoints;
+        } else if (r.status === 'confirmed' || r.status === 'issued' || r.is_staff_rewarded) {
+          sConfirmed += myEarnedPoints;
           sTotal += myEarnedPoints;
           if (r.is_staff_rewarded) sPaid += myEarnedPoints;
-          if (!r.is_staff_rewarded && r.status === 'issued') sConfirmed += myEarnedPoints;
-        }
-        if (r.status === 'pending' || r.status === 'confirmed') {
-          if (r.status === 'confirmed') sConfirmed += myEarnedPoints; else sPending += myEarnedPoints; 
         }
       }
     });
@@ -178,7 +182,7 @@ export default function MemberMagicPage() {
     setEditName(staffData.name)
     setEditEmail(staffData.email)
     setShop(shopData)
-    setHistory(myReferrals.reverse()) // 新しい順にする
+    setHistory(myReferrals.reverse()) // 降順（最新が上）に戻して表示用とする
     setSummary({ total: sTotal + sConfirmed, pending: sPending, confirmed: sConfirmed, paid: sPaid })
     if(!silent) setLoading(false)
   }
@@ -286,7 +290,6 @@ export default function MemberMagicPage() {
   if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-gray-500 font-bold">ページが見つかりません。</div>
 
   return (
-    // ★ 修正：PCでも固定幅（ダッシュボードと同じ）になるように親コンテナを調整
     <div className="fixed inset-0 bg-gray-100 flex justify-center font-sans text-gray-800 overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
       <div className="w-full max-w-md bg-white h-full relative shadow-2xl flex flex-col overflow-hidden">
       
@@ -377,7 +380,7 @@ export default function MemberMagicPage() {
                         </div>
                       </button>
 
-                      {/* ★ 修正：ダッシュボードとお揃いの「仮計上アラート」 */}
+                      {/* 仮計上アラート */}
                       {pendingReferrals.length > 0 && (
                         <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
                           <div className="flex items-center gap-2 mb-3">
