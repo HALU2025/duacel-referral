@@ -75,6 +75,7 @@ export default function MemberMagicPage() {
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${(staff.referral_code || '').toLowerCase()}` : ''
   const isOwner = shop?.owner_email === staff?.email
+  const shareText = `【${shop?.name || '店舗'}】Duacelスカルプセラムの専用購入ページです。\n以下のURLからご購入いただけます。\n\n${referralUrl}`
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -98,7 +99,6 @@ export default function MemberMagicPage() {
 
     const { data: shopData } = await supabase.from('shops').select('*, shop_categories(*)').eq('id', staffData.shop_id).single()
 
-    // ★ 修正: Dashboardと全く同じように order('created_at', { ascending: false }) で取得
     const [refRes, txRes, staffCountRes] = await Promise.all([
       supabase.from('referrals').select('*').eq('shop_id', staffData.shop_id).order('created_at', { ascending: false }),
       supabase.from('point_transactions').select('*').eq('shop_id', staffData.shop_id), 
@@ -116,7 +116,6 @@ export default function MemberMagicPage() {
 
     const shopHasBonusTx = pointLogs.some(tx => tx.metadata?.is_bonus === true);
     
-    // ★ 修正: Dashboard同様にここで reverse することで、index === 0 が最古になる
     const reversedLogs = [...referralLogs].reverse();
 
     let sTotal = 0; let sPending = 0; let sConfirmed = 0; let sPaid = 0;
@@ -135,7 +134,6 @@ export default function MemberMagicPage() {
       
       const isFirstTime = !isCanceled && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       
-      // ★ 修正: actualTxPointsに依存せず、常にbasePointsを使って計算する（Dashboardと完全一致）
       const basePoints = basePointsDefault + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
       const totalBase = basePoints;
 
@@ -152,7 +150,6 @@ export default function MemberMagicPage() {
 
       const staffVisibleTotal = totalIndPart + totalTeamPool;
 
-      // キャンセル以外で、自分が紹介したか、チーム分配を受け取れるなら履歴に残す
       if (!isCanceled && (isMine || isMeEligible)) {
         myReferrals.push({ 
           ...r, 
@@ -167,7 +164,6 @@ export default function MemberMagicPage() {
           hasBonus: isFirstTime && firstBonusEnabled && isMine 
         });
 
-        // サマリーの計算（Dashboardと一致させる）
         if (r.status === 'pending') {
           sPending += myEarnedPoints;
         } else if (r.status === 'confirmed' || r.status === 'issued' || r.is_staff_rewarded) {
@@ -182,19 +178,47 @@ export default function MemberMagicPage() {
     setEditName(staffData.name)
     setEditEmail(staffData.email)
     setShop(shopData)
-    setHistory(myReferrals.reverse()) // 降順（最新が上）に戻して表示用とする
+    setHistory(myReferrals.reverse())
     setSummary({ total: sTotal + sConfirmed, pending: sPending, confirmed: sConfirmed, paid: sPaid })
     if(!silent) setLoading(false)
   }
 
   useEffect(() => { if (magicToken) loadData() }, [magicToken])
 
+  // ★ リアルタイム監視設定 (Supabase Realtime)
+  useEffect(() => {
+    if (!staff?.shop_id) return;
+
+    const channel = supabase
+      .channel('member-realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'referrals', filter: `shop_id=eq.${staff.shop_id}` },
+        () => {
+          console.log('🔄 referrals updated - reloading data...');
+          loadData(true);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'point_transactions', filter: `shop_id=eq.${staff.shop_id}` },
+        () => {
+          console.log('🔄 point_transactions updated - reloading data...');
+          loadData(true);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [staff?.shop_id]);
+
   const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url)
     setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
-  // ★ PIN関連の処理
   const handlePinChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return; 
     const newPin = [...pin]; newPin[index] = value.slice(-1); setPin(newPin); setPinError(false);
@@ -281,7 +305,6 @@ export default function MemberMagicPage() {
     if (lockoutUntil) { const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval) }
   }, [lockoutUntil])
 
-  // 仮計上の件数を計算
   const pendingReferrals = useMemo(() => {
     return history.filter(r => r.status === 'pending')
   }, [history])
@@ -366,7 +389,6 @@ export default function MemberMagicPage() {
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
                     <div className="max-w-md mx-auto space-y-6">
-                      {/* えらべるPay 交換ボタン */}
                       <button 
                         onClick={() => setIsExchangeModalOpen(true)}
                         className="w-full p-5 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-2xl shadow-md flex items-center justify-between active:scale-95 transition-transform"
@@ -380,7 +402,6 @@ export default function MemberMagicPage() {
                         </div>
                       </button>
 
-                      {/* 仮計上アラート */}
                       {pendingReferrals.length > 0 && (
                         <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
                           <div className="flex items-center gap-2 mb-3">
@@ -475,7 +496,6 @@ export default function MemberMagicPage() {
                                     </p>
                                   </div>
                                   
-                                  {/* 店舗留保を見せず、総発生（店舗分控除）と自分の取り分だけを明記 */}
                                   {!isPending && !isCanceled && (
                                     <div className="pt-3 mt-3 border-t border-gray-100/80">
                                       <div className="flex justify-between text-[10px] mb-1.5">
@@ -566,10 +586,23 @@ export default function MemberMagicPage() {
                         </div>
                         <p className="text-xs font-bold text-gray-600 mt-4 tracking-wider">お客様のスマートフォンで<br/>読み込んでください</p>
                       </div>
-                      <div className="w-full space-y-3">
+                      
+                      {/* ★ 追加: リンクでの招待ボタン群 */}
+                      <div className="w-full grid grid-cols-2 gap-3 mb-3">
+                        <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(shareText)}`, '_blank')} className="bg-[#06C755] text-white p-3 rounded-xl shadow-sm flex flex-col items-center justify-center gap-1 hover:bg-[#05b34c] transition-all active:scale-95">
+                          <MessageCircle className="w-5 h-5" />
+                          <span className="text-[10px] font-bold">LINEで送る</span>
+                        </button>
+                        <button onClick={() => window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からのご案内')}&body=${encodeURIComponent(shareText)}`} className="bg-blue-500 text-white p-3 rounded-xl shadow-sm flex flex-col items-center justify-center gap-1 hover:bg-blue-600 transition-all active:scale-95">
+                          <Mail className="w-5 h-5" />
+                          <span className="text-[10px] font-bold">メールで送る</span>
+                        </button>
+                      </div>
+
+                      <div className="w-full">
                         <button onClick={() => handleCopy(referralUrl)} className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 active:scale-95 shadow-sm ${copied ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}>
                           {copied ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-                          {copied ? 'URLをコピーしました！' : '接客用URLをコピー'}
+                          {copied ? 'URLをコピーしました！' : '専用URLをコピー'}
                         </button>
                       </div>
                     </div>
