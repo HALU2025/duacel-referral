@@ -113,9 +113,10 @@ export default function OwnerDashboard() {
       const isFirstTime = log.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : (!shopHasBonusTx && isOldest));
       const basePoints = currentRewardPoints + (isFirstTime && firstBonusEnabled ? firstBonusPoints : 0);
       
-      const indRatio = currentRatios.individual;
-      const teamRatio = currentRatios.team;
-      const ownerRatio = currentRatios.owner;
+      // 変更：過去の履歴は当時のスナップショットを使い、無ければ現在の比率を使う
+      const indRatio = log.snapshot_ratio_individual ?? currentRatios.individual;
+      const teamRatio = log.snapshot_ratio_team ?? currentRatios.team;
+      const ownerRatio = log.snapshot_ratio_owner ?? currentRatios.owner;
 
       const totalIndPart = Math.floor(basePoints * (indRatio / 100));
       const totalTeamPool = Math.floor(basePoints * (teamRatio / 100));
