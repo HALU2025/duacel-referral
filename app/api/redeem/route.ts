@@ -169,9 +169,12 @@ export async function POST(request: Request) {
   } catch (error: any) {
     // 処理中の予期せぬクラッシュ（DBエラーなど）が発生した場合のセーフティネット
     if (exchangeId && targetReferralIds.length > 0) {
-       // ※ここで確実にロールバックを保証する場合はバッチ処理との併用を推奨しますが、フェイルセーフとして記述します
-       await supabase.from('referrals').update({ is_staff_rewarded: false }).in('id', targetReferralIds).catch(() => {})
-       await supabase.from('reward_exchanges').update({ status: 'failed_fatal', error_details: { message: error.message } }).eq('id', exchangeId).catch(() => {})
+       try {
+         await supabase.from('referrals').update({ is_staff_rewarded: false }).in('id', targetReferralIds)
+         await supabase.from('reward_exchanges').update({ status: 'failed_fatal', error_details: { message: error.message } }).eq('id', exchangeId)
+       } catch (rollbackError) {
+         // ロールバック処理中の二次エラーは、これ以上システムを落とさないために握りつぶします
+       }
     }
     return NextResponse.json({ success: false, error: error.message }, { status: 400 })
   }
