@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { useRouter } from 'next/navigation'
 import { 
-  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus
+  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon
 } from 'lucide-react'
 
 // ==========================================
@@ -25,7 +26,7 @@ const CANCEL_REASONS = [
 ]
 
 const initialFilterState = {
-  order_number: '', customer_number: '', shop_id: '',
+  order_number: '', customer_number: '', shop_number: '',
   status: '', date_start: '', date_end: ''
 }
 
@@ -37,6 +38,8 @@ const PAGE_TITLES: Record<string, string> = {
 }
 
 export default function AdminDashboard() {
+  const router = useRouter()
+
   // ==========================================
   // 2. ステート管理
   // ==========================================
@@ -48,6 +51,7 @@ export default function AdminDashboard() {
   const [pointTransactions, setPointTransactions] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [authError, setAuthError] = useState('')
 
   const [filters, setFilters] = useState(initialFilterState)
   const [filteredReferrals, setFilteredReferrals] = useState<any[]>([])
@@ -67,12 +71,25 @@ export default function AdminDashboard() {
   const activeFilterCount = Object.values(filters).filter(val => val !== '').length
 
   // ==========================================
-  // 3. データ取得ロジック
+  // 3. データ取得・認証ロジック
   // ==========================================
   const fetchData = async () => {
     setLoading(true)
+    
+    // ★ セキュリティガード: 管理者権限チェック
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { router.push('/login'); return; }
+
+    const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS
+    if (adminEmails && !adminEmails.split(',').includes(user.email || '')) {
+      setAuthError('管理者権限がありません。')
+      router.push('/dashboard')
+      return
+    }
+
+    // ★ パフォーマンスガード: referralsにlimitを設定（将来的にAPI経由のページネーションへ移行推奨）
     const [r, s, st, cat, tx] = await Promise.all([
-      supabase.from('referrals').select('*').order('created_at', { ascending: false }),
+      supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(2000),
       supabase.from('shops').select('*').order('created_at', { ascending: false }),
       supabase.from('staffs').select('*').order('created_at', { ascending: true }),
       supabase.from('shop_categories').select('*').order('reward_points', { ascending: true }),
@@ -101,20 +118,26 @@ export default function AdminDashboard() {
   // ヘルパー＆フィルター
   // ==========================================
   const getShopOwnerName = (shopId: string) => {
-    const owner = staffs.find(staff => String(staff.shop_id) === String(shopId))
+    const owner = staffs.find(staff => staff.shop_id === shopId && staff.email === shops.find(s => s.id === shopId)?.owner_email)
     return owner ? owner.name : '不明'
   }
 
+  const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
+
   const openShopEditModal = (shopId: string) => {
-    const targetShop = shops.find(s => String(s.id) === String(shopId))
+    const targetShop = getShopByShopId(shopId)
     if (targetShop) { setEditingShop(targetShop); setIsShopModalOpen(true); }
   }
 
   const handleFilter = () => {
     let result = [...referrals]
     if (filters.order_number) result = result.filter(r => r.order_number?.includes(filters.order_number))
-    if (filters.customer_number) result = result.filter(r => r.customer_id?.includes(filters.customer_number))
-    if (filters.shop_id) result = result.filter(r => String(r.shop_id) === String(filters.shop_id))
+    if (filters.customer_number) result = result.filter(r => r.customer_name?.includes(filters.customer_number)) // 顧客名またはID
+    if (filters.shop_number) {
+      const targetShop = shops.find(s => String(s.shop_number) === filters.shop_number)
+      if (targetShop) result = result.filter(r => r.shop_id === targetShop.id)
+      else result = []
+    }
     if (filters.status) result = result.filter(r => r.status === filters.status)
     if (filters.date_start) {
       const start = new Date(filters.date_start).getTime()
@@ -137,8 +160,30 @@ export default function AdminDashboard() {
     setIsAllSelected(false)
   }
 
+  const exportPaymentsCSV = () => {
+    const headers = ['店舗番号', '店舗名', '紹介件数', '累計報酬額(pt)', '未払い額(pt)', '支払い済額(pt)']
+    const rows = shops.map(shop => {
+      const validTxs = pointTransactions.filter(tx => tx.shop_id === shop.id && referrals.find(r => r.id === tx.referral_id)?.status !== 'cancel');
+      if (validTxs.length === 0) return null;
+      const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
+      const unpaidTotal = validTxs.filter(tx => tx.status === 'confirmed').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+      const paidTotal = validTxs.filter(tx => tx.status === 'paid').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+      return [shop.shop_number, shop.name, uniqueReferralCount, unpaidTotal + paidTotal, unpaidTotal, paidTotal]
+    }).filter(Boolean) as (string | number)[][]
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' }) // Excel文字化け防止のBOM
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `payments_export_${new Date().toISOString().split('T')[0]}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
   // ==========================================
-  // アクションハンドラー
+  // アクションハンドラー (マニュアル介入用)
   // ==========================================
   const handleToggleAll = () => {
     if (isAllSelected) {
@@ -168,8 +213,8 @@ export default function AdminDashboard() {
     const hasReceivedBonus = pastTxs?.some(tx => tx.metadata?.is_bonus === true) || false
     const isFirstTime = !hasReceivedBonus
 
-    const shop = currentShops.find(s => String(s.id) === String(referral.shop_id))
-    const category = currentCategories.find(c => String(c.id) === String(shop?.category_id)) || currentCategories[0]
+    const shop = currentShops.find(s => s.id === referral.shop_id)
+    const category = currentCategories.find(c => c.id === shop?.category_id) || currentCategories[0]
 
     const standardPoints = Number(category?.reward_points) || 0
     const transactions = []
@@ -197,7 +242,7 @@ export default function AdminDashboard() {
 
   const handleBulkConfirm = async () => {
     if (selectedIds.length === 0) return
-    if (!confirm(`選択した ${selectedIds.length} 件を「報酬確定」にしますか？`)) return
+    if (!confirm(`選択した ${selectedIds.length} 件を「報酬確定」にしますか？\n※通常はシステムが自動処理します。手動での実行は例外的な対応時のみ推奨されます。`)) return
     
     setIsProcessing(true)
     const { error } = await supabase.from('referrals').update({ status: 'confirmed' }).in('id', selectedIds)
@@ -212,20 +257,17 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
-  // ★ ガードレール完全搭載のモーダル保存ロジック
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
     if (originalRef?.status === updatedRef.status && originalRef?.cancel_reason === updatedRef.cancel_reason) {
       setIsRefModalOpen(false); return;
     }
 
-    // 1. 強固なステータス遷移チェック（システム側のロック）
     if (originalRef?.status === 'cancel') { alert('キャンセル済みのデータは変更できません。'); return; }
     if (originalRef?.status === 'issued') { alert('発行済のデータは変更できません。'); return; }
     if (originalRef?.status === 'confirmed' && updatedRef.status === 'pending') { alert('確定済みのデータを仮計上に戻すことはできません。'); return; }
     if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) { alert('キャンセル事由を選択してください。'); return; }
 
-    // 2. ブラウザ標準アラートによる最終警告
     if (updatedRef.status === 'cancel') {
       const msg = originalRef?.status === 'confirmed'
         ? "【⚠️ 重大警告】\nこのデータはすでに「報酬確定」されています。\nキャンセルを実行すると、ユーザーへ付与済みのポイントが没収（マイナス処理）されます。\n\n本当にキャンセルしてよろしいですか？"
@@ -239,13 +281,11 @@ export default function AdminDashboard() {
       cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null 
     }).eq('id', updatedRef.id)
     
-    // 3. ポイントの増減・確定処理
     if (updatedRef.status === 'confirmed' && originalRef?.status !== 'confirmed') {
       await issuePoints(updatedRef, shops, categories)
     } else if (updatedRef.status !== 'confirmed' && originalRef?.status === 'confirmed') {
       await removePoints(updatedRef.id)
     } else if (updatedRef.status === 'issued' && originalRef?.status === 'confirmed') {
-      // 個別で発行済みにした場合、ポイント清算ステータスも更新する
       await supabase.from('point_transactions').update({ status: 'paid' }).eq('referral_id', updatedRef.id).eq('status', 'confirmed')
     }
     
@@ -323,16 +363,23 @@ export default function AdminDashboard() {
     alert('設定を保存しました。')
   }
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm">読み込み中...</div>
+  const handleManualUrlIssue = (staffId: string) => {
+    const staff = staffs.find(s => s.id === staffId)
+    if (!staff) return
+    const url = `${window.location.origin}/m/${staff.secret_token}`
+    navigator.clipboard.writeText(url)
+    alert(`マイページURLをコピーしました。\nURL: ${url}\nユーザーへ直接連絡してください。`)
+  }
 
-  // ★ モーダル表示用の情報整理
+  if (authError) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-600 text-sm font-bold">{authError}</div>
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
+
   const originalRefForModal = editingRef ? referrals.find(r => r.id === editingRef.id) : null
   const isEditingLocked = originalRefForModal?.status === 'cancel' || originalRefForModal?.status === 'issued'
-  const editingShopData = editingRef ? shops.find(s => String(s.id) === String(editingRef.shop_id)) : null
+  const editingShopData = editingRef ? getShopByShopId(editingRef.shop_id) : null
   const editingOwnerName = editingRef ? getShopOwnerName(editingRef.shop_id) : '不明'
   const editingConfirmedTx = editingRef ? pointTransactions.find(tx => tx.referral_id === editingRef.id) : null
 
-  // ★ モーダル内で選べるステータスの制限
   let availableStatusOptions = STATUS_OPTIONS
   if (originalRefForModal?.status === 'pending') {
     availableStatusOptions = STATUS_OPTIONS.filter(opt => ['pending', 'confirmed', 'cancel'].includes(opt.value))
@@ -374,7 +421,6 @@ export default function AdminDashboard() {
 
       {/* メインコンテンツ */}
       <div className="flex-1 p-6 overflow-x-auto w-full">
-        
         <h1 className="text-[18px] font-bold text-gray-900 mb-6">{PAGE_TITLES[activeTab]}</h1>
 
         {/* =========================================
@@ -392,8 +438,8 @@ export default function AdminDashboard() {
                 <div className="p-4 border-t border-gray-200 bg-white">
                   <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
                     <div><label className="block text-left text-gray-600 mb-1">受注番号</label><input type="text" value={filters.order_number} onChange={(e) => setFilters({...filters, order_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
-                    <div><label className="block text-left text-gray-600 mb-1">顧客番号</label><input type="text" value={filters.customer_number} onChange={(e) => setFilters({...filters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
-                    <div><label className="block text-left text-gray-600 mb-1">店舗ID</label><input type="text" value={filters.shop_id} onChange={(e) => setFilters({...filters, shop_id: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
+                    <div><label className="block text-left text-gray-600 mb-1">顧客名/番号</label><input type="text" value={filters.customer_number} onChange={(e) => setFilters({...filters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
+                    <div><label className="block text-left text-gray-600 mb-1">店舗番号</label><input type="text" placeholder="例: 12" value={filters.shop_number} onChange={(e) => setFilters({...filters, shop_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
                     <div>
                       <label className="block text-left text-gray-600 mb-1">ステータス</label>
                       <select value={filters.status} onChange={(e) => setFilters({...filters, status: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none bg-white rounded-[4px]">
@@ -429,31 +475,17 @@ export default function AdminDashboard() {
                     <th className="p-3 w-10 text-left font-bold"><input type="checkbox" checked={isAllSelected} onChange={handleToggleAll} disabled={filteredReferrals.filter(r => r.status === 'pending').length === 0} /></th>
                     <th className="p-3 text-left font-bold">受注番号</th>
                     <th className="p-3 text-left font-bold">ステータス</th>
-                    <th className="p-3 text-left font-bold">店舗</th>
-                    <th className="p-3 text-left font-bold">報酬名</th>
-                    <th className="p-3 text-left font-bold">獲得Pt</th>
+                    <th className="p-3 text-left font-bold">店舗番号・名前</th>
+                    <th className="p-3 text-left font-bold">担当スタッフ</th>
                     <th className="p-3 text-left font-bold">日時</th>
                     <th className="p-3 text-left font-bold">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 text-sm text-gray-900">
                   {filteredReferrals.map(ref => {
-                    const shop = shops.find(s => String(s.id) === String(ref.shop_id));
-                    const category = categories.find(r => String(r.id) === String(shop?.category_id));
+                    const shop = getShopByShopId(ref.shop_id);
+                    const staff = staffs.find(s => s.id === ref.staff_id);
                     const status = STATUS_OPTIONS.find(s => s.value === ref.status) || STATUS_OPTIONS[0];
-
-                    const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
-                    const shopValidRefs = referrals.filter(r => String(r.shop_id) === String(ref.shop_id) && r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-                    const successCount = shopValidRefs.findIndex(r => r.id === ref.id) + 1;
-                    const isOldest = shopValidRefs.length > 0 && shopValidRefs[0].id === ref.id;
-                    const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
-
-                    const standardPt = Number(category?.reward_points) || 0;
-                    const bonusPt = (isFirstTime && category?.first_bonus_enabled) ? Number(category.first_bonus_points) : 0;
-                    const totalPt = ref.status === 'cancel' ? 0 : (refTxs.length > 0 ? refTxs.reduce((sum, tx) => sum + Number(tx.points), 0) : standardPt + bonusPt);
-                    const rewardName = (isFirstTime && category?.first_bonus_enabled) ? `初回ボーナス (${successCount}件目)` : `紹介報酬 (${successCount}件目)`;
-                    
-                    // ★ キャンセル・発行済はOpacityで視認性を下げ、誤操作を防ぐ
                     const isDead = ref.status === 'cancel' || ref.status === 'issued';
 
                     return (
@@ -466,10 +498,9 @@ export default function AdminDashboard() {
                           </span>
                         </td>
                         <td className="p-3 text-left font-normal">
-                          {shop?.name || '不明'} <span className="text-gray-400 text-xs">({ref.shop_id})</span>
+                          {shop?.shop_number ? `No.${shop.shop_number} ` : ''} {shop?.name || '不明'}
                         </td>
-                        <td className="p-3 text-left font-normal text-gray-600">{rewardName}</td>
-                        <td className="p-3 text-left font-normal tabular-nums">{totalPt.toLocaleString()}</td>
+                        <td className="p-3 text-left font-normal text-gray-600">{staff?.name || '不明'}</td>
                         <td className="p-3 text-left font-normal tabular-nums text-gray-600">{new Date(ref.created_at).toLocaleString('ja-JP')}</td>
                         <td className="p-3 text-left font-normal">
                           <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className={`text-sm ${isDead ? 'text-gray-500 underline' : 'text-blue-600 hover:underline'}`}>
@@ -490,49 +521,58 @@ export default function AdminDashboard() {
             タブ: Payments (支払管理)
         ========================================= */}
         {activeTab === 'payments' && (
-          <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
-            <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
-                  <th className="p-3 text-left font-bold">店舗名</th>
-                  <th className="p-3 text-left font-bold text-right">紹介件数</th>
-                  <th className="p-3 text-left font-bold text-right">累計報酬額</th>
-                  <th className="p-3 text-left font-bold text-right">未払い額</th>
-                  <th className="p-3 text-left font-bold text-right">支払い済額</th>
-                  <th className="p-3 text-left font-bold text-center">ステータス</th>
-                  <th className="p-3 text-left font-bold text-center">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 text-gray-900">
-                {shops.map(shop => {
-                  const validTxs = pointTransactions.filter(tx => String(tx.shop_id) === String(shop.id) && referrals.find(r => r.id === tx.referral_id)?.status !== 'cancel');
-                  if (validTxs.length === 0) return null;
+          <div>
+            <div className="flex justify-end mb-4">
+              <button onClick={exportPaymentsCSV} className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 text-sm font-bold rounded-[4px] hover:bg-gray-700 transition">
+                <Download className="w-4 h-4" /> CSVで明細をダウンロード
+              </button>
+            </div>
+            <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
+              <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
+                    <th className="p-3 text-left font-bold">店舗番号</th>
+                    <th className="p-3 text-left font-bold">店舗名</th>
+                    <th className="p-3 text-left font-bold text-right">紹介件数</th>
+                    <th className="p-3 text-left font-bold text-right">累計報酬額</th>
+                    <th className="p-3 text-left font-bold text-right">未払い額</th>
+                    <th className="p-3 text-left font-bold text-right">支払い済額</th>
+                    <th className="p-3 text-left font-bold text-center">ステータス</th>
+                    <th className="p-3 text-left font-bold text-center">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200 text-gray-900">
+                  {shops.map(shop => {
+                    const validTxs = pointTransactions.filter(tx => tx.shop_id === shop.id && referrals.find(r => r.id === tx.referral_id)?.status !== 'cancel');
+                    if (validTxs.length === 0) return null;
 
-                  const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
-                  const unpaidTotal = validTxs.filter(tx => tx.status === 'confirmed').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-                  const paidTotal = validTxs.filter(tx => tx.status === 'paid').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-                  const isAllPaid = unpaidTotal === 0;
+                    const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
+                    const unpaidTotal = validTxs.filter(tx => tx.status === 'confirmed').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+                    const paidTotal = validTxs.filter(tx => tx.status === 'paid').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
+                    const isAllPaid = unpaidTotal === 0;
 
-                  return (
-                    <tr key={shop.id} className={`transition-colors ${isAllPaid ? 'bg-gray-50/80 opacity-70' : 'hover:bg-gray-50'}`}>
-                      <td className="p-3 text-left font-normal">{shop.name} <span className="text-gray-400 text-xs">({shop.id})</span></td>
-                      <td className="p-3 text-left font-normal tabular-nums text-right">{uniqueReferralCount}</td>
-                      <td className="p-3 text-left font-normal tabular-nums text-right">{unpaidTotal + paidTotal}</td>
-                      <td className="p-3 text-left font-normal text-red-600 tabular-nums font-bold text-right">{unpaidTotal}</td>
-                      <td className="p-3 text-left font-normal tabular-nums text-gray-600 text-right">{paidTotal}</td>
-                      <td className="p-3 text-left font-normal text-center">
-                        <span className={`px-2 py-0.5 rounded-[4px] text-xs border ${isAllPaid ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-red-50 text-red-700 border-red-200'} inline-block min-w-[70px] text-center`}>
-                          {isAllPaid ? '精算済' : '未払いあり'}
-                        </span>
-                      </td>
-                      <td className="p-3 text-left font-normal text-center">
-                        {!isAllPaid && <button onClick={() => handlePaymentComplete(shop.id)} className="text-blue-600 hover:underline">支払完了にする</button>}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={shop.id} className={`transition-colors ${isAllPaid ? 'bg-gray-50/80 opacity-70' : 'hover:bg-gray-50'}`}>
+                        <td className="p-3 text-left font-normal tabular-nums">{shop.shop_number}</td>
+                        <td className="p-3 text-left font-normal">{shop.name}</td>
+                        <td className="p-3 text-left font-normal tabular-nums text-right">{uniqueReferralCount}</td>
+                        <td className="p-3 text-left font-normal tabular-nums text-right">{unpaidTotal + paidTotal}</td>
+                        <td className="p-3 text-left font-normal text-red-600 tabular-nums font-bold text-right">{unpaidTotal}</td>
+                        <td className="p-3 text-left font-normal tabular-nums text-gray-600 text-right">{paidTotal}</td>
+                        <td className="p-3 text-left font-normal text-center">
+                          <span className={`px-2 py-0.5 rounded-[4px] text-xs border ${isAllPaid ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-red-50 text-red-700 border-red-200'} inline-block min-w-[70px] text-center`}>
+                            {isAllPaid ? '精算済' : '未払いあり'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-left font-normal text-center">
+                          {!isAllPaid && <button onClick={() => handlePaymentComplete(shop.id)} className="text-blue-600 hover:underline">支払完了にする</button>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -544,7 +584,7 @@ export default function AdminDashboard() {
             <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
-                  <th className="p-3 text-left font-bold">店舗ID</th>
+                  <th className="p-3 text-left font-bold">店舗番号</th>
                   <th className="p-3 text-left font-bold">店舗名</th>
                   <th className="p-3 text-left font-bold">オーナー名</th>
                   <th className="p-3 text-left font-bold">オーナーEmail</th>
@@ -557,14 +597,14 @@ export default function AdminDashboard() {
               <tbody className="divide-y divide-gray-200 text-gray-900">
                 {shops.map(shop => {
                   const ownerName = getShopOwnerName(shop.id);
-                  const category = categories.find(r => String(r.id) === String(shop.category_id));
+                  const category = categories.find(r => r.id === shop.category_id);
                   return (
                     <tr key={shop.id} className="hover:bg-gray-50">
-                      <td className="p-3 text-left font-normal text-blue-600 hover:underline cursor-pointer" onClick={() => openShopEditModal(shop.id)}>{shop.id}</td>
+                      <td className="p-3 text-left font-normal text-blue-600 hover:underline cursor-pointer tabular-nums" onClick={() => openShopEditModal(shop.id)}>{shop.shop_number}</td>
                       <td className="p-3 text-left font-normal text-blue-600 hover:underline cursor-pointer" onClick={() => openShopEditModal(shop.id)}>{shop.name}</td>
                       <td className="p-3 text-left font-normal">{ownerName}</td>
                       <td className="p-3 text-left font-normal text-gray-600">{shop.owner_email}</td>
-                      <td className="p-3 text-left font-normal">{shop.phone || '-'}</td>
+                      <td className="p-3 text-left font-normal tabular-nums">{shop.phone || '-'}</td>
                       <td className="p-3 text-left font-normal">{category?.label || '未設定'}</td>
                       <td className="p-3 text-left font-normal tabular-nums text-gray-600">{new Date(shop.created_at).toLocaleDateString('ja-JP')}</td>
                       <td className="p-3 text-left font-normal">
@@ -668,14 +708,36 @@ export default function AdminDashboard() {
             
             <div className="bg-gray-50 border border-gray-200 p-4 rounded-[4px] text-sm mb-6 space-y-2 text-gray-700">
               <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">受注番号</div><div className="col-span-2 tabular-nums">{editingRef.order_number}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">顧客番号</div><div className="col-span-2 tabular-nums">{editingRef.customer_id || '未取得'}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">店舗</div><div className="col-span-2">{editingShopData?.name || '不明'} ({editingRef.shop_id})</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">オーナー</div><div className="col-span-2">{editingOwnerName}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">顧客名</div><div className="col-span-2 tabular-nums">{editingRef.customer_name || '未取得'}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">店舗</div><div className="col-span-2">No.{editingShopData?.shop_number} {editingShopData?.name || '不明'}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">担当スタッフ</div><div className="col-span-2">{staffs.find(s => s.id === editingRef.staff_id)?.name || '不明'}</div></div>
               <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">発生日時</div><div className="col-span-2 tabular-nums">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div></div>
               {editingConfirmedTx && (
                 <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">確定日時</div><div className="col-span-2 tabular-nums">{new Date(editingConfirmedTx.created_at).toLocaleString('ja-JP')}</div></div>
               )}
             </div>
+
+            {/* URL手動発行のアクションボタン */}
+            {editingRef.status === 'confirmed' && (
+              <div className="mb-6 bg-blue-50 border border-blue-100 rounded-[4px] p-3">
+                <p className="text-xs text-blue-800 font-bold mb-2">サポート対応（手動URL発行）</p>
+                <button 
+                  onClick={() => {
+                     const targetStaff = staffs.find(s => s.id === editingRef.staff_id)
+                     if (targetStaff && targetStaff.secret_token) {
+                       const url = `${window.location.origin}/m/${targetStaff.secret_token}`
+                       navigator.clipboard.writeText(url)
+                       alert(`該当スタッフのマイページURLをコピーしました。\n${url}\n\nこのURLをユーザーへ直接送信してください。`)
+                     } else {
+                       alert('スタッフのトークンが見つかりません。')
+                     }
+                  }}
+                  className="px-3 py-1.5 bg-white border border-blue-200 text-blue-600 text-xs font-bold rounded shadow-sm hover:bg-blue-100 flex items-center gap-1.5"
+                >
+                  <LinkIcon className="w-3 h-3"/> スタッフのマイページURLをコピー
+                </button>
+              </div>
+            )}
 
             <div className="space-y-4 mb-6">
               {isEditingLocked ? (
@@ -691,7 +753,6 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* 編集ロックされていない ＆ キャンセルが選ばれた時だけ事由を表示 */}
               {!isEditingLocked && editingRef.status === 'cancel' && (
                 <div>
                   <label className="flex items-center gap-1 text-sm text-red-600 font-bold mb-1"><AlertTriangle className="w-4 h-4"/>キャンセル事由</label>
@@ -702,7 +763,6 @@ export default function AdminDashboard() {
                 </div>
               )}
               
-              {/* ▼ 【追加】確定済をキャンセルしようとした時の重大警告UI ▼ */}
               {!isEditingLocked && originalRefForModal?.status === 'confirmed' && editingRef.status === 'cancel' && (
                 <div className="bg-red-50 border border-red-200 p-3 mt-3 rounded-[4px]">
                   <p className="text-red-700 text-xs font-bold flex items-center gap-1"><AlertTriangle className="w-4 h-4"/>重大な警告</p>
@@ -724,7 +784,7 @@ export default function AdminDashboard() {
       {isShopModalOpen && editingShop && (
         <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-[4px] p-6 w-full max-w-md border border-gray-200 shadow-[0_0_20px_rgba(0,0,0,0.1)]">
-            <h3 className="text-base font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">店舗情報の編集 (ID: {editingShop.id})</h3>
+            <h3 className="text-base font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">店舗情報の編集 (No. {editingShop.shop_number})</h3>
             <div className="space-y-4 mb-6 text-sm">
               <div><label className="block text-gray-700 font-bold mb-1">店舗名</label><input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none focus:border-blue-500" /></div>
               <div><label className="block text-gray-700 font-bold mb-1">電話番号</label><input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none focus:border-blue-500" /></div>
