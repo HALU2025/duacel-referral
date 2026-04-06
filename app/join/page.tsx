@@ -21,6 +21,12 @@ const generateInviteToken = () => {
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
+// ★追加：紹介用URLに使用するランダムな文字列（ref_ + 8桁）
+const generateReferralCode = () => {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  return 'ref_' + Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+}
+
 const swipeVariants = {
   enter: (direction: number) => ({
     x: direction > 0 ? 30 : -30,
@@ -62,21 +68,18 @@ export default function ShopJoinPage() {
     }
   }
 
-  // ★ 変更点: async関数にして、途中でDBチェック（非同期通信）できるようにしました
   const handleNext = async () => {
     setErrorMessage('')
     
     if (currentStep === 2 && !ownerName.trim()) return setErrorMessage('お名前を入力してください。')
     
-    // ★ STEP 3: 次へ進む前に、メールアドレスの重複をチェックする
     if (currentStep === 3) {
       if (!email.trim() || password.length < 6) {
         return setErrorMessage('有効なメールアドレスと6文字以上のパスワードを入力してください。')
       }
       
       setIsLoading(true)
-      // staffsテーブルに同じメアドが存在しないかサクッと確認
-      const { data: existingUser, error } = await supabase
+      const { data: existingUser } = await supabase
         .from('staffs')
         .select('id')
         .eq('email', email)
@@ -89,21 +92,17 @@ export default function ShopJoinPage() {
       }
     }
     
-  // --- STEP 4: 電話番号の重複チェック (追加！) ---
     if (currentStep === 4) {
       if (!phone.trim()) return setErrorMessage('電話番号を入力してください。')
       
-      // 入力された番号からハイフンなどを除去して数字だけにする
       const cleanPhone = phone.replace(/\D/g, '')
       if (cleanPhone.length < 10) return setErrorMessage('有効な電話番号を入力してください。')
 
       setIsLoading(true)
-      // shopsテーブルに同じ電話番号（数字のみ比較）がないか確認
-      // ※ DB側でもハイフンなしで保存している、または比較時に加工する場合を想定
       const { data: existingShop } = await supabase
         .from('shops')
         .select('id')
-        .eq('phone', phone) // 一旦そのまま比較（DBの形式に合わせるのがベスト）
+        .eq('phone', phone)
         .maybeSingle()
         
       setIsLoading(false)
@@ -135,36 +134,33 @@ export default function ShopJoinPage() {
       if (authError) throw new Error(translateAuthError(authError.message))
 
       const userId = authData.user?.id
-      const tempId = `TEMP_${Date.now()}`
       const inviteToken = generateInviteToken()
 
-      // 2. 店舗情報の登録
+      // 2. 店舗情報の登録（idは省略し、Supabase側でUUIDを自動生成させる）
       const { data: newShop, error: insertError } = await supabase
         .from('shops').insert([{ 
-          id: tempId, name: finalShopName, owner_email: email, phone: phone, owner_id: userId, invite_token: inviteToken 
-        }]).select('shop_number').single()
+          name: finalShopName, 
+          owner_email: email, 
+          phone: phone, 
+          owner_id: userId, 
+          invite_token: inviteToken 
+        }]).select('id, shop_number').single()
       
       if (insertError) throw new Error('店舗登録エラー: ' + insertError.message)
 
-// 3. IDのアップデート (S0001形式)
-      const formattedShopId = `s${newShop.shop_number.toString().padStart(4, '0')}`
-      const { error: updateError } = await supabase.from('shops').update({ id: formattedShopId }).eq('shop_number', newShop.shop_number)
-      if (updateError) throw new Error('店舗ID確定エラー: ' + updateError.message)
-
-      // 4. オーナーのスタッフ情報登録
-      // ★ 修正：全店舗で絶対に被らないように「店舗ID_m01」の形にする！（例: s0001_m01）
-      const ownerStaffId = `${formattedShopId}_m01`
+      // 3. オーナーのスタッフ情報登録
       const secureToken = generateSecureToken()
+      const publicReferralCode = generateReferralCode() // ★ UUIDに依存しないランダムな紹介コード
       
       const { error: staffError } = await supabase.from('staffs').insert([{
-        id: ownerStaffId, 
-        shop_id: formattedShopId, 
+        shop_id: newShop.id, // 先ほど自動生成された本物のUUIDを使う
         name: ownerName, 
         email: email,
-        referral_code: ownerStaffId, // ★ referral_code もこれ（s0001_m01）で統一できて綺麗になります
+        referral_code: publicReferralCode, 
         secret_token: secureToken, 
         security_pin: pin, 
-        is_deleted: false
+        is_deleted: false,
+        is_team_pool_eligible: true
       }])
       
       if (staffError) throw new Error('管理者情報の初期設定に失敗しました: ' + staffError.message)
@@ -269,7 +265,7 @@ export default function ShopJoinPage() {
               )}
 
               {/* ==========================================
-                  STEP 3: ログイン情報 (★ここで重複チェック発動)
+                  STEP 3: ログイン情報
               ========================================== */}
               {currentStep === 3 && (
                 <div className="flex flex-col h-full">
