@@ -135,23 +135,12 @@ export default function MemberJoinPage() {
     try {
       // 1. 既存ユーザーチェック
       const { data: existingStaff } = await supabase
-        .from('staffs').select('secret_token, name').eq('shop_id', shop.id).eq('email', email).maybeSingle()
+        .from('staffs').select('id').eq('shop_id', shop.id).eq('email', email).maybeSingle()
 
       if (existingStaff) {
-        const onboardingData = {
-          name: existingStaff.name,
-          magicLinkUrl: `/m/${existingStaff.secret_token}`,
-          isReturningUser: true,
-          onboardingStep: 1
-        };
-        localStorage.setItem(`duacel_member_onboarding_${shop.id}`, JSON.stringify(onboardingData));
-
-        setTimeout(() => {
-          setName(existingStaff.name)
-          setMagicLinkUrl(onboardingData.magicLinkUrl)
-          setIsReturningUser(true)
-          setIsLoading(false)
-        }, 600)
+        // ★ おかえりなさい処理を削除し、エラーで弾くように変更
+        setErrorMessage('このメールアドレスは既に登録されています。')
+        setIsLoading(false)
         return
       }
 
