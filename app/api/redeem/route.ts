@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { HttpsProxyAgent } from 'https-proxy-agent'
+import fetch from 'node-fetch' 
 
 // Vercel環境等でプロキシ(https-proxy-agent)を使用するため、Node.jsランタイムを強制する
 export const runtime = 'nodejs'
