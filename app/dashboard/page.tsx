@@ -38,7 +38,6 @@ export default function OwnerDashboard() {
   const [filterStatus, setFilterStatus] = useState('') 
   const [visibleCount, setVisibleCount] = useState(20) 
 
-  // ★ 追加：QRコード表示用モーダル
   const [isQRModalOpen, setIsQRModalOpen] = useState(false)
   
   const [detailStaff, setDetailStaff] = useState<any>(null)
@@ -146,15 +145,17 @@ export default function OwnerDashboard() {
       }
     });
 
-    const staffAddLogs = staffList.filter(s => s.email !== shopData.owner_email).map(s => ({
+    // ★修正：削除されていないアクティブなスタッフのみをフィードに流し、created_at のフォールバックを設定
+    const staffAddLogs = activeStaffs.filter(s => s.email !== shopData.owner_email).map(s => ({
       id: `staff_add_${s.id}`,
       type: 'staff_added',
-      created_at: s.created_at,
+      created_at: s.created_at || new Date().toISOString(),
       staffName: s.name,
       status: 'info' 
     }));
 
-    const combinedFeed = [...enrichedReferrals, ...staffAddLogs].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    // ★修正：日付でのソートが NaN にならないように安全に処理
+    const combinedFeed = [...enrichedReferrals, ...staffAddLogs].sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     setReferralHistory(combinedFeed);
 
     const staffsWithFinance = staffList.map(s => {
@@ -262,7 +263,7 @@ export default function OwnerDashboard() {
 
   useEffect(() => { loadData() }, [router])
 
-  // ★ リアルタイム監視設定 (Supabase Realtime)
+  // ★ 修正：リアルタイム監視設定 (Supabase Realtime) に subscribe() のステータス監視を追加
   useEffect(() => {
     if (!shop?.id) return;
 
@@ -287,12 +288,14 @@ export default function OwnerDashboard() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'staffs', filter: `shop_id=eq.${shop.id}` },
-        () => {
-          console.log('🔄 Dashboard: staffs updated - reloading data...');
+        (payload) => {
+          console.log('🔄 Dashboard: staffs updated!', payload);
           loadData(true);
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('🔌 Dashboard Realtime 接続ステータス:', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
