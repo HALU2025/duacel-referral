@@ -385,7 +385,7 @@ export default function ShopJoinPage() {
                     本登録（ご住所等の入力）は、<br/>マイページよりいつでも行えます。
                   </p>
                   
-                  <button onClick={() => { window.location.href = ownerMagicUrl; }} className="w-full py-5 bg-[#333333] text-[#fffef2] uppercase tracking-[0.15em] text-sm hover:bg-[#1a1a1a] shadow-sm hover:shadow-[0_0_20px_rgba(51,51,51,0.25)] transition-all duration-300 flex items-center justify-center gap-4 group">
+                  <button onClick={() => router.push('/dashboard')} className="w-full py-5 bg-[#333333] text-[#fffef2] uppercase tracking-[0.15em] text-sm hover:bg-[#1a1a1a] shadow-sm hover:shadow-[0_0_20px_rgba(51,51,51,0.25)] transition-all duration-300 flex items-center justify-center gap-4 group">
                     Go to Dashboard
                     <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" strokeWidth={1.5} />
                   </button>
