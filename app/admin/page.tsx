@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation'
 import { 
   RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon,
   LayoutDashboard, Users, Store, Gift, Settings, ChevronRight, ChevronDown,
-  Building, User, Info, LogOut // ★ LogOutアイコンを追加
+  Building, User, Info, LogOut, Shield // ★ Shieldアイコン追加
 } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
+import { createAdminUserAction } from '@/app/actions/admin' // ★ STEP 1で作ったServer Actionをインポート
 
 // ==========================================
 // 1. 定数・型定義
@@ -35,12 +36,14 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
+// ★ 名称変更
 const PAGE_TITLES: Record<string, string> = {
   home: 'ダッシュボード',
   referrals: '成果一覧',
   redemptions: 'ポイント交換管理',
   users: 'ユーザー・店舗管理',
-  settings: 'マスタ設定'
+  settings: 'ポイント設定',
+  admins: '管理者設定' // ★ 追加
 }
 
 export default function AdminDashboard() {
@@ -49,19 +52,20 @@ export default function AdminDashboard() {
   // ==========================================
   // 2. ステート管理
   // ==========================================
-  const [activeTab, setActiveTab] = useState<'home' | 'referrals' | 'redemptions' | 'users' | 'settings'>('home')
+  const [activeTab, setActiveTab] = useState<'home' | 'referrals' | 'redemptions' | 'users' | 'settings' | 'admins'>('home')
   
-  // データステート
   const [referrals, setReferrals] = useState<any[]>([])
   const [redemptions, setRedemptions] = useState<any[]>([])
   const [shops, setShops] = useState<any[]>([])
   const [staffs, setStaffs] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   const [pointTransactions, setPointTransactions] = useState<any[]>([])
+  const [systemAdmins, setSystemAdmins] = useState<any[]>([]) // ★ 管理者一覧データ
   
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [currentUserId, setCurrentUserId] = useState('') // ★ 自分のID
 
   // 検索・フィルター用
   const [refFilters, setRefFilters] = useState({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
@@ -71,12 +75,17 @@ export default function AdminDashboard() {
   // モーダル・UI用
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
-  
   const [isShopModalOpen, setIsShopModalOpen] = useState(false)
   const [editingShop, setEditingShop] = useState<any>(null)
-  
   const [editingCategories, setEditingCategories] = useState<any[]>([])
   const [expandedShopId, setExpandedShopId] = useState<string | null>(null) 
+
+  // ★ 管理者設定用ステート
+  const [newAdminEmail, setNewAdminEmail] = useState('')
+  const [newAdminPassword, setNewAdminPassword] = useState('')
+  const [isAddingAdmin, setIsAddingAdmin] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
 
   // サマリー用
   const summary = useMemo(() => {
@@ -90,41 +99,31 @@ export default function AdminDashboard() {
   }, [pointTransactions, redemptions, shops, staffs, referrals])
 
   // ==========================================
-  // 3. データ取得・認証ロジック (★ここをVIPルーム仕様に改修)
+  // 3. データ取得・認証
   // ==========================================
   const fetchData = async () => {
     setLoading(true)
     
-    // 1. ログインしているかチェック
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { 
-      router.replace('/admin-login') 
-      return 
-    }
+    if (!user) { router.replace('/admin-login'); return; }
 
-    // 2. VIPルーム（system_adminsテーブル）に存在するか厳格にチェック
-    const { data: adminData, error: adminError } = await supabase
-      .from('system_admins')
-      .select('id')
-      .eq('id', user.id)
-      .maybeSingle()
-
+    const { data: adminData } = await supabase.from('system_admins').select('id').eq('id', user.id).maybeSingle()
     if (!adminData) {
-      // 一般ユーザーが迷い込んだ場合は強制ログアウトして追い出す
       await supabase.auth.signOut()
-      setAuthError('管理者権限がありません。')
       router.replace('/admin-login')
       return
     }
 
-    // 3. 認証OKならデータを取得
-    const [r, s, st, cat, tx, ex] = await Promise.all([
+    setCurrentUserId(user.id) // 自分のIDを保存
+
+    const [r, s, st, cat, tx, ex, sys] = await Promise.all([
       supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(2000),
       supabase.from('shops').select('*').order('created_at', { ascending: false }),
       supabase.from('staffs').select('*').order('created_at', { ascending: true }),
       supabase.from('shop_categories').select('*').order('reward_points', { ascending: true }),
       supabase.from('point_transactions').select('*').order('created_at', { ascending: true }),
-      supabase.from('reward_exchanges').select('*').order('created_at', { ascending: false })
+      supabase.from('reward_exchanges').select('*').order('created_at', { ascending: false }),
+      supabase.from('system_admins').select('*').order('created_at', { ascending: true }) // ★ 管理者一覧を取得
     ])
     
     if (r.data) { setReferrals(r.data); setFilteredReferrals(r.data); }
@@ -133,13 +132,13 @@ export default function AdminDashboard() {
     if (cat.data) { setCategories(cat.data); setEditingCategories(cat.data); }
     if (tx.data) setPointTransactions(tx.data)
     if (ex.data) setRedemptions(ex.data)
+    if (sys.data) setSystemAdmins(sys.data)
     
     setLoading(false)
   }
 
   useEffect(() => { fetchData() }, [])
 
-  // ★ログアウト処理を追加
   const handleLogout = async () => {
     if (!confirm('ログアウトしますか？')) return
     await supabase.auth.signOut()
@@ -147,20 +146,61 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // ヘルパー＆フィルター
+  // ★ 管理者設定のアクションハンドラー
+  // ==========================================
+  const handleAddAdmin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newAdminPassword.length < 6) { alert('パスワードは6文字以上にしてください。'); return; }
+    
+    setIsAddingAdmin(true)
+    const res = await createAdminUserAction(newAdminEmail, newAdminPassword)
+    setIsAddingAdmin(false)
+
+    if (res.success) {
+      alert('管理者を登録しました。')
+      setNewAdminEmail('')
+      setNewAdminPassword('')
+      fetchData() // 一覧を再取得
+    } else {
+      alert('登録エラー: ' + res.error)
+    }
+  }
+
+  const handleDeleteAdmin = async (id: string, email: string) => {
+    if (id === currentUserId) { alert('自分自身は削除できません。'); return; }
+    if (!confirm(`【警告】\n${email} の管理者権限を削除しますか？\n二度とログインできなくなります。`)) return;
+    
+    setIsProcessing(true)
+    const { error } = await supabase.from('system_admins').delete().eq('id', id)
+    setIsProcessing(false)
+    
+    if (error) alert('削除エラー: ' + error.message)
+    else fetchData()
+  }
+
+  const handleUpdatePassword = async () => {
+    if (newPassword.length < 6) { alert('パスワードは6文字以上にしてください。'); return; }
+    setIsUpdatingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    setIsUpdatingPassword(false)
+    
+    if (error) alert('パスワードの変更に失敗しました: ' + error.message)
+    else { alert('自分のパスワードを変更しました。次回から新しいパスワードでログインしてください。'); setNewPassword(''); }
+  }
+
+
+  // ==========================================
+  // 既存のアクションハンドラー（省略せず維持）
   // ==========================================
   const getShopOwnerName = (shopId: string) => {
     const owner = staffs.find(staff => staff.shop_id === shopId && staff.email === shops.find(s => s.id === shopId)?.owner_email)
     return owner ? owner.name : '不明'
   }
-
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
-
   const openShopEditModal = (shopId: string) => {
     const targetShop = getShopByShopId(shopId)
     if (targetShop) { setEditingShop(targetShop); setIsShopModalOpen(true); }
   }
-
   const handleRefFilter = () => {
     let result = [...referrals]
     if (refFilters.order_number) result = result.filter(r => r.order_number?.includes(refFilters.order_number))
@@ -182,21 +222,15 @@ export default function AdminDashboard() {
     setFilteredReferrals(result)
     setIsRefFilterOpen(false)
   }
-
   const handleClearRefFilters = () => {
     setRefFilters({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
     setFilteredReferrals(referrals)
   }
-
   const handleCopyUrl = (token: string, type: 'staff' | 'invite') => {
     const url = type === 'staff' ? `${window.location.origin}/m/${token}` : `${window.location.origin}/reg/${token}`
     navigator.clipboard.writeText(url)
     alert(`URLをコピーしました。\n${url}`)
   }
-
-  // ==========================================
-  // アクションハンドラー
-  // ==========================================
   const issuePoints = async (referral: any, currentShops: any[], currentCategories: any[]) => {
     const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
     if (existing && existing.length > 0) return
@@ -227,11 +261,9 @@ export default function AdminDashboard() {
 
     await supabase.from('point_transactions').insert(transactions)
   }
-
   const removePoints = async (referralId: string) => {
     await supabase.from('point_transactions').delete().eq('referral_id', referralId)
   }
-
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
     if (originalRef?.status === updatedRef.status && originalRef?.cancel_reason === updatedRef.cancel_reason) {
@@ -268,7 +300,6 @@ export default function AdminDashboard() {
     await fetchData()
     setIsProcessing(false)
   }
-
   const handleShopModalSave = async (updatedShop: any) => {
     setIsProcessing(true)
     const { error } = await supabase.from('shops').update({
@@ -279,11 +310,9 @@ export default function AdminDashboard() {
     else { setIsShopModalOpen(false); await fetchData(); }
     setIsProcessing(false)
   }
-
   const handleCategoryChange = (id: string, field: string, value: any) => {
     setEditingCategories(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
   }
-  
   const handleAddCategory = () => {
     if (editingCategories.length >= 5) { alert('カテゴリは最大5つまで設定できます。'); return; }
     setEditingCategories([...editingCategories, {
@@ -293,7 +322,6 @@ export default function AdminDashboard() {
       isNew: true
     }])
   }
-
   const handleSaveAllSettings = async () => {
     if (!confirm('カテゴリ設定を保存しますか？')) return
     setIsProcessing(true)
@@ -325,12 +353,12 @@ export default function AdminDashboard() {
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col md:flex-row">
       
       {/* =========================================
-          サイドナビゲーション (デスクトップ) / ヘッダー (モバイル)
+          サイドナビゲーション
       ========================================= */}
       <aside className="w-full md:w-64 bg-white border-r border-gray-200 shadow-sm md:min-h-screen flex flex-col shrink-0">
         <div className="px-6 py-4 flex items-center gap-3 border-b border-gray-200">
           <img src="/logo-duacel.svg" alt="Duacel" className="h-6 w-auto" onError={(e) => e.currentTarget.style.display = 'none'} />
-          <span className="text-base font-bold tracking-wider text-gray-900">HQ Admin</span>
+          <span className="text-base font-bold tracking-wider text-gray-900">Duacel Pro</span> {/* ★ 名称変更 */}
         </div>
         
         <nav className="flex md:flex-col gap-1 p-4 overflow-x-auto md:overflow-x-visible">
@@ -340,6 +368,7 @@ export default function AdminDashboard() {
             { id: 'redemptions', icon: <Gift className="w-4 h-4"/>, label: PAGE_TITLES.redemptions },
             { id: 'users', icon: <Users className="w-4 h-4"/>, label: PAGE_TITLES.users },
             { id: 'settings', icon: <Settings className="w-4 h-4"/>, label: PAGE_TITLES.settings },
+            { id: 'admins', icon: <Shield className="w-4 h-4"/>, label: PAGE_TITLES.admins }, // ★ 追加
           ].map((tab) => (
             <button 
               key={tab.id} 
@@ -351,7 +380,6 @@ export default function AdminDashboard() {
           ))}
         </nav>
         
-        {/* ★ここにログアウトボタンを追加 */}
         <div className="mt-auto p-4 border-t border-gray-200 flex flex-col gap-2">
           <button onClick={fetchData} className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
             <RefreshCw className="w-4 h-4" /> 再読み込み
@@ -362,16 +390,17 @@ export default function AdminDashboard() {
         </div>
       </aside>
 
-      {/* メインコンテンツ */}
+      {/* =========================================
+          メインコンテンツ
+      ========================================= */}
       <div className="flex-1 p-4 md:p-8 overflow-x-auto w-full">
         <div className="mb-6 flex justify-between items-center">
           <h1 className="text-2xl font-black text-gray-900">{PAGE_TITLES[activeTab]}</h1>
           {isProcessing && <span className="flex items-center gap-2 text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-full"><Loader2 className="w-4 h-4 animate-spin"/> 処理中...</span>}
         </div>
 
-        {/* =========================================
-            タブ: Home (ダッシュボード)
-        ========================================= */}
+        {/* --- 省略せずに維持：Home, Referrals, Redemptions, Users --- */}
+        
         {activeTab === 'home' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -406,9 +435,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* =========================================
-            タブ: Referrals (成果承認)
-        ========================================= */}
         {activeTab === 'referrals' && (
           <div>
             <div className="bg-white border border-gray-200 rounded-xl mb-6 shadow-sm overflow-hidden transition-all">
@@ -509,9 +535,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* =========================================
-            タブ: Redemptions (ポイント交換管理)
-        ========================================= */}
         {activeTab === 'redemptions' && (
           <div>
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
@@ -569,9 +592,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* =========================================
-            タブ: Users (店舗・スタッフ管理)
-        ========================================= */}
         {activeTab === 'users' && (
           <div className="space-y-4">
             <div className="flex justify-between items-end mb-4">
@@ -652,7 +672,7 @@ export default function AdminDashboard() {
         )}
 
         {/* =========================================
-            タブ: Settings (マスタ設定)
+            タブ: Settings (ポイント設定)
         ========================================= */}
         {activeTab === 'settings' && (
           <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto">
@@ -722,10 +742,79 @@ export default function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {/* =========================================
+            ★ 新規追加：タブ: Admins (管理者設定)
+        ========================================= */}
+        {activeTab === 'admins' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* 1. 管理者一覧 */}
+              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                <h3 className="text-base font-black text-gray-900 mb-4">システム管理者一覧</h3>
+                <div className="space-y-3">
+                  {systemAdmins.map(admin => (
+                    <div key={admin.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg bg-gray-50/50">
+                      <div>
+                        <p className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                          {admin.email}
+                          {admin.id === currentUserId && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-bold">You</span>}
+                        </p>
+                        <p className="text-xs text-gray-500 font-mono mt-0.5">{new Date(admin.created_at).toLocaleString('ja-JP')}</p>
+                      </div>
+                      {admin.id !== currentUserId && (
+                        <button onClick={() => handleDeleteAdmin(admin.id, admin.email)} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors">
+                          削除
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {/* 2. 新規管理者追加 */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                  <h3 className="text-base font-black text-gray-900 mb-4">新規管理者の追加</h3>
+                  <form onSubmit={handleAddAdmin} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">メールアドレス</label>
+                      <input type="email" placeholder="admin@duacel.net" required value={newAdminEmail} onChange={e => setNewAdminEmail(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">初期パスワード (6文字以上)</label>
+                      <input type="text" placeholder="password123" required minLength={6} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
+                    </div>
+                    <button type="submit" disabled={isAddingAdmin || !newAdminEmail || newAdminPassword.length < 6} className="w-full bg-gray-900 text-white font-bold text-sm py-2.5 rounded-lg hover:bg-black transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                      {isAddingAdmin ? <Loader2 className="w-4 h-4 animate-spin"/> : '管理者を追加する'}
+                    </button>
+                  </form>
+                </div>
+
+                {/* 3. 自分のパスワード変更 */}
+                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                  <h3 className="text-base font-black text-gray-900 mb-4">自分のパスワードを変更</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">新しいパスワード (6文字以上)</label>
+                      <input type="password" required minLength={6} placeholder="••••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
+                    </div>
+                    <button onClick={handleUpdatePassword} disabled={isUpdatingPassword || newPassword.length < 6} className="w-full bg-blue-50 text-blue-700 font-bold text-sm py-2.5 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                      {isUpdatingPassword ? <Loader2 className="w-4 h-4 animate-spin"/> : 'パスワードを更新する'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* =========================================
-          モーダル
+          モーダル類（省略せず維持）
       ========================================= */}
       {isRefModalOpen && editingRef && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
