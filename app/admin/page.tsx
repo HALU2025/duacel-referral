@@ -781,6 +781,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
+
       {isShopModalOpen && editingShop && (
         <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-[4px] p-6 w-full max-w-md border border-gray-200 shadow-[0_0_20px_rgba(0,0,0,0.1)]">
