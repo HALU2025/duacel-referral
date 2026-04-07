@@ -16,7 +16,7 @@ export function proxy(request: NextRequest) {
   // 【つけ外しの方法】
   // ここの `ENABLE_BASIC_AUTH` を false にするだけで一瞬で解除できます。
   // ========================================================
-  const ENABLE_BASIC_AUTH = true
+  const ENABLE_BASIC_AUTH = false
 
   if (ENABLE_BASIC_AUTH) {
     const basicAuth = request.headers.get('authorization')
