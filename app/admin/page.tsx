@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { 
   RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon,
   LayoutDashboard, Users, Store, Gift, Settings, ChevronRight, ChevronDown,
-  Building, User, Info
+  Building, User, Info, LogOut // ★ LogOutアイコンを追加
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 
@@ -76,7 +76,7 @@ export default function AdminDashboard() {
   const [editingShop, setEditingShop] = useState<any>(null)
   
   const [editingCategories, setEditingCategories] = useState<any[]>([])
-  const [expandedShopId, setExpandedShopId] = useState<string | null>(null) // Usersタブのツリー展開用
+  const [expandedShopId, setExpandedShopId] = useState<string | null>(null) 
 
   // サマリー用
   const summary = useMemo(() => {
@@ -90,28 +90,41 @@ export default function AdminDashboard() {
   }, [pointTransactions, redemptions, shops, staffs, referrals])
 
   // ==========================================
-  // 3. データ取得・認証ロジック
+  // 3. データ取得・認証ロジック (★ここをVIPルーム仕様に改修)
   // ==========================================
   const fetchData = async () => {
     setLoading(true)
     
+    // 1. ログインしているかチェック
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { router.push('/login'); return; }
+    if (!user) { 
+      router.replace('/admin-login') 
+      return 
+    }
 
-    const adminEmails = process.env.NEXT_PUBLIC_ADMIN_EMAILS
-    if (adminEmails && !adminEmails.split(',').includes(user.email || '')) {
+    // 2. VIPルーム（system_adminsテーブル）に存在するか厳格にチェック
+    const { data: adminData, error: adminError } = await supabase
+      .from('system_admins')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (!adminData) {
+      // 一般ユーザーが迷い込んだ場合は強制ログアウトして追い出す
+      await supabase.auth.signOut()
       setAuthError('管理者権限がありません。')
-      router.push('/dashboard')
+      router.replace('/admin-login')
       return
     }
 
+    // 3. 認証OKならデータを取得
     const [r, s, st, cat, tx, ex] = await Promise.all([
       supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(2000),
       supabase.from('shops').select('*').order('created_at', { ascending: false }),
       supabase.from('staffs').select('*').order('created_at', { ascending: true }),
       supabase.from('shop_categories').select('*').order('reward_points', { ascending: true }),
       supabase.from('point_transactions').select('*').order('created_at', { ascending: true }),
-      supabase.from('reward_exchanges').select('*').order('created_at', { ascending: false }) // 交換履歴を追加
+      supabase.from('reward_exchanges').select('*').order('created_at', { ascending: false })
     ])
     
     if (r.data) { setReferrals(r.data); setFilteredReferrals(r.data); }
@@ -125,6 +138,13 @@ export default function AdminDashboard() {
   }
 
   useEffect(() => { fetchData() }, [])
+
+  // ★ログアウト処理を追加
+  const handleLogout = async () => {
+    if (!confirm('ログアウトしますか？')) return
+    await supabase.auth.signOut()
+    router.replace('/admin-login')
+  }
 
   // ==========================================
   // ヘルパー＆フィルター
@@ -269,7 +289,7 @@ export default function AdminDashboard() {
     setEditingCategories([...editingCategories, {
       id: `new_${Date.now()}`, label: '新規カテゴリ', reward_points: 0,
       first_bonus_enabled: false, first_bonus_points: 0, signup_bonus_enabled: false, signup_bonus_points: 0,
-      recurring_bonus_enabled: false, recurring_bonus_points: 0, // 追加：定期ボーナス
+      recurring_bonus_enabled: false, recurring_bonus_points: 0,
       isNew: true
     }])
   }
@@ -285,7 +305,6 @@ export default function AdminDashboard() {
         first_bonus_points: cat.first_bonus_points || 0,
         signup_bonus_enabled: cat.signup_bonus_enabled || false,
         signup_bonus_points: cat.signup_bonus_points || 0,
-        // 定期ボーナス設定を追加
         recurring_bonus_enabled: cat.recurring_bonus_enabled || false,
         recurring_bonus_points: cat.recurring_bonus_points || 0
       }
@@ -331,9 +350,14 @@ export default function AdminDashboard() {
             </button>
           ))}
         </nav>
-        <div className="mt-auto p-4 border-t border-gray-200 hidden md:block">
+        
+        {/* ★ここにログアウトボタンを追加 */}
+        <div className="mt-auto p-4 border-t border-gray-200 flex flex-col gap-2">
           <button onClick={fetchData} className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
             <RefreshCw className="w-4 h-4" /> 再読み込み
+          </button>
+          <button onClick={handleLogout} className="flex items-center gap-2 w-full px-4 py-2 text-sm text-red-500 font-bold hover:bg-red-50 rounded-lg transition-colors">
+            <LogOut className="w-4 h-4" /> ログアウト
           </button>
         </div>
       </aside>
