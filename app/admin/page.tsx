@@ -136,6 +136,11 @@ export default function AdminDashboard() {
 
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
 
+  const openShopEditModal = (shopId: string) => {
+    const targetShop = getShopByShopId(shopId)
+    if (targetShop) { setEditingShop(targetShop); setIsShopModalOpen(true); }
+  }
+
   const handleRefFilter = () => {
     let result = [...referrals]
     if (refFilters.order_number) result = result.filter(r => r.order_number?.includes(refFilters.order_number))
