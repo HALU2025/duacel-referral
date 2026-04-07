@@ -8,6 +8,7 @@ import {
   LayoutDashboard, Users, Store, Gift, Settings, ChevronRight, ChevronDown,
   Building, User, Info
 } from 'lucide-react'
+import { motion } from 'framer-motion'
 
 // ==========================================
 // 1. 定数・型定義
