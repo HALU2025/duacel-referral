@@ -4,13 +4,15 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
-import { translateAuthError } from '@/lib/errorTranslator'
 
 import { 
   ArrowRight, ArrowLeft, CheckCircle2, Loader2, 
-  Eye, EyeOff, ChevronRight, User
+  Phone, KeyRound, Store, User, ChevronRight
 } from 'lucide-react'
 
+// ==========================================
+// ヘルパー関数
+// ==========================================
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -21,15 +23,22 @@ const generateInviteToken = () => {
   return Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-// ★追加：紹介用URLに使用するランダムな文字列（ref_ + 8桁）
 const generateReferralCode = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return 'ref_' + Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
+// 電話番号フォーマット（090... -> +8190...）
+const formatPhoneNumber = (num: string) => {
+  const cleaned = num.replace(/[^0-9]/g, '')
+  if (cleaned.startsWith('0')) return '+81' + cleaned.slice(1)
+  return '+' + cleaned
+}
+
+// アニメーション設定
 const swipeVariants = {
   enter: (direction: number) => ({
-    x: direction > 0 ? 30 : -30,
+    x: direction > 0 ? 20 : -20,
     opacity: 0,
   }),
   center: {
@@ -37,7 +46,7 @@ const swipeVariants = {
     opacity: 1,
   },
   exit: (direction: number) => ({
-    x: direction < 0 ? 30 : -30,
+    x: direction < 0 ? 20 : -20,
     opacity: 0,
   })
 }
@@ -45,21 +54,19 @@ const swipeVariants = {
 export default function ShopJoinPage() {
   const router = useRouter()
 
+  // ステート管理
+  const [phone, setPhone] = useState('') 
+  const [otp, setOtp] = useState('')
   const [shopName, setShopName] = useState('')
   const [ownerName, setOwnerName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('') 
-  const [phone, setPhone] = useState('') 
   const [pin, setPin] = useState('')
   
-  const [showPassword, setShowPassword] = useState(false) 
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  
   const [ownerMagicUrl, setOwnerMagicUrl] = useState('')
 
   const [[currentStep, direction], setStepDirection] = useState([1, 0])
-  const TOTAL_STEPS = 5
+  const TOTAL_STEPS = 4 // Phone -> OTP -> Names -> PIN (Completion is step 5)
 
   const handleKeyDown = (e: React.KeyboardEvent, nextAction: () => void) => {
     if (e.key === 'Enter') {
@@ -68,51 +75,9 @@ export default function ShopJoinPage() {
     }
   }
 
-  const handleNext = async () => {
+  const goNext = (stepIndex: number) => {
     setErrorMessage('')
-    
-    if (currentStep === 2 && !ownerName.trim()) return setErrorMessage('お名前を入力してください。')
-    
-    if (currentStep === 3) {
-      if (!email.trim() || password.length < 6) {
-        return setErrorMessage('有効なメールアドレスと6文字以上のパスワードを入力してください。')
-      }
-      
-      setIsLoading(true)
-      const { data: existingUser } = await supabase
-        .from('staffs')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle()
-        
-      setIsLoading(false)
-
-      if (existingUser) {
-        return setErrorMessage('このメールアドレスは既に登録されています。別のメールアドレスをご利用ください。')
-      }
-    }
-    
-    if (currentStep === 4) {
-      if (!phone.trim()) return setErrorMessage('電話番号を入力してください。')
-      
-      const cleanPhone = phone.replace(/\D/g, '')
-      if (cleanPhone.length < 10) return setErrorMessage('有効な電話番号を入力してください。')
-
-      setIsLoading(true)
-      const { data: existingShop } = await supabase
-        .from('shops')
-        .select('id')
-        .eq('phone', phone)
-        .maybeSingle()
-        
-      setIsLoading(false)
-
-      if (existingShop) {
-        return setErrorMessage('この電話番号は既に他の店舗で登録されています。')
-      }
-    }
-    
-    setStepDirection([currentStep + 1, 1])
+    setStepDirection([stepIndex, 1])
   }
 
   const handleBack = () => {
@@ -120,83 +85,141 @@ export default function ShopJoinPage() {
     setStepDirection([currentStep - 1, -1])
   }
 
-  const handleRegisterShop = async () => {
+  // STEP 1: SMS送信
+  const handleSendOtp = async () => {
     setErrorMessage('')
-    if (pin.length !== 4) return setErrorMessage('4桁の数字を入力してください。')
+    const cleanPhone = phone.replace(/\D/g, '')
+    if (cleanPhone.length < 10) return setErrorMessage('有効な電話番号をご入力ください。')
 
     setIsLoading(true)
-
     try {
-      const finalShopName = shopName.trim() !== '' ? shopName.trim() : ownerName.trim()
+      const formattedPhone = formatPhoneNumber(phone)
+      const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone })
+      if (error) throw error
+      goNext(2)
+    } catch (err: any) {
+      setErrorMessage('SMSの送信に失敗しました。番号をご確認ください。')
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
-      // 1. Supabase Auth にユーザー登録
-      const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
-      if (authError) throw new Error(translateAuthError(authError.message))
+  // STEP 2: 認証確認 ＆ 既存ユーザーチェック
+  const handleVerifyOtp = async () => {
+    setErrorMessage('')
+    if (otp.length !== 6) return setErrorMessage('6桁の認証コードをご入力ください。')
 
-      const userId = authData.user?.id
+    setIsLoading(true)
+    try {
+      const formattedPhone = formatPhoneNumber(phone)
+      const { data: authData, error: authError } = await supabase.auth.verifyOtp({
+        phone: formattedPhone, token: otp, type: 'sms'
+      })
+      if (authError) throw authError
+
+      // 既存スタッフか確認
+      const { data: existingStaff } = await supabase.from('staffs').select('id').eq('phone', formattedPhone).maybeSingle()
+
+      if (existingStaff) {
+        // 既存ならそのままダッシュボードへ
+        router.push('/dashboard')
+      } else {
+        // 新規なら店舗情報入力へ
+        goNext(3)
+      }
+    } catch (err: any) {
+      setErrorMessage('認証コードが正しくないか、有効期限が切れています。')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // STEP 3: 名前入力のバリデーション
+  const handleNamesSubmit = () => {
+    setErrorMessage('')
+    if (!shopName.trim() || !ownerName.trim()) {
+      return setErrorMessage('店舗名と代表者様氏名をご入力ください。')
+    }
+    goNext(4)
+  }
+
+  // STEP 4: PIN設定 ＆ データベース登録
+  const handleRegisterProfile = async () => {
+    setErrorMessage('')
+    if (pin.length !== 4) return setErrorMessage('4桁の暗証番号を設定してください。')
+
+    setIsLoading(true)
+    try {
+      const formattedPhone = formatPhoneNumber(phone)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('認証セッションが見つかりません。')
+
+      // 1. 店舗(Shop)の作成
       const inviteToken = generateInviteToken()
-
-      // 2. 店舗情報の登録（idは省略し、Supabase側でUUIDを自動生成させる）
       const { data: newShop, error: insertError } = await supabase
         .from('shops').insert([{ 
-          name: finalShopName, 
-          owner_email: email, 
-          phone: phone, 
-          owner_id: userId, 
+          name: shopName.trim(), 
+          owner_id: user.id, 
           invite_token: inviteToken 
-        }]).select('id, shop_number').single()
+        }]).select('id').single()
       
-      if (insertError) throw new Error('店舗登録エラー: ' + insertError.message)
+      if (insertError) throw new Error('店舗情報の登録に失敗しました。')
 
-      // 3. オーナーのスタッフ情報登録
+      // 2. スタッフ(Owner)の作成
       const secureToken = generateSecureToken()
-      const publicReferralCode = generateReferralCode() // ★ UUIDに依存しないランダムな紹介コード
+      const publicReferralCode = generateReferralCode()
       
       const { error: staffError } = await supabase.from('staffs').insert([{
-        shop_id: newShop.id, // 先ほど自動生成された本物のUUIDを使う
-        name: ownerName, 
-        email: email,
+        id: user.id,
+        shop_id: newShop.id,
+        name: ownerName.trim(), 
+        phone: formattedPhone,
+        role: 'owner', // オーナー権限を付与
         referral_code: publicReferralCode, 
         secret_token: secureToken, 
         security_pin: pin, 
-        is_deleted: false,
-        is_team_pool_eligible: true
+        is_deleted: false
       }])
       
-      if (staffError) throw new Error('管理者情報の初期設定に失敗しました: ' + staffError.message)
+      if (staffError) throw new Error('管理者情報の登録に失敗しました。')
 
       setOwnerMagicUrl(`${window.location.origin}/m/${secureToken}`)
-      setIsLoading(false)
-      setStepDirection([6, 1])
-
+      goNext(5)
     } catch (err: any) {
       setErrorMessage(err.message) 
+    } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-gray-100 flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-gray-900 selection:bg-gray-900 selection:text-white">
+    <div className="fixed inset-0 bg-[#fffef2] flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-[#333333] selection:bg-[#d5d0b5] selection:text-[#333333] overflow-hidden">
       
-      <div className="w-full max-w-md bg-white rounded-[2rem] shadow-2xl relative flex flex-col overflow-hidden h-[85dvh] min-h-[450px] max-h-[640px] border border-gray-200">
+      {/* アプリ組み込みを意識した全画面コンテナ */}
+      <div className="w-full max-w-md relative flex flex-col h-[100dvh] sm:h-[85dvh] sm:min-h-[500px] sm:max-h-[700px] bg-[#fffef2] sm:border sm:border-[#e6e2d3] sm:shadow-sm">
         
-        {/* プログレスバー (ドット) */}
-        {currentStep < 6 && (
-          <div className="absolute top-8 left-0 right-0 flex justify-center gap-1.5 z-40 px-10 pointer-events-none">
-            {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-              <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${currentStep === i + 1 ? 'w-8 bg-gray-900' : currentStep > i + 1 ? 'w-3 bg-gray-300' : 'w-3 bg-gray-100'}`} />
-            ))}
-          </div>
-        )}
+        {/* ヘッダーロゴ */}
+        <div className="absolute top-8 left-0 right-0 flex flex-col items-center justify-center z-40 pointer-events-none">
+          <h1 className="text-xl font-serif tracking-[0.2em] text-[#1a1a1a]">Duacel.</h1>
+          
+          {/* プログレスバー (ステップ1〜4まで表示) */}
+          {currentStep < 5 && (
+            <div className="flex justify-center gap-2 mt-4">
+              {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+                <div key={i} className={`h-1 rounded-full transition-all duration-700 ease-in-out ${currentStep === i + 1 ? 'w-8 bg-[#333333]' : currentStep > i + 1 ? 'w-3 bg-[#a39e8a]' : 'w-3 bg-[#e6e2d3]'}`} />
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* 戻るボタン */}
-        {currentStep > 1 && currentStep < 6 && !isLoading && (
-          <button onClick={handleBack} className="absolute top-5 left-5 z-50 text-gray-400 hover:text-gray-900 transition-colors p-2 bg-white/80 backdrop-blur-sm rounded-full">
-            <ArrowLeft className="w-5 h-5" />
+        {currentStep > 1 && currentStep < 5 && !isLoading && (
+          <button onClick={handleBack} className="absolute top-8 left-6 z-50 text-[#999999] hover:text-[#333333] transition-colors p-2">
+            <ArrowLeft className="w-6 h-6" strokeWidth={1.5} />
           </button>
         )}
 
-        <div className="flex-1 relative overflow-x-hidden overflow-y-auto pb-safe">
+        <div className="flex-1 relative overflow-hidden mt-16 pb-safe">
           <AnimatePresence mode="wait" custom={direction}>
             <motion.div
               key={currentStep}
@@ -205,185 +228,167 @@ export default function ShopJoinPage() {
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ type: "tween", duration: 0.25, ease: "circOut" }}
-              className="flex flex-col h-full px-8 pt-24 pb-8 min-h-full"
+              transition={{ type: "tween", duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
+              className="flex flex-col h-full px-8 pt-16 pb-12"
             >
               
               {/* ==========================================
-                  STEP 1: 店舗名
+                  STEP 1: 電話番号 (SMS送信)
               ========================================== */}
               {currentStep === 1 && (
-                <div className="flex flex-col h-full">
-                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Duacel 紹介プログラム</p>
-                  <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">まずはサロン名・店舗名を<br/>入力してください</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                    ※個人で登録する場合はスキップしてください。
-                  </p>
-                  
-                  <div className="mt-auto space-y-4">
-                    <input 
-                      placeholder="例: Duacel サロン 表参道店" value={shopName} onChange={e => setShopName(e.target.value)}
-                      onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
-                    />
-                    <div className="flex flex-col gap-3">
-                      <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
-                        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
-                      </button>
-                      {shopName.trim() === '' && (
-                        <button onClick={handleNext} disabled={isLoading} className="w-full py-3 text-gray-400 font-bold text-xs hover:text-gray-900 transition-colors disabled:opacity-50">
-                          店舗名がないのでスキップする
-                        </button>
-                      )}
-                    </div>
+                <div className="flex flex-col h-full justify-center">
+                  <div className="mb-10 text-center">
+                    <h2 className="text-2xl font-serif tracking-widest text-[#1a1a1a] mb-4">Sign In / Register</h2>
+                    <p className="text-sm text-[#666666] leading-relaxed tracking-wide">
+                      ご登録の携帯電話番号をご入力ください。<br/>
+                      SMSにて認証コードを送信いたします。
+                    </p>
                   </div>
-                </div>
-              )}
-
-              {/* ==========================================
-                  STEP 2: 管理者名
-              ========================================== */}
-              {currentStep === 2 && (
-                <div className="flex flex-col h-full">
-                  <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">管理者のお名前を<br/>入力してください</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                    管理者は、メンバーの追加や削除、<br/>紹介実績の確認、インセンティブの<br/>配分比率設定などを行えます。
-                  </p>
                   
-                  <div className="mt-auto space-y-4">
-                    <input 
-                      placeholder="例: 山田 太郎" value={ownerName} onChange={e => setOwnerName(e.target.value)}
-                      onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
-                    />
-                    {errorMessage && <p className="text-xs font-bold text-red-500">{errorMessage}</p>}
-                    <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
-                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* ==========================================
-                  STEP 3: ログイン情報
-              ========================================== */}
-              {currentStep === 3 && (
-                <div className="flex flex-col h-full">
-                  <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">ログイン情報を<br/>設定してください</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-6">
-                    管理者用のダッシュボードにアクセスするための<br/>メールアドレスとパスワードを入力してください。
-                  </p>
-                  
-                  <div className="mt-auto space-y-4">
-                    <div>
-                      <label className="text-[10px] font-bold text-gray-400 block mb-1">メールアドレス</label>
+                  <div className="space-y-6 mt-8">
+                    <div className="relative">
+                      <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#999999]" strokeWidth={1.5} />
                       <input 
-                        type="email" placeholder="admin@example.com" value={email} onChange={e => setEmail(e.target.value)}
-                        onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
-                        className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
+                        type="tel" placeholder="090-0000-0000" value={phone} onChange={e => setPhone(e.target.value)}
+                        onKeyDown={e => handleKeyDown(e, handleSendOtp)} disabled={isLoading}
+                        className="w-full pl-12 pr-4 py-4 bg-[#f5f2e6] border-none rounded-none text-lg tracking-wider text-[#333333] focus:ring-1 focus:ring-[#333333] transition-all outline-none disabled:opacity-50" 
                       />
                     </div>
+                    {errorMessage && <p className="text-xs tracking-wide text-[#8a3c3c] text-center bg-[#fcf0f0] p-3">{errorMessage}</p>}
+                    
+                    <button onClick={handleSendOtp} disabled={isLoading || phone.length < 10} className="w-full py-4 bg-[#333333] text-[#fffef2] font-medium text-sm tracking-[0.15em] uppercase hover:bg-[#1a1a1a] shadow-sm hover:shadow-[0_0_20px_rgba(51,51,51,0.25)] transition-all duration-300 flex justify-center items-center gap-3 disabled:opacity-50 disabled:shadow-none">
+                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" strokeWidth={1.5} /></>}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ==========================================
+                  STEP 2: 認証コード (OTP確認)
+              ========================================== */}
+              {currentStep === 2 && (
+                <div className="flex flex-col h-full justify-center">
+                  <div className="mb-10 text-center">
+                    <h2 className="text-2xl font-serif tracking-widest text-[#1a1a1a] mb-4">Verification</h2>
+                    <p className="text-sm text-[#666666] leading-relaxed tracking-wide">
+                      <span className="font-bold text-[#333333] tracking-widest">{phone}</span> 宛に<br/>
+                      6桁の認証コードを送信いたしました。
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-6 mt-8">
+                    <div className="relative">
+                      <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#999999]" strokeWidth={1.5} />
+                      <input 
+                        type="text" inputMode="numeric" maxLength={6} placeholder="000000" 
+                        value={otp} onChange={e => setOtp(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
+                        onKeyDown={e => handleKeyDown(e, handleVerifyOtp)}
+                        className="w-full pl-12 pr-4 py-4 bg-[#f5f2e6] border-none rounded-none text-2xl tracking-[0.4em] text-center font-mono text-[#333333] focus:ring-1 focus:ring-[#333333] transition-all outline-none disabled:opacity-50" 
+                      />
+                    </div>
+                    {errorMessage && <p className="text-xs tracking-wide text-[#8a3c3c] text-center bg-[#fcf0f0] p-3">{errorMessage}</p>}
+                    
+                    <button onClick={handleVerifyOtp} disabled={isLoading || otp.length !== 6} className="w-full py-4 bg-[#333333] text-[#fffef2] font-medium text-sm tracking-[0.15em] uppercase hover:bg-[#1a1a1a] shadow-sm hover:shadow-[0_0_20px_rgba(51,51,51,0.25)] transition-all duration-300 flex justify-center items-center gap-3 disabled:opacity-50 disabled:shadow-none">
+                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify <ArrowRight className="w-4 h-4" strokeWidth={1.5} /></>}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* ==========================================
+                  STEP 3: 店舗名・氏名
+              ========================================== */}
+              {currentStep === 3 && (
+                <div className="flex flex-col h-full justify-center">
+                  <div className="mb-10 text-center">
+                    <h2 className="text-2xl font-serif tracking-widest text-[#1a1a1a] mb-4">Welcome</h2>
+                    <p className="text-sm text-[#666666] leading-relaxed tracking-wide">
+                      Duacelパートナープログラムへようこそ。<br/>
+                      店舗情報とご担当者様名をお知らせください。
+                    </p>
+                  </div>
+                  
+                  <div className="space-y-5 mt-4">
                     <div>
-                      <label className="text-[10px] font-bold text-gray-400 block mb-1">パスワード (6文字以上)</label>
+                      <label className="block text-xs font-medium text-[#666666] mb-2 tracking-widest uppercase">Shop Name</label>
                       <div className="relative">
+                        <Store className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
                         <input 
-                          type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)}
-                          onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
-                          className="w-full pl-4 pr-12 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
+                          placeholder="例: サロン 表参道店" value={shopName} onChange={e => setShopName(e.target.value)}
+                          onKeyDown={e => handleKeyDown(e, handleNamesSubmit)} disabled={isLoading}
+                          className="w-full pl-11 pr-4 py-4 bg-[#f5f2e6] border-none rounded-none text-base tracking-wide text-[#333333] focus:ring-1 focus:ring-[#333333] transition-all outline-none disabled:opacity-50" 
                         />
-                        <button type="button" onClick={() => setShowPassword(!showPassword)} disabled={isLoading} className="absolute inset-y-0 right-0 pr-4 flex items-center text-gray-400 hover:text-gray-900 transition-colors disabled:opacity-50">
-                          {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                        </button>
                       </div>
                     </div>
-                    {errorMessage && <p className="text-xs font-bold text-red-500 bg-red-50 p-2 rounded-lg">{errorMessage}</p>}
-                    <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 mt-2 disabled:opacity-50">
-                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
+                    <div>
+                      <label className="block text-xs font-medium text-[#666666] mb-2 tracking-widest uppercase">Your Name</label>
+                      <div className="relative">
+                        <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
+                        <input 
+                          placeholder="例: 山田 太郎" value={ownerName} onChange={e => setOwnerName(e.target.value)}
+                          onKeyDown={e => handleKeyDown(e, handleNamesSubmit)} disabled={isLoading}
+                          className="w-full pl-11 pr-4 py-4 bg-[#f5f2e6] border-none rounded-none text-base tracking-wide text-[#333333] focus:ring-1 focus:ring-[#333333] transition-all outline-none disabled:opacity-50" 
+                        />
+                      </div>
+                    </div>
+                    
+                    {errorMessage && <p className="text-xs tracking-wide text-[#8a3c3c] text-center bg-[#fcf0f0] p-3">{errorMessage}</p>}
+                    
+                    <button onClick={handleNamesSubmit} disabled={isLoading || !shopName.trim() || !ownerName.trim()} className="w-full py-4 mt-4 bg-[#333333] text-[#fffef2] font-medium text-sm tracking-[0.15em] uppercase hover:bg-[#1a1a1a] shadow-sm hover:shadow-[0_0_20px_rgba(51,51,51,0.25)] transition-all duration-300 flex justify-center items-center gap-3 disabled:opacity-50 disabled:shadow-none">
+                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Next <ArrowRight className="w-4 h-4" strokeWidth={1.5} /></>}
                     </button>
                   </div>
                 </div>
               )}
 
               {/* ==========================================
-                  STEP 4: 電話番号
+                  STEP 4: PIN設定 (最終登録)
               ========================================== */}
               {currentStep === 4 && (
-                <div className="flex flex-col h-full">
-                  <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">管理者の電話番号を<br/>入力してください</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                    メールが送信できなかった場合などに使用します。<br/>通常は使用しません。
-                  </p>
-                  
-                  <div className="mt-auto space-y-4">
-                    <input 
-                      type="tel" placeholder="03-1234-5678" value={phone} onChange={e => setPhone(e.target.value)}
-                      onKeyDown={e => handleKeyDown(e, handleNext)} disabled={isLoading}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-base font-bold text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
-                    />
-                    {errorMessage && <p className="text-xs font-bold text-red-500">{errorMessage}</p>}
-                    <button onClick={handleNext} disabled={isLoading} className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 disabled:opacity-50">
-                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>次へ進む <ArrowRight className="w-4 h-4" /></>}
-                    </button>
+                <div className="flex flex-col h-full justify-center">
+                  <div className="mb-10 text-center">
+                    <h2 className="text-2xl font-serif tracking-widest text-[#1a1a1a] mb-4">Security PIN</h2>
+                    <p className="text-sm text-[#666666] leading-relaxed tracking-wide">
+                      ポイント交換やセキュリティ保護に使用する<br/>
+                      4桁の暗証番号を設定してください。
+                    </p>
                   </div>
-                </div>
-              )}
-
-              {/* ==========================================
-                  STEP 5: PIN設定 (最終登録)
-              ========================================== */}
-              {currentStep === 5 && (
-                <div className="flex flex-col h-full">
-                  <h2 className="text-2xl font-black text-gray-900 mb-4 leading-tight">数字4ケタのPINコードを<br/>設定してください</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-8">
-                    紹介QRを表示する「マイページ」に<br/>アクセスするために必要になります。
-                  </p>
                   
-                  <div className="mt-auto space-y-4">
+                  <div className="space-y-6 mt-8">
                     <input 
                       type="password" inputMode="numeric" maxLength={4} placeholder="••••" 
                       value={pin} onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
-                      onKeyDown={e => handleKeyDown(e, handleRegisterShop)}
-                      className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-2xl tracking-[1em] text-center font-mono font-black text-gray-900 focus:ring-2 focus:ring-gray-900 focus:bg-white transition-all outline-none disabled:opacity-50" 
+                      onKeyDown={e => handleKeyDown(e, handleRegisterProfile)}
+                      className="w-full px-4 py-5 bg-[#f5f2e6] border-none rounded-none text-3xl tracking-[0.5em] text-center font-mono font-bold text-[#333333] focus:ring-1 focus:ring-[#333333] transition-all outline-none disabled:opacity-50" 
                     />
-                    {errorMessage && <p className="text-xs font-bold text-red-500 text-center">{errorMessage}</p>}
-                    <button 
-                      onClick={handleRegisterShop} disabled={isLoading || pin.length !== 4} 
-                      className="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex justify-center items-center gap-2 mt-4 disabled:opacity-50"
-                    >
-                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'この内容で登録を完了する'}
+                    {errorMessage && <p className="text-xs tracking-wide text-[#8a3c3c] text-center bg-[#fcf0f0] p-3">{errorMessage}</p>}
+                    
+                    <button onClick={handleRegisterProfile} disabled={isLoading || pin.length !== 4} className="w-full py-4 bg-[#333333] text-[#fffef2] font-medium text-sm tracking-[0.15em] uppercase hover:bg-[#1a1a1a] shadow-sm hover:shadow-[0_0_20px_rgba(51,51,51,0.25)] transition-all duration-300 flex justify-center items-center gap-3 disabled:opacity-50 disabled:shadow-none">
+                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Complete Setup'}
                     </button>
                   </div>
                 </div>
               )}
 
               {/* ==========================================
-                  STEP 6: 完了画面
+                  STEP 5: 完了画面
               ========================================== */}
-              {currentStep === 6 && (
-                <div className="flex flex-col items-center text-center h-full pt-6">
-                  <div className="w-20 h-20 bg-gray-900 rounded-full flex items-center justify-center mb-8 shadow-2xl relative">
-                    <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0, 0.5] }} transition={{ duration: 2, repeat: Infinity }} className="absolute inset-0 bg-gray-200 rounded-full -z-10" />
-                    <CheckCircle2 className="w-10 h-10 text-white" />
+              {currentStep === 5 && (
+                <div className="flex flex-col items-center justify-center text-center h-full">
+                  <div className="relative mb-10">
+                    <motion.div animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0, 0.3] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }} className="absolute inset-0 bg-[#d5d0b5] rounded-full -z-10 blur-md" />
+                    <CheckCircle2 className="w-16 h-16 text-[#333333]" strokeWidth={1} />
                   </div>
-                  <h2 className="text-3xl font-black text-gray-900 mb-4 leading-tight">ご登録ありがとう<br/>ございました！</h2>
-                  <p className="text-sm text-gray-500 font-medium leading-relaxed mb-auto">
-                    まずはマイページにアクセスして、<br/>設定やQRコードを確認してください。
+                  <h2 className="text-2xl font-serif tracking-widest text-[#1a1a1a] mb-6">Registration<br/>Complete.</h2>
+                  <p className="text-sm text-[#666666] leading-relaxed tracking-wide mb-12">
+                    ご登録ありがとうございました。<br/>
+                    本登録（ご住所等の入力）は、<br/>マイページよりいつでも行えます。
                   </p>
                   
-                  <div className="w-full mt-auto">
-                    <button 
-                      onClick={() => { localStorage.removeItem('duacel_onboarding_data'); window.location.href = ownerMagicUrl; }} 
-                      className="w-full p-5 bg-gray-900 hover:bg-black text-white rounded-2xl text-left transition-all shadow-xl group relative overflow-hidden active:scale-95 flex items-center justify-between"
-                    >
-                      <div>
-                        <p className="text-[10px] text-gray-400 font-bold mb-1 uppercase tracking-widest flex items-center gap-1"><User className="w-3 h-3"/> Player's Page</p>
-                        <p className="font-bold text-lg">マイページを開く</p>
-                      </div>
-                      <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center group-hover:bg-white/20 transition-colors">
-                        <ChevronRight className="w-5 h-5" />
-                      </div>
-                    </button>
-                  </div>
+                  <button onClick={() => { window.location.href = ownerMagicUrl; }} className="w-full py-5 bg-[#333333] text-[#fffef2] uppercase tracking-[0.15em] text-sm hover:bg-[#1a1a1a] shadow-sm hover:shadow-[0_0_20px_rgba(51,51,51,0.25)] transition-all duration-300 flex items-center justify-center gap-4 group">
+                    Go to Dashboard
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" strokeWidth={1.5} />
+                  </button>
                 </div>
               )}
 
@@ -391,15 +396,6 @@ export default function ShopJoinPage() {
           </AnimatePresence>
         </div>
       </div>
-      
-      {/* ログインリンク (Step 1のみ表示) */}
-      {currentStep === 1 && (
-        <p className="mt-6 text-xs font-bold text-gray-500">
-          すでにアカウントをお持ちの場合は
-          <a href="/login" className="text-gray-900 ml-1 underline decoration-gray-400 underline-offset-4 hover:decoration-gray-900 transition-colors">ログイン</a>
-        </p>
-      )}
-
     </div>
   )
 }
