@@ -1,20 +1,29 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { 
-  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon
+  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon,
+  LayoutDashboard, Users, Store, Gift, Settings, ChevronRight, ChevronDown,
+  Building, User, Info
 } from 'lucide-react'
 
 // ==========================================
 // 1. 定数・型定義
 // ==========================================
-const STATUS_OPTIONS = [
+const REF_STATUS_OPTIONS = [
   { value: 'pending', label: '仮計上', bgColor: 'bg-amber-100', color: 'text-amber-800', border: 'border-amber-200' },
   { value: 'confirmed', label: '報酬確定', bgColor: 'bg-emerald-100', color: 'text-emerald-800', border: 'border-emerald-200' },
-  { value: 'issued', label: '発行済', bgColor: 'bg-blue-100', color: 'text-blue-800', border: 'border-blue-200' },
+  { value: 'issued', label: '分配済', bgColor: 'bg-blue-100', color: 'text-blue-800', border: 'border-blue-200' },
   { value: 'cancel', label: 'キャンセル', bgColor: 'bg-gray-100', color: 'text-gray-600', border: 'border-gray-200' },
+]
+
+const REDEEM_STATUS_OPTIONS = [
+  { value: 'processing', label: '処理中', bgColor: 'bg-amber-100', color: 'text-amber-800' },
+  { value: 'completed', label: '交換完了', bgColor: 'bg-emerald-100', color: 'text-emerald-800' },
+  { value: 'failed_retryable', label: '再送待ち', bgColor: 'bg-red-100', color: 'text-red-800' },
+  { value: 'failed_fatal', label: 'エラー', bgColor: 'bg-gray-200', color: 'text-gray-700' },
 ]
 
 const CANCEL_REASONS = [
@@ -25,15 +34,11 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
-const initialFilterState = {
-  order_number: '', customer_number: '', shop_number: '',
-  status: '', date_start: '', date_end: ''
-}
-
 const PAGE_TITLES: Record<string, string> = {
-  referrals: '成果承認',
-  payments: '支払管理',
-  shops: '店舗管理',
+  home: 'ダッシュボード',
+  referrals: '成果一覧',
+  redemptions: 'ポイント交換管理',
+  users: 'ユーザー・店舗管理',
   settings: 'マスタ設定'
 }
 
@@ -43,23 +48,26 @@ export default function AdminDashboard() {
   // ==========================================
   // 2. ステート管理
   // ==========================================
-  const [activeTab, setActiveTab] = useState<'referrals' | 'payments' | 'shops' | 'settings'>('referrals')
+  const [activeTab, setActiveTab] = useState<'home' | 'referrals' | 'redemptions' | 'users' | 'settings'>('home')
+  
+  // データステート
   const [referrals, setReferrals] = useState<any[]>([])
+  const [redemptions, setRedemptions] = useState<any[]>([])
   const [shops, setShops] = useState<any[]>([])
   const [staffs, setStaffs] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   const [pointTransactions, setPointTransactions] = useState<any[]>([])
+  
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [authError, setAuthError] = useState('')
 
-  const [filters, setFilters] = useState(initialFilterState)
+  // 検索・フィルター用
+  const [refFilters, setRefFilters] = useState({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
   const [filteredReferrals, setFilteredReferrals] = useState<any[]>([])
-  const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [isRefFilterOpen, setIsRefFilterOpen] = useState(false)
 
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [isAllSelected, setIsAllSelected] = useState(false)
-
+  // モーダル・UI用
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
   
@@ -67,8 +75,18 @@ export default function AdminDashboard() {
   const [editingShop, setEditingShop] = useState<any>(null)
   
   const [editingCategories, setEditingCategories] = useState<any[]>([])
+  const [expandedShopId, setExpandedShopId] = useState<string | null>(null) // Usersタブのツリー展開用
 
-  const activeFilterCount = Object.values(filters).filter(val => val !== '').length
+  // サマリー用
+  const summary = useMemo(() => {
+    return {
+      totalPointsIssued: pointTransactions.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0),
+      totalRedeemed: redemptions.filter(r => r.status === 'completed').reduce((sum, r) => sum + (Number(r.points_consumed) || 0), 0),
+      activeShops: shops.length,
+      activeStaffs: staffs.filter(s => !s.is_deleted).length,
+      pendingReferrals: referrals.filter(r => r.status === 'pending').length
+    }
+  }, [pointTransactions, redemptions, shops, staffs, referrals])
 
   // ==========================================
   // 3. データ取得・認証ロジック
@@ -76,7 +94,6 @@ export default function AdminDashboard() {
   const fetchData = async () => {
     setLoading(true)
     
-    // ★ セキュリティガード: 管理者権限チェック
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return; }
 
@@ -87,32 +104,26 @@ export default function AdminDashboard() {
       return
     }
 
-    // ★ パフォーマンスガード: referralsにlimitを設定（将来的にAPI経由のページネーションへ移行推奨）
-    const [r, s, st, cat, tx] = await Promise.all([
+    const [r, s, st, cat, tx, ex] = await Promise.all([
       supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(2000),
       supabase.from('shops').select('*').order('created_at', { ascending: false }),
       supabase.from('staffs').select('*').order('created_at', { ascending: true }),
       supabase.from('shop_categories').select('*').order('reward_points', { ascending: true }),
-      supabase.from('point_transactions').select('*').order('created_at', { ascending: true })
+      supabase.from('point_transactions').select('*').order('created_at', { ascending: true }),
+      supabase.from('reward_exchanges').select('*').order('created_at', { ascending: false }) // 交換履歴を追加
     ])
     
     if (r.data) { setReferrals(r.data); setFilteredReferrals(r.data); }
     if (s.data) setShops(s.data)
     if (st.data) setStaffs(st.data)
+    if (cat.data) { setCategories(cat.data); setEditingCategories(cat.data); }
     if (tx.data) setPointTransactions(tx.data)
-    if (cat.data) {
-      setCategories(cat.data)
-      setEditingCategories(cat.data)
-    }
+    if (ex.data) setRedemptions(ex.data)
     
-    setSelectedIds([])
-    setIsAllSelected(false)
     setLoading(false)
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
   // ==========================================
   // ヘルパー＆フィルター
@@ -124,87 +135,42 @@ export default function AdminDashboard() {
 
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
 
-  const openShopEditModal = (shopId: string) => {
-    const targetShop = getShopByShopId(shopId)
-    if (targetShop) { setEditingShop(targetShop); setIsShopModalOpen(true); }
-  }
-
-  const handleFilter = () => {
+  const handleRefFilter = () => {
     let result = [...referrals]
-    if (filters.order_number) result = result.filter(r => r.order_number?.includes(filters.order_number))
-    if (filters.customer_number) result = result.filter(r => r.customer_name?.includes(filters.customer_number)) // 顧客名またはID
-    if (filters.shop_number) {
-      const targetShop = shops.find(s => String(s.shop_number) === filters.shop_number)
+    if (refFilters.order_number) result = result.filter(r => r.order_number?.includes(refFilters.order_number))
+    if (refFilters.customer_number) result = result.filter(r => r.customer_name?.includes(refFilters.customer_number))
+    if (refFilters.shop_number) {
+      const targetShop = shops.find(s => String(s.shop_number) === refFilters.shop_number)
       if (targetShop) result = result.filter(r => r.shop_id === targetShop.id)
       else result = []
     }
-    if (filters.status) result = result.filter(r => r.status === filters.status)
-    if (filters.date_start) {
-      const start = new Date(filters.date_start).getTime()
+    if (refFilters.status) result = result.filter(r => r.status === refFilters.status)
+    if (refFilters.date_start) {
+      const start = new Date(refFilters.date_start).getTime()
       result = result.filter(r => new Date(r.created_at).getTime() >= start)
     }
-    if (filters.date_end) {
-      const end = new Date(filters.date_end).getTime() + 86400000 
+    if (refFilters.date_end) {
+      const end = new Date(refFilters.date_end).getTime() + 86400000 
       result = result.filter(r => new Date(r.created_at).getTime() <= end)
     }
     setFilteredReferrals(result)
-    setSelectedIds([])
-    setIsAllSelected(false)
-    setIsFilterOpen(false)
+    setIsRefFilterOpen(false)
   }
 
-  const handleClearFilters = () => {
-    setFilters(initialFilterState)
+  const handleClearRefFilters = () => {
+    setRefFilters({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
     setFilteredReferrals(referrals)
-    setSelectedIds([])
-    setIsAllSelected(false)
   }
 
-  const exportPaymentsCSV = () => {
-    const headers = ['店舗番号', '店舗名', '紹介件数', '累計報酬額(pt)', '未払い額(pt)', '支払い済額(pt)']
-    const rows = shops.map(shop => {
-      const validTxs = pointTransactions.filter(tx => tx.shop_id === shop.id && referrals.find(r => r.id === tx.referral_id)?.status !== 'cancel');
-      if (validTxs.length === 0) return null;
-      const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
-      const unpaidTotal = validTxs.filter(tx => tx.status === 'confirmed').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-      const paidTotal = validTxs.filter(tx => tx.status === 'paid').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-      return [shop.shop_number, shop.name, uniqueReferralCount, unpaidTotal + paidTotal, unpaidTotal, paidTotal]
-    }).filter(Boolean) as (string | number)[][]
-
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' }) // Excel文字化け防止のBOM
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', `payments_export_${new Date().toISOString().split('T')[0]}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+  const handleCopyUrl = (token: string, type: 'staff' | 'invite') => {
+    const url = type === 'staff' ? `${window.location.origin}/m/${token}` : `${window.location.origin}/reg/${token}`
+    navigator.clipboard.writeText(url)
+    alert(`URLをコピーしました。\n${url}`)
   }
 
   // ==========================================
-  // アクションハンドラー (マニュアル介入用)
+  // アクションハンドラー
   // ==========================================
-  const handleToggleAll = () => {
-    if (isAllSelected) {
-      setSelectedIds([])
-      setIsAllSelected(false)
-    } else {
-      const selectableIds = filteredReferrals.filter(r => r.status === 'pending').map(r => r.id)
-      setSelectedIds(selectableIds)
-      setIsAllSelected(selectableIds.length > 0)
-    }
-  }
-
-  const handleToggleSelect = (id: string) => {
-    setSelectedIds(prev => {
-      const next = prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-      const selectableCount = filteredReferrals.filter(r => r.status === 'pending').length
-      setIsAllSelected(next.length === selectableCount && selectableCount > 0)
-      return next
-    })
-  }
-
   const issuePoints = async (referral: any, currentShops: any[], currentCategories: any[]) => {
     const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
     if (existing && existing.length > 0) return
@@ -240,23 +206,6 @@ export default function AdminDashboard() {
     await supabase.from('point_transactions').delete().eq('referral_id', referralId)
   }
 
-  const handleBulkConfirm = async () => {
-    if (selectedIds.length === 0) return
-    if (!confirm(`選択した ${selectedIds.length} 件を「報酬確定」にしますか？\n※通常はシステムが自動処理します。手動での実行は例外的な対応時のみ推奨されます。`)) return
-    
-    setIsProcessing(true)
-    const { error } = await supabase.from('referrals').update({ status: 'confirmed' }).in('id', selectedIds)
-    if (error) { alert('エラーが発生しました'); setIsProcessing(false); return; }
-    
-    const targets = referrals.filter(r => selectedIds.includes(r.id))
-    for (const target of targets) {
-      if (target.status !== 'confirmed') await issuePoints(target, shops, categories)
-    }
-    
-    await fetchData()
-    setIsProcessing(false)
-  }
-
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
     if (originalRef?.status === updatedRef.status && originalRef?.cancel_reason === updatedRef.cancel_reason) {
@@ -264,7 +213,7 @@ export default function AdminDashboard() {
     }
 
     if (originalRef?.status === 'cancel') { alert('キャンセル済みのデータは変更できません。'); return; }
-    if (originalRef?.status === 'issued') { alert('発行済のデータは変更できません。'); return; }
+    if (originalRef?.status === 'issued') { alert('分配済のデータは変更できません。'); return; }
     if (originalRef?.status === 'confirmed' && updatedRef.status === 'pending') { alert('確定済みのデータを仮計上に戻すことはできません。'); return; }
     if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) { alert('キャンセル事由を選択してください。'); return; }
 
@@ -305,37 +254,16 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
-  const handlePaymentComplete = async (shopId: string) => {
-    if (!confirm('この店舗の未払いを「発行済」にしますか？')) return
-    setIsProcessing(true)
-    try {
-      const { data: targetTxs } = await supabase.from('point_transactions').select('referral_id').eq('shop_id', shopId).eq('status', 'confirmed')
-      if (!targetTxs || targetTxs.length === 0) { setIsProcessing(false); return; }
-
-      const targetRefIds = Array.from(new Set(targetTxs.map(tx => tx.referral_id)))
-      await supabase.from('point_transactions').update({ status: 'paid' }).eq('shop_id', shopId).eq('status', 'confirmed')
-      await supabase.from('referrals').update({ status: 'issued' }).in('id', targetRefIds)
-      await fetchData()
-    } catch (err) { console.error(err) } finally { setIsProcessing(false) }
-  }
-
   const handleCategoryChange = (id: string, field: string, value: any) => {
     setEditingCategories(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
   }
   
   const handleAddCategory = () => {
-    if (editingCategories.length >= 5) {
-      alert('カテゴリは最大5つまで設定できます。')
-      return
-    }
+    if (editingCategories.length >= 5) { alert('カテゴリは最大5つまで設定できます。'); return; }
     setEditingCategories([...editingCategories, {
-      id: `new_${Date.now()}`,
-      label: '新規カテゴリ',
-      reward_points: 0,
-      first_bonus_enabled: false,
-      first_bonus_points: 0,
-      signup_bonus_enabled: false,
-      signup_bonus_points: 0,
+      id: `new_${Date.now()}`, label: '新規カテゴリ', reward_points: 0,
+      first_bonus_enabled: false, first_bonus_points: 0, signup_bonus_enabled: false, signup_bonus_points: 0,
+      recurring_bonus_enabled: false, recurring_bonus_points: 0, // 追加：定期ボーナス
       isNew: true
     }])
   }
@@ -350,161 +278,195 @@ export default function AdminDashboard() {
         first_bonus_enabled: cat.first_bonus_enabled || false,
         first_bonus_points: cat.first_bonus_points || 0,
         signup_bonus_enabled: cat.signup_bonus_enabled || false,
-        signup_bonus_points: cat.signup_bonus_points || 0
+        signup_bonus_points: cat.signup_bonus_points || 0,
+        // 定期ボーナス設定を追加
+        recurring_bonus_enabled: cat.recurring_bonus_enabled || false,
+        recurring_bonus_points: cat.recurring_bonus_points || 0
       }
-      if (cat.isNew) {
-        await supabase.from('shop_categories').insert(dataToSave)
-      } else {
-        await supabase.from('shop_categories').update(dataToSave).eq('id', cat.id)
-      }
+      if (cat.isNew) { await supabase.from('shop_categories').insert(dataToSave) } 
+      else { await supabase.from('shop_categories').update(dataToSave).eq('id', cat.id) }
     }
     await fetchData()
     setIsProcessing(false)
     alert('設定を保存しました。')
   }
 
-  const handleManualUrlIssue = (staffId: string) => {
-    const staff = staffs.find(s => s.id === staffId)
-    if (!staff) return
-    const url = `${window.location.origin}/m/${staff.secret_token}`
-    navigator.clipboard.writeText(url)
-    alert(`マイページURLをコピーしました。\nURL: ${url}\nユーザーへ直接連絡してください。`)
-  }
-
   if (authError) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-600 text-sm font-bold">{authError}</div>
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
 
-  const originalRefForModal = editingRef ? referrals.find(r => r.id === editingRef.id) : null
-  const isEditingLocked = originalRefForModal?.status === 'cancel' || originalRefForModal?.status === 'issued'
-  const editingShopData = editingRef ? getShopByShopId(editingRef.shop_id) : null
-  const editingOwnerName = editingRef ? getShopOwnerName(editingRef.shop_id) : '不明'
-  const editingConfirmedTx = editingRef ? pointTransactions.find(tx => tx.referral_id === editingRef.id) : null
-
-  let availableStatusOptions = STATUS_OPTIONS
-  if (originalRefForModal?.status === 'pending') {
-    availableStatusOptions = STATUS_OPTIONS.filter(opt => ['pending', 'confirmed', 'cancel'].includes(opt.value))
-  } else if (originalRefForModal?.status === 'confirmed') {
-    availableStatusOptions = STATUS_OPTIONS.filter(opt => ['confirmed', 'issued', 'cancel'].includes(opt.value))
-  }
+  const activeFilterCountVal = Object.values(refFilters).filter(val => val !== '').length
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col">
+    <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col md:flex-row">
       
       {/* =========================================
-          ヘッダー
+          サイドナビゲーション (デスクトップ) / ヘッダー (モバイル)
       ========================================= */}
-      <header className="bg-white border-b border-gray-200 shadow-sm relative z-20">
-        <div className="px-6 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <img src="/logo-duacel.svg" alt="Duacel Logo" className="h-6 w-auto" onError={(e) => e.currentTarget.style.display = 'none'} />
-            <span className="text-lg font-bold tracking-wider pl-3 border-l border-gray-300 text-gray-900">HQ管理システム</span>
-          </div>
-          <button onClick={fetchData} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 transition-colors">
+      <aside className="w-full md:w-64 bg-white border-r border-gray-200 shadow-sm md:min-h-screen flex flex-col shrink-0">
+        <div className="px-6 py-4 flex items-center gap-3 border-b border-gray-200">
+          <img src="/logo-duacel.svg" alt="Duacel" className="h-6 w-auto" onError={(e) => e.currentTarget.style.display = 'none'} />
+          <span className="text-base font-bold tracking-wider text-gray-900">HQ Admin</span>
+        </div>
+        
+        <nav className="flex md:flex-col gap-1 p-4 overflow-x-auto md:overflow-x-visible">
+          {[
+            { id: 'home', icon: <LayoutDashboard className="w-4 h-4"/>, label: PAGE_TITLES.home },
+            { id: 'referrals', icon: <Store className="w-4 h-4"/>, label: PAGE_TITLES.referrals },
+            { id: 'redemptions', icon: <Gift className="w-4 h-4"/>, label: PAGE_TITLES.redemptions },
+            { id: 'users', icon: <Users className="w-4 h-4"/>, label: PAGE_TITLES.users },
+            { id: 'settings', icon: <Settings className="w-4 h-4"/>, label: PAGE_TITLES.settings },
+          ].map((tab) => (
+            <button 
+              key={tab.id} 
+              onClick={() => setActiveTab(tab.id as any)} 
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${activeTab === tab.id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}
+            >
+              {tab.icon} {tab.label}
+            </button>
+          ))}
+        </nav>
+        <div className="mt-auto p-4 border-t border-gray-200 hidden md:block">
+          <button onClick={fetchData} className="flex items-center gap-2 w-full px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
             <RefreshCw className="w-4 h-4" /> 再読み込み
           </button>
         </div>
-        
-        {/* タブナビゲーション */}
-        <div className="px-6 flex gap-8 text-sm font-bold text-gray-500">
-          {['referrals', 'payments', 'shops', 'settings'].map((key) => (
-            <button 
-              key={key} 
-              onClick={() => setActiveTab(key as any)} 
-              className={`py-3 transition-colors relative ${activeTab === key ? 'text-blue-600' : 'hover:text-gray-900'}`}
-            >
-              {PAGE_TITLES[key]}
-              {activeTab === key && <span className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600" />}
-            </button>
-          ))}
-        </div>
-      </header>
+      </aside>
 
       {/* メインコンテンツ */}
-      <div className="flex-1 p-6 overflow-x-auto w-full">
-        <h1 className="text-[18px] font-bold text-gray-900 mb-6">{PAGE_TITLES[activeTab]}</h1>
+      <div className="flex-1 p-4 md:p-8 overflow-x-auto w-full">
+        <div className="mb-6 flex justify-between items-center">
+          <h1 className="text-2xl font-black text-gray-900">{PAGE_TITLES[activeTab]}</h1>
+          {isProcessing && <span className="flex items-center gap-2 text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-full"><Loader2 className="w-4 h-4 animate-spin"/> 処理中...</span>}
+        </div>
+
+        {/* =========================================
+            タブ: Home (ダッシュボード)
+        ========================================= */}
+        {activeTab === 'home' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <p className="text-sm font-bold text-gray-500 mb-2">総発行ポイント (負債)</p>
+                <p className="text-3xl font-black font-mono text-gray-900">{summary.totalPointsIssued.toLocaleString()}</p>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <p className="text-sm font-bold text-gray-500 mb-2">総交換額 (出費)</p>
+                <p className="text-3xl font-black font-mono text-blue-600">{summary.totalRedeemed.toLocaleString()}<span className="text-sm font-sans text-gray-400 ml-1">円</span></p>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <p className="text-sm font-bold text-gray-500 mb-2">アクティブ店舗 / スタッフ</p>
+                <p className="text-2xl font-black font-mono text-gray-900">{summary.activeShops} <span className="text-sm font-sans text-gray-400 font-normal">/ {summary.activeStaffs} 人</span></p>
+              </div>
+              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm border-l-4 border-l-amber-400">
+                <p className="text-sm font-bold text-gray-500 mb-2">仮計上 (未確定) 成果</p>
+                <p className="text-3xl font-black font-mono text-amber-600">{summary.pendingReferrals}<span className="text-sm font-sans text-gray-400 ml-1">件</span></p>
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
+              <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5"/>
+              <div>
+                <h4 className="text-sm font-bold text-blue-900 mb-1">システム運用について</h4>
+                <p className="text-xs text-blue-800 leading-relaxed">
+                  基本的にはecforceとのAPI連携により、成果の「仮計上」「確定（ポイント付与）」は自動で行われます。<br/>
+                  管理者が手動でステータスを変更するのは、イレギュラーなキャンセル対応やエラー時の補填時のみに留めてください。
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* =========================================
             タブ: Referrals (成果承認)
         ========================================= */}
         {activeTab === 'referrals' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-[4px] mb-4 shadow-[0_0_20px_rgba(0,0,0,0.05)] overflow-hidden transition-all">
-              <button onClick={() => setIsFilterOpen(!isFilterOpen)} className="w-full px-4 py-3 flex items-center gap-2 bg-white hover:bg-gray-50 transition-colors text-sm text-gray-700 text-left">
-                <Filter className="w-4 h-4" /> 検索・絞り込み
-                {activeFilterCount > 0 && <span className="ml-2 text-blue-600 font-bold">({activeFilterCount})</span>}
+            <div className="bg-white border border-gray-200 rounded-xl mb-6 shadow-sm overflow-hidden transition-all">
+              <button onClick={() => setIsRefFilterOpen(!isRefFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-700 text-left">
+                <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
+                {activeFilterCountVal > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeFilterCountVal}件適用中</span>}
               </button>
               
-              {isFilterOpen && (
-                <div className="p-4 border-t border-gray-200 bg-white">
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm">
-                    <div><label className="block text-left text-gray-600 mb-1">受注番号</label><input type="text" value={filters.order_number} onChange={(e) => setFilters({...filters, order_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
-                    <div><label className="block text-left text-gray-600 mb-1">顧客名/番号</label><input type="text" value={filters.customer_number} onChange={(e) => setFilters({...filters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
-                    <div><label className="block text-left text-gray-600 mb-1">店舗番号</label><input type="text" placeholder="例: 12" value={filters.shop_number} onChange={(e) => setFilters({...filters, shop_number: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none rounded-[4px]" /></div>
+              {isRefFilterOpen && (
+                <div className="p-5 border-t border-gray-200 bg-white">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm font-medium">
+                    <div><label className="block text-gray-500 mb-1.5">受注番号</label><input type="text" value={refFilters.order_number} onChange={(e) => setRefFilters({...refFilters, order_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
+                    <div><label className="block text-gray-500 mb-1.5">顧客名</label><input type="text" value={refFilters.customer_number} onChange={(e) => setRefFilters({...refFilters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
+                    <div><label className="block text-gray-500 mb-1.5">店舗番号</label><input type="text" placeholder="例: 12" value={refFilters.shop_number} onChange={(e) => setRefFilters({...refFilters, shop_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
                     <div>
-                      <label className="block text-left text-gray-600 mb-1">ステータス</label>
-                      <select value={filters.status} onChange={(e) => setFilters({...filters, status: e.target.value})} className="w-full border border-gray-300 px-3 py-1.5 outline-none bg-white rounded-[4px]">
+                      <label className="block text-gray-500 mb-1.5">ステータス</label>
+                      <select value={refFilters.status} onChange={(e) => setRefFilters({...refFilters, status: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none bg-white rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400">
                         <option value="">すべて</option>
-                        {STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        {REF_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </div>
                     <div className="flex gap-2">
-                      <div className="w-1/2"><label className="block text-left text-gray-600 mb-1">From</label><input type="date" value={filters.date_start} onChange={(e) => setFilters({...filters, date_start: e.target.value})} className="w-full border border-gray-300 px-2 py-1.5 outline-none rounded-[4px]" /></div>
-                      <div className="w-1/2"><label className="block text-left text-gray-600 mb-1">To</label><input type="date" value={filters.date_end} onChange={(e) => setFilters({...filters, date_end: e.target.value})} className="w-full border border-gray-300 px-2 py-1.5 outline-none rounded-[4px]" /></div>
+                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">From</label><input type="date" value={refFilters.date_start} onChange={(e) => setRefFilters({...refFilters, date_start: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
+                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">To</label><input type="date" value={refFilters.date_end} onChange={(e) => setRefFilters({...refFilters, date_end: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
                     </div>
                   </div>
-                  <div className="flex gap-2 justify-start pt-3 border-t border-gray-100">
-                    <button onClick={handleFilter} className="px-4 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-[4px] flex items-center gap-1"><Search className="w-4 h-4"/>検索する</button>
-                    <button onClick={handleClearFilters} className="px-4 py-1.5 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-[4px]">クリア</button>
+                  <div className="flex gap-2 justify-end pt-4 border-t border-gray-100">
+                    <button onClick={handleClearRefFilters} className="px-5 py-2 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">クリア</button>
+                    <button onClick={handleRefFilter} className="px-5 py-2 text-sm font-bold text-white bg-gray-900 hover:bg-black rounded-lg flex items-center gap-2 transition-colors"><Search className="w-4 h-4"/> 検索する</button>
                   </div>
                 </div>
               )}
             </div>
 
-            <div className={`p-3 border rounded-[4px] mb-4 flex items-center gap-4 transition-all duration-200 ${selectedIds.length > 0 ? 'bg-blue-50 border-blue-200 opacity-100 shadow-[0_0_20px_rgba(0,0,0,0.05)]' : 'opacity-0 h-0 p-0 mb-0 overflow-hidden border-transparent'}`}>
-              <span className="text-sm font-bold text-blue-800">{selectedIds.length}件選択中</span>
-              <button onClick={handleBulkConfirm} disabled={isProcessing} className="px-4 py-1.5 bg-blue-600 text-white text-sm font-bold rounded-[4px] hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
-                {isProcessing && <Loader2 className="w-4 h-4 animate-spin" />}
-                選択項目を「報酬確定」にする
-              </button>
-            </div>
-
-            <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
-                    <th className="p-3 w-10 text-left font-bold"><input type="checkbox" checked={isAllSelected} onChange={handleToggleAll} disabled={filteredReferrals.filter(r => r.status === 'pending').length === 0} /></th>
-                    <th className="p-3 text-left font-bold">受注番号</th>
-                    <th className="p-3 text-left font-bold">ステータス</th>
-                    <th className="p-3 text-left font-bold">店舗番号・名前</th>
-                    <th className="p-3 text-left font-bold">担当スタッフ</th>
-                    <th className="p-3 text-left font-bold">日時</th>
-                    <th className="p-3 text-left font-bold">操作</th>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs tracking-wider uppercase">
+                    <th className="p-4 font-bold">受注番号</th>
+                    <th className="p-4 font-bold">ステータス</th>
+                    <th className="p-4 font-bold">店舗情報</th>
+                    <th className="p-4 font-bold">担当スタッフ</th>
+                    <th className="p-4 font-bold">獲得Pt</th>
+                    <th className="p-4 font-bold">発生日時</th>
+                    <th className="p-4 font-bold text-right">操作</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 text-sm text-gray-900">
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-800 font-medium">
                   {filteredReferrals.map(ref => {
                     const shop = getShopByShopId(ref.shop_id);
                     const staff = staffs.find(s => s.id === ref.staff_id);
-                    const status = STATUS_OPTIONS.find(s => s.value === ref.status) || STATUS_OPTIONS[0];
+                    const status = REF_STATUS_OPTIONS.find(s => s.value === ref.status) || REF_STATUS_OPTIONS[0];
                     const isDead = ref.status === 'cancel' || ref.status === 'issued';
+                    
+                    // ポイント計算
+                    const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
+                    const isOldest = referrals.filter(r => r.shop_id === ref.shop_id && r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0]?.id === ref.id;
+                    const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
+                    const category = categories.find(r => r.id === shop?.category_id);
+                    const standardPt = Number(category?.reward_points) || 0;
+                    const bonusPt = (isFirstTime && category?.first_bonus_enabled) ? Number(category.first_bonus_points) : 0;
+                    const totalPt = ref.status === 'cancel' ? 0 : (refTxs.length > 0 ? refTxs.reduce((sum, tx) => sum + Number(tx.points), 0) : standardPt + bonusPt);
 
                     return (
-                      <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/80 opacity-70' : 'hover:bg-gray-50'}`}>
-                        <td className="p-3 text-left"><input type="checkbox" disabled={ref.status !== 'pending'} checked={selectedIds.includes(ref.id)} onChange={() => handleToggleSelect(ref.id)} /></td>
-                        <td className="p-3 text-left font-normal tabular-nums">{ref.order_number}</td>
-                        <td className="p-3 text-left font-normal">
-                          <span className={`px-2 py-0.5 rounded-[4px] text-xs border ${status.bgColor} ${status.color} ${status.border} inline-block min-w-[70px] text-center`}>
+                      <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/50 opacity-75' : 'hover:bg-blue-50/30'}`}>
+                        <td className="p-4 font-mono">{ref.order_number}</td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-1 rounded-md text-xs border ${status.bgColor} ${status.color} ${status.border} font-bold inline-flex items-center justify-center min-w-[70px]`}>
                             {status.label}
                           </span>
                         </td>
-                        <td className="p-3 text-left font-normal">
-                          {shop?.shop_number ? `No.${shop.shop_number} ` : ''} {shop?.name || '不明'}
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span>{shop?.name || '不明'}</span>
+                            <span className="text-xs text-gray-400 font-mono">No.{shop?.shop_number}</span>
+                          </div>
                         </td>
-                        <td className="p-3 text-left font-normal text-gray-600">{staff?.name || '不明'}</td>
-                        <td className="p-3 text-left font-normal tabular-nums text-gray-600">{new Date(ref.created_at).toLocaleString('ja-JP')}</td>
-                        <td className="p-3 text-left font-normal">
-                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className={`text-sm ${isDead ? 'text-gray-500 underline' : 'text-blue-600 hover:underline'}`}>
-                            {isDead ? '詳細を見る' : '詳細・編集'}
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span>{staff?.name || '不明'}</span>
+                            <span className="text-xs text-gray-400">{ref.customer_name ? `${ref.customer_name} 様の${ref.recurring_count > 1 ? '定期' : '初回'}` : ''}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 font-mono font-bold">{totalPt.toLocaleString()}</td>
+                        <td className="p-4 font-mono text-gray-500 text-xs">{new Date(ref.created_at).toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td className="p-4 text-right">
+                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
+                            詳細・編集
                           </button>
                         </td>
                       </tr>
@@ -512,109 +474,150 @@ export default function AdminDashboard() {
                   })}
                 </tbody>
               </table>
-              {filteredReferrals.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">データがありません</div>}
+              {filteredReferrals.length === 0 && <div className="p-10 text-center text-gray-400 font-bold">条件に一致する成果がありません</div>}
             </div>
           </div>
         )}
 
         {/* =========================================
-            タブ: Payments (支払管理)
+            タブ: Redemptions (ポイント交換管理)
         ========================================= */}
-        {activeTab === 'payments' && (
+        {activeTab === 'redemptions' && (
           <div>
-            <div className="flex justify-end mb-4">
-              <button onClick={exportPaymentsCSV} className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 text-sm font-bold rounded-[4px] hover:bg-gray-700 transition">
-                <Download className="w-4 h-4" /> CSVで明細をダウンロード
-              </button>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
-              <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
-                    <th className="p-3 text-left font-bold">店舗番号</th>
-                    <th className="p-3 text-left font-bold">店舗名</th>
-                    <th className="p-3 text-left font-bold text-right">紹介件数</th>
-                    <th className="p-3 text-left font-bold text-right">累計報酬額</th>
-                    <th className="p-3 text-left font-bold text-right">未払い額</th>
-                    <th className="p-3 text-left font-bold text-right">支払い済額</th>
-                    <th className="p-3 text-left font-bold text-center">ステータス</th>
-                    <th className="p-3 text-left font-bold text-center">操作</th>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs tracking-wider uppercase">
+                    <th className="p-4 font-bold">申請日時</th>
+                    <th className="p-4 font-bold">ステータス</th>
+                    <th className="p-4 font-bold">申請スタッフ</th>
+                    <th className="p-4 font-bold">交換Pt</th>
+                    <th className="p-4 font-bold">ギフトURL</th>
+                    <th className="p-4 font-bold text-right">操作</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 text-gray-900">
-                  {shops.map(shop => {
-                    const validTxs = pointTransactions.filter(tx => tx.shop_id === shop.id && referrals.find(r => r.id === tx.referral_id)?.status !== 'cancel');
-                    if (validTxs.length === 0) return null;
-
-                    const uniqueReferralCount = new Set(validTxs.map(tx => tx.referral_id)).size;
-                    const unpaidTotal = validTxs.filter(tx => tx.status === 'confirmed').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-                    const paidTotal = validTxs.filter(tx => tx.status === 'paid').reduce((sum, tx) => sum + (Number(tx.points) || 0), 0);
-                    const isAllPaid = unpaidTotal === 0;
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-800 font-medium">
+                  {redemptions.map(req => {
+                    const staff = staffs.find(s => s.id === req.staff_id);
+                    const shop = shops.find(s => s.id === req.shop_id);
+                    const status = REDEEM_STATUS_OPTIONS.find(s => s.value === req.status) || REDEEM_STATUS_OPTIONS[3];
 
                     return (
-                      <tr key={shop.id} className={`transition-colors ${isAllPaid ? 'bg-gray-50/80 opacity-70' : 'hover:bg-gray-50'}`}>
-                        <td className="p-3 text-left font-normal tabular-nums">{shop.shop_number}</td>
-                        <td className="p-3 text-left font-normal">{shop.name}</td>
-                        <td className="p-3 text-left font-normal tabular-nums text-right">{uniqueReferralCount}</td>
-                        <td className="p-3 text-left font-normal tabular-nums text-right">{unpaidTotal + paidTotal}</td>
-                        <td className="p-3 text-left font-normal text-red-600 tabular-nums font-bold text-right">{unpaidTotal}</td>
-                        <td className="p-3 text-left font-normal tabular-nums text-gray-600 text-right">{paidTotal}</td>
-                        <td className="p-3 text-left font-normal text-center">
-                          <span className={`px-2 py-0.5 rounded-[4px] text-xs border ${isAllPaid ? 'bg-gray-100 text-gray-600 border-gray-200' : 'bg-red-50 text-red-700 border-red-200'} inline-block min-w-[70px] text-center`}>
-                            {isAllPaid ? '精算済' : '未払いあり'}
+                      <tr key={req.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-4 font-mono text-gray-500 text-xs">{new Date(req.created_at).toLocaleString('ja-JP')}</td>
+                        <td className="p-4">
+                          <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${status.bgColor} ${status.color}`}>
+                            {status.label}
                           </span>
                         </td>
-                        <td className="p-3 text-left font-normal text-center">
-                          {!isAllPaid && <button onClick={() => handlePaymentComplete(shop.id)} className="text-blue-600 hover:underline">支払完了にする</button>}
+                        <td className="p-4">
+                          <div className="flex flex-col">
+                            <span>{staff?.name || '不明'}</span>
+                            <span className="text-xs text-gray-400">{shop?.name || '不明'}</span>
+                          </div>
+                        </td>
+                        <td className="p-4 font-mono font-bold">{Number(req.points_consumed).toLocaleString()}</td>
+                        <td className="p-4">
+                          {req.gift_url ? (
+                            <a href={req.gift_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1 text-xs">
+                              URLを開く <LinkIcon className="w-3 h-3"/>
+                            </a>
+                          ) : <span className="text-gray-400 text-xs">-</span>}
+                        </td>
+                        <td className="p-4 text-right">
+                          <button onClick={() => alert(JSON.stringify(req.error_details || 'エラー詳細はありません', null, 2))} className="text-gray-500 hover:text-gray-900 text-xs font-bold">
+                            ログ確認
+                          </button>
                         </td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
+              {redemptions.length === 0 && <div className="p-10 text-center text-gray-400 font-bold">ポイント交換履歴がありません</div>}
             </div>
           </div>
         )}
 
         {/* =========================================
-            タブ: Shops (店舗管理)
+            タブ: Users (店舗・スタッフ管理)
         ========================================= */}
-        {activeTab === 'shops' && (
-          <div className="bg-white border border-gray-200 rounded-[4px] overflow-x-auto shadow-[0_0_20px_rgba(0,0,0,0.05)]">
-            <table className="w-full text-left border-collapse whitespace-nowrap text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
-                  <th className="p-3 text-left font-bold">店舗番号</th>
-                  <th className="p-3 text-left font-bold">店舗名</th>
-                  <th className="p-3 text-left font-bold">オーナー名</th>
-                  <th className="p-3 text-left font-bold">オーナーEmail</th>
-                  <th className="p-3 text-left font-bold">電話番号</th>
-                  <th className="p-3 text-left font-bold">設定カテゴリ</th>
-                  <th className="p-3 text-left font-bold">登録日</th>
-                  <th className="p-3 text-left font-bold">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 text-gray-900">
-                {shops.map(shop => {
-                  const ownerName = getShopOwnerName(shop.id);
-                  const category = categories.find(r => r.id === shop.category_id);
-                  return (
-                    <tr key={shop.id} className="hover:bg-gray-50">
-                      <td className="p-3 text-left font-normal text-blue-600 hover:underline cursor-pointer tabular-nums" onClick={() => openShopEditModal(shop.id)}>{shop.shop_number}</td>
-                      <td className="p-3 text-left font-normal text-blue-600 hover:underline cursor-pointer" onClick={() => openShopEditModal(shop.id)}>{shop.name}</td>
-                      <td className="p-3 text-left font-normal">{ownerName}</td>
-                      <td className="p-3 text-left font-normal text-gray-600">{shop.owner_email}</td>
-                      <td className="p-3 text-left font-normal tabular-nums">{shop.phone || '-'}</td>
-                      <td className="p-3 text-left font-normal">{category?.label || '未設定'}</td>
-                      <td className="p-3 text-left font-normal tabular-nums text-gray-600">{new Date(shop.created_at).toLocaleDateString('ja-JP')}</td>
-                      <td className="p-3 text-left font-normal">
-                        <button onClick={() => openShopEditModal(shop.id)} className="text-blue-600 hover:underline">編集</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+        {activeTab === 'users' && (
+          <div className="space-y-4">
+            <div className="flex justify-between items-end mb-4">
+              <p className="text-sm text-gray-500 font-bold">登録されている店舗と、そこに所属するメンバーを管理します。</p>
+            </div>
+
+            {shops.map(shop => {
+              const shopStaffs = staffs.filter(s => s.shop_id === shop.id && !s.is_deleted)
+              const isExpanded = expandedShopId === shop.id
+              const category = categories.find(c => c.id === shop.category_id)
+
+              return (
+                <div key={shop.id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                  <div 
+                    onClick={() => setExpandedShopId(isExpanded ? null : shop.id)}
+                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center shrink-0">
+                        <Building className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
+                          {shop.name} <span className="text-xs font-mono text-gray-400 font-medium">No.{shop.shop_number}</span>
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1 font-medium">
+                          オーナー: {shop.owner_email} / 所属: {shopStaffs.length}名 / {category?.label || 'カテゴリ未設定'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); openShopEditModal(shop.id); }} 
+                        className="text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+                      >
+                        店舗を編集
+                      </button>
+                      <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                    </div>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="border-t border-gray-100 bg-gray-50/50 p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {shopStaffs.map(staff => (
+                          <div key={staff.id} className="bg-white p-4 border border-gray-200 rounded-lg flex flex-col gap-3 shadow-sm">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 bg-gray-100 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">
+                                  {staff.name.charAt(0)}
+                                </div>
+                                <div>
+                                  <p className="text-sm font-bold text-gray-900">{staff.name}</p>
+                                  <p className="text-[10px] text-gray-500 font-mono">{staff.email}</p>
+                                </div>
+                              </div>
+                              {staff.email === shop.owner_email && <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">オーナー</span>}
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => handleCopyUrl(staff.secret_token, 'staff')} className="flex-1 py-1.5 bg-gray-50 border border-gray-200 text-gray-700 text-xs font-bold rounded flex items-center justify-center gap-1.5 hover:bg-gray-100 transition-colors">
+                                <LinkIcon className="w-3 h-3" /> マイページURL
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 flex justify-end">
+                        <button onClick={() => handleCopyUrl(shop.invite_token, 'invite')} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                          <LinkIcon className="w-3 h-3" /> この店舗のスタッフ招待URLをコピー
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
 
@@ -622,72 +625,68 @@ export default function AdminDashboard() {
             タブ: Settings (マスタ設定)
         ========================================= */}
         {activeTab === 'settings' && (
-          <div className="bg-white border border-gray-200 rounded-[4px] p-6 shadow-[0_0_20px_rgba(0,0,0,0.05)] w-full overflow-x-auto">
-            <div className="flex justify-between items-end mb-4">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
-                <p className="text-xs text-gray-500">店舗の属性（カテゴリ）ごとに、通常報酬と各種ボーナスを設定します。</p>
-              </div>
+          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto">
+            <div className="mb-6">
+              <h3 className="text-base font-black text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
+              <p className="text-xs text-gray-500 font-medium">店舗の属性ごとに、通常報酬・初回・定期継続ボーナスを設定します。</p>
             </div>
             
-            <table className="w-full min-w-[800px] text-left border-collapse border border-gray-200 mb-4 text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-600 text-xs">
-                  <th className="p-3 text-left font-bold min-w-[150px]">カテゴリ名</th>
-                  <th className="p-3 text-left font-bold w-32">通常報酬</th>
-                  <th className="p-3 text-left font-bold min-w-[200px]">初回ボーナス設定</th>
-                  <th className="p-3 text-left font-bold min-w-[200px]">登録ボーナス設定</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {editingCategories.map(cat => (
-                  <tr key={cat.id} className="hover:bg-gray-50">
-                    <td className="p-3 text-left">
-                      <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none focus:border-blue-500" placeholder="カテゴリ名" />
-                    </td>
-                    <td className="p-3 text-left">
-                      <div className="flex items-center gap-1">
-                        <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none tabular-nums text-right focus:border-blue-500" />
-                        <span className="text-xs text-gray-500">pt</span>
+            <div className="space-y-6">
+              {editingCategories.map(cat => (
+                <div key={cat.id} className="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
+                  <div className="mb-4 pb-4 border-b border-gray-200 flex items-center gap-4">
+                    <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-1/3 border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400" placeholder="カテゴリ名" />
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-2">通常報酬（ベース）</label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono focus:ring-2 focus:ring-blue-100" />
+                        <span className="text-xs text-gray-500 font-bold">pt</span>
                       </div>
-                    </td>
-                    <td className="p-3 text-left bg-blue-50/10">
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleCategoryChange(cat.id, 'first_bonus_enabled', !cat.first_bonus_enabled)}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${cat.first_bonus_enabled ? 'bg-blue-600' : 'bg-gray-200'}`}
-                        >
-                          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${cat.first_bonus_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </button>
-                        <div className="flex items-center gap-1 flex-1">
-                          <input type="number" disabled={!cat.first_bonus_enabled} value={cat.first_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none tabular-nums text-right disabled:bg-gray-100 disabled:text-gray-400 focus:border-blue-500" />
-                          <span className="text-xs text-gray-500">pt</span>
-                        </div>
+                    </div>
+                    
+                    <div>
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
+                        <input type="checkbox" checked={cat.first_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
+                        初回ボーナス
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" disabled={!cat.first_bonus_enabled} value={cat.first_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-100" />
+                        <span className="text-xs text-gray-500 font-bold">pt</span>
                       </div>
-                    </td>
-                    <td className="p-3 text-left bg-emerald-50/10">
-                      <div className="flex items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleCategoryChange(cat.id, 'signup_bonus_enabled', !cat.signup_bonus_enabled)}
-                          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${cat.signup_bonus_enabled ? 'bg-emerald-600' : 'bg-gray-200'}`}
-                        >
-                          <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${cat.signup_bonus_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                        </button>
-                        <div className="flex items-center gap-1 flex-1">
-                          <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-[4px] px-2 py-1.5 outline-none tabular-nums text-right disabled:bg-gray-100 disabled:text-gray-400 focus:border-emerald-500" />
-                          <span className="text-xs text-gray-500">pt</span>
-                        </div>
+                    </div>
+
+                    <div>
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
+                        <input type="checkbox" checked={cat.recurring_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
+                        定期ボーナス (2回目以降)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" disabled={!cat.recurring_bonus_enabled} value={cat.recurring_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-100" />
+                        <span className="text-xs text-gray-500 font-bold">pt</span>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="flex justify-between items-center pt-2">
-              <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm text-blue-600 hover:underline"><Plus className="w-4 h-4"/>新しいカテゴリを追加</button>
-              <button onClick={handleSaveAllSettings} className="bg-blue-600 text-white text-sm px-8 py-2.5 rounded-[4px] hover:bg-blue-700 transition-colors flex items-center gap-2">
+                    </div>
+
+                    <div>
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
+                        <input type="checkbox" checked={cat.signup_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
+                        登録ボーナス
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-100" />
+                        <span className="text-xs text-gray-500 font-bold">pt</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-200">
+              <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-gray-900 bg-gray-100 px-4 py-2 rounded-lg transition-colors"><Plus className="w-4 h-4"/>カテゴリ追加</button>
+              <button onClick={handleSaveAllSettings} disabled={isProcessing} className="bg-gray-900 text-white text-sm font-bold px-8 py-3 rounded-lg hover:bg-black transition-colors flex items-center gap-2 disabled:opacity-50">
                 {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 設定を保存する
               </button>
             </div>
@@ -699,107 +698,77 @@ export default function AdminDashboard() {
           モーダル
       ========================================= */}
       {isRefModalOpen && editingRef && (
-        <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[4px] p-6 w-full max-w-lg border border-gray-200 shadow-[0_0_20px_rgba(0,0,0,0.1)]">
-            <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-2">
-              <h3 className="text-base font-bold text-gray-900">詳細情報・ステータス更新</h3>
-              <button onClick={() => setIsRefModalOpen(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-black text-gray-900">詳細情報・ステータス更新</h3>
+              <button onClick={() => setIsRefModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
             </div>
             
-            <div className="bg-gray-50 border border-gray-200 p-4 rounded-[4px] text-sm mb-6 space-y-2 text-gray-700">
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">受注番号</div><div className="col-span-2 tabular-nums">{editingRef.order_number}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">顧客名</div><div className="col-span-2 tabular-nums">{editingRef.customer_name || '未取得'}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">店舗</div><div className="col-span-2">No.{editingShopData?.shop_number} {editingShopData?.name || '不明'}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">担当スタッフ</div><div className="col-span-2">{staffs.find(s => s.id === editingRef.staff_id)?.name || '不明'}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">発生日時</div><div className="col-span-2 tabular-nums">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div></div>
-              {editingConfirmedTx && (
-                <div className="grid grid-cols-3 gap-2"><div className="text-gray-500 font-bold">確定日時</div><div className="col-span-2 tabular-nums">{new Date(editingConfirmedTx.created_at).toLocaleString('ja-JP')}</div></div>
-              )}
+            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-3 text-gray-700 font-medium">
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">受注番号</div><div className="col-span-2 font-mono">{editingRef.order_number}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">顧客情報</div><div className="col-span-2">{editingRef.customer_name || '不明'} <span className="text-xs text-gray-400 ml-1">({editingRef.recurring_count > 1 ? `定期${editingRef.recurring_count}回目` : '初回'})</span></div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">店舗</div><div className="col-span-2">No.{getShopByShopId(editingRef.shop_id)?.shop_number} {getShopByShopId(editingRef.shop_id)?.name || '不明'}</div></div>
+              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">発生日時</div><div className="col-span-2 font-mono text-gray-500">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div></div>
             </div>
 
-            {/* URL手動発行のアクションボタン */}
-            {editingRef.status === 'confirmed' && (
-              <div className="mb-6 bg-blue-50 border border-blue-100 rounded-[4px] p-3">
-                <p className="text-xs text-blue-800 font-bold mb-2">サポート対応（手動URL発行）</p>
-                <button 
-                  onClick={() => {
-                     const targetStaff = staffs.find(s => s.id === editingRef.staff_id)
-                     if (targetStaff && targetStaff.secret_token) {
-                       const url = `${window.location.origin}/m/${targetStaff.secret_token}`
-                       navigator.clipboard.writeText(url)
-                       alert(`該当スタッフのマイページURLをコピーしました。\n${url}\n\nこのURLをユーザーへ直接送信してください。`)
-                     } else {
-                       alert('スタッフのトークンが見つかりません。')
-                     }
-                  }}
-                  className="px-3 py-1.5 bg-white border border-blue-200 text-blue-600 text-xs font-bold rounded shadow-sm hover:bg-blue-100 flex items-center gap-1.5"
-                >
-                  <LinkIcon className="w-3 h-3"/> スタッフのマイページURLをコピー
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-4 mb-6">
-              {isEditingLocked ? (
-                <div className="bg-gray-100 border border-gray-300 rounded-[4px] p-3 text-sm text-gray-600 font-bold">
-                  {originalRefForModal?.status === 'cancel' ? 'キャンセル済（変更不可）' : '発行済（変更不可）'}
+            <div className="space-y-4 mb-8">
+              {editingRef.status === 'cancel' || editingRef.status === 'issued' ? (
+                <div className="bg-gray-100 border border-gray-300 rounded-xl p-4 text-sm text-gray-600 font-bold text-center">
+                  {editingRef.status === 'cancel' ? 'キャンセル済（変更不可）' : '分配済（変更不可）'}
                 </div>
               ) : (
                 <div>
-                  <label className="block text-sm text-gray-700 mb-1 font-bold">ステータス更新</label>
-                  <select value={editingRef.status} onChange={(e) => setEditingRef({...editingRef, status: e.target.value, cancel_reason: e.target.value !== 'cancel' ? '' : editingRef.cancel_reason})} className="w-full border border-gray-300 rounded-[4px] p-2 text-sm outline-none bg-white focus:border-blue-500">
-                    {availableStatusOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                  <label className="block text-sm text-gray-700 mb-2 font-bold">強制ステータス更新 (サポート用)</label>
+                  <select value={editingRef.status} onChange={(e) => setEditingRef({...editingRef, status: e.target.value, cancel_reason: e.target.value !== 'cancel' ? '' : editingRef.cancel_reason})} className="w-full border border-gray-300 rounded-lg p-3 text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-100">
+                    <option value="pending">仮計上</option>
+                    <option value="confirmed">報酬確定</option>
+                    <option value="cancel">キャンセル (没収)</option>
                   </select>
                 </div>
               )}
 
-              {!isEditingLocked && editingRef.status === 'cancel' && (
-                <div>
-                  <label className="flex items-center gap-1 text-sm text-red-600 font-bold mb-1"><AlertTriangle className="w-4 h-4"/>キャンセル事由</label>
-                  <select value={editingRef.cancel_reason || ''} onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})} className="w-full border border-red-300 bg-red-50 p-2 text-sm text-red-800 outline-none rounded-[4px] focus:border-red-500">
+              {editingRef.status === 'cancel' && (
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                  <label className="flex items-center gap-1 text-sm text-red-600 font-bold mb-2 mt-4"><AlertTriangle className="w-4 h-4"/>キャンセル事由</label>
+                  <select value={editingRef.cancel_reason || ''} onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})} className="w-full border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-800 outline-none rounded-lg">
                     <option value="">選択してください</option>
                     {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
-                </div>
-              )}
-              
-              {!isEditingLocked && originalRefForModal?.status === 'confirmed' && editingRef.status === 'cancel' && (
-                <div className="bg-red-50 border border-red-200 p-3 mt-3 rounded-[4px]">
-                  <p className="text-red-700 text-xs font-bold flex items-center gap-1"><AlertTriangle className="w-4 h-4"/>重大な警告</p>
-                  <p className="text-red-600 text-xs mt-1">すでにユーザーへ付与済みのポイントを没収します。この操作は二度と元に戻せません。</p>
-                </div>
+                </motion.div>
               )}
             </div>
 
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setIsRefModalOpen(false)} className="px-4 py-2 border border-gray-300 text-gray-700 text-sm rounded-[4px] hover:bg-gray-50">キャンセル</button>
-              {!isEditingLocked && (
-                <button onClick={() => handleRefModalSave(editingRef)} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-[4px] hover:bg-blue-700">更新して保存</button>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setIsRefModalOpen(false)} className="px-5 py-2.5 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
+              {editingRef.status !== 'cancel' && editingRef.status !== 'issued' && (
+                <button onClick={() => handleRefModalSave(editingRef)} disabled={isProcessing} className="px-5 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 更新を保存
+                </button>
               )}
             </div>
           </div>
         </div>
       )}
 
-
       {isShopModalOpen && editingShop && (
-        <div className="fixed inset-0 bg-gray-900/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[4px] p-6 w-full max-w-md border border-gray-200 shadow-[0_0_20px_rgba(0,0,0,0.1)]">
-            <h3 className="text-base font-bold text-gray-900 mb-4 border-b border-gray-200 pb-2">店舗情報の編集 (No. {editingShop.shop_number})</h3>
-            <div className="space-y-4 mb-6 text-sm">
-              <div><label className="block text-gray-700 font-bold mb-1">店舗名</label><input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none focus:border-blue-500" /></div>
-              <div><label className="block text-gray-700 font-bold mb-1">電話番号</label><input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none focus:border-blue-500" /></div>
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-lg font-black text-gray-900 mb-6">店舗情報の編集 (No.{editingShop.shop_number})</h3>
+            <div className="space-y-4 mb-8 text-sm font-medium">
+              <div><label className="block text-gray-500 mb-1.5">店舗名</label><input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
+              <div><label className="block text-gray-500 mb-1.5">電話番号</label><input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
               <div>
-                <label className="block text-gray-700 font-bold mb-1">設定カテゴリ</label>
-                <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded-[4px] p-2 outline-none bg-white focus:border-blue-500">
+                <label className="block text-gray-500 mb-1.5">設定カテゴリ</label>
+                <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none bg-white focus:ring-2 focus:ring-blue-100 font-bold">
                   <option value="">未設定</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
                 </select>
               </div>
             </div>
-            <div className="flex gap-2 justify-end text-sm">
-              <button onClick={() => setIsShopModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-[4px] text-gray-700 hover:bg-gray-50">キャンセル</button>
-              <button onClick={() => handleShopModalSave(editingShop)} className="px-4 py-2 bg-blue-600 text-white rounded-[4px] hover:bg-blue-700">保存</button>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setIsShopModalOpen(false)} className="px-5 py-2.5 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+              <button onClick={() => handleShopModalSave(editingShop)} disabled={isProcessing} className="px-5 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors disabled:opacity-50">保存</button>
             </div>
           </div>
         </div>
