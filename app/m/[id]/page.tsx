@@ -292,7 +292,6 @@ export default function MemberMagicPage() {
     return history.filter(r => r.status === 'pending')
   }, [history])
 
-  // ★ 年月日を固定幅(ゼロ埋め)にするフォーマッター
   const formatDateYMD = (isoString: string) => {
     const d = new Date(isoString);
     const y = d.getFullYear();
@@ -301,7 +300,6 @@ export default function MemberMagicPage() {
     return `${y}/${m}/${day}`;
   }
 
-  // 日時詳細フォーマッター
   const formatDateTime = (isoString: string) => {
     const d = new Date(isoString);
     return `${d.toLocaleDateString('ja-JP')} ${d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
@@ -408,17 +406,17 @@ export default function MemberMagicPage() {
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
-                    <div className="max-w-md mx-auto space-y-4">
+                    <div className="max-w-md mx-auto space-y-8">
                       
-                      {/* ★ オーナー専用 管理ダッシュボードボタン (上部に配置) */}
+                      {/* ★ オーナー専用 管理ダッシュボードボタン */}
                       {isOwner && (
                         <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
                           <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードを開く
                         </button>
                       )}
 
-                      {/* ★ メインウォレット (元のカード枠に戻す) */}
-                      <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
+                      {/* ★ メインウォレット */}
+                      <div className="bg-[#f5f2e6] border-y border-[#e6e2d3] py-6 px-6 -mx-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden -mt-6 mb-0">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
                           <p className="text-3xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
@@ -428,33 +426,34 @@ export default function MemberMagicPage() {
                         </div>
                       </div>
 
-                      {/* 確定待ち (左寄せ、時計アイコン削除) */}
+                      {/* 確定待ち */}
                       <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-4 flex flex-col justify-center">
                         <p className="text-xs text-[#666666] mb-1 tracking-wider">確定待ち（仮計上）</p>
                         <p className="text-2xl font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
                       </div>
 
-                      {/* 新着要素 (枠あり・タップ可能UI・リストレイアウト統一) */}
+                      {/* 紹介履歴 (報酬未確定) */}
                       {pendingReferrals.length > 0 && (
                         <div className="pt-2">
-                          <p className="text-sm text-[#333333] mb-4">新しい購入が発生しました ({pendingReferrals.length}件)</p>
-                          <div className="space-y-3">
-                            {pendingReferrals.slice(0, 3).map((item) => (
-                              <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-[#fffef2] border border-[#e6e2d3] p-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors shadow-[0_0_15px_rgba(0,0,0,0.02)]">
+                          <h2 className="text-sm text-[#1a1a1a] mb-1">紹介履歴（報酬未確定）</h2>
+                          <p className="text-[10px] text-[#666666] mb-4">商品のお届け完了後にポイントが発行されます。</p>
+                          <div className="space-y-0">
+                            {pendingReferrals.map((item) => (
+                              <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-transparent border-b border-[#e6e2d3] first:border-t py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
                                 <div className="flex items-start gap-3 flex-1">
-                                  <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-0.5">
-                                    <span className="text-[10px] text-[#999999] tabular-nums font-mono leading-none">{formatDateYMD(item.created_at)}</span>
-                                    <span className="text-[9px] bg-[#f5f2e6] text-[#666666] border border-[#e6e2d3] px-1 py-0.5 text-center leading-none">仮計上</span>
+                                  <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-1">
+                                    <span className="text-xs text-[#999999] tabular-nums leading-none">{formatDateYMD(item.created_at)}</span>
+                                    <span className="text-xs bg-[#a24343] text-[#fffef2] border border-[#a24343] px-1 py-1 text-center leading-none">仮計上</span>
                                   </div>
                                   <div className="flex-1 flex flex-col">
                                     <p className="text-sm text-[#333333] mb-1 leading-snug">
-                                      {item.customer_name || '匿名のお客様'} <span className="text-[#999999] text-[10px]">({item.recurring_count > 1 ? `定期${item.recurring_count}回目` : '初回'})</span>
+                                      {item.customer_name || '匿名のお客様'} <span className="text-[#999999] text-sm">[{item.recurring_count > 1 ? `定期${item.recurring_count}` : '初回'}]</span>
                                     </p>
-                                    <p className="text-xs text-[#666666]">担当: {item.staffName}</p>
+                                    <p className="text-sm text-[#666666]">担当: {item.staffName}</p>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0 pl-2">
-                                  <p className="text-base font-sans tabular-nums text-[#333333]">+{item.staffVisibleTotal?.toLocaleString()}<span className="text-[10px] text-[#999999] ml-0.5">pt</span></p>
+                                  <p className="text-lg font-sans tabular-nums text-[#1a1a1a]">+{item.staffVisibleTotal?.toLocaleString()} <span className="text-[10px] text-[#999999]">pt</span></p>
                                   <ChevronRight className="w-4 h-4 text-[#999999]" />
                                 </div>
                               </button>
@@ -463,9 +462,9 @@ export default function MemberMagicPage() {
                         </div>
                       )}
 
-                      {/* 実績履歴 (枠なしボトムボーダーのみ・リストレイアウト統一) */}
-                      <div className="pt-6">
-                        <h2 className="text-sm text-[#1a1a1a] mb-3 pb-3 border-b border-[#e6e2d3]">実績履歴</h2>
+                      {/* ポイント獲得履歴 */}
+                      <div className="pt-2">
+                        <h2 className="text-sm text-[#1a1a1a] mb-4">ポイント獲得履歴</h2>
                         <div className="space-y-0">
                           {history.length === 0 ? (
                             <div className="text-center py-10 text-[#999999] text-sm">まだ実績がありません</div>
@@ -476,23 +475,21 @@ export default function MemberMagicPage() {
                               if (isPending) return null; 
                               
                               return (
-                                <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-transparent border-b border-[#e6e2d3] py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
+                                <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-transparent border-b border-[#e6e2d3] first:border-t py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
                                   <div className="flex items-start gap-3 flex-1">
-                                    {/* 左側：日付とバッジを固定幅で縦並び */}
-                                    <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-0.5">
-                                      <span className="text-[10px] text-[#999999] tabular-nums font-mono leading-none">{formatDateYMD(item.created_at)}</span>
+                                    <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-1">
+                                      <span className="text-xs text-[#999999] tabular-nums leading-none">{formatDateYMD(item.created_at)}</span>
                                       {isCanceled ? (
-                                        <span className="text-[9px] bg-[#fcf0f0] text-[#8a3c3c] border border-[#fcf0f0] px-1 py-0.5 text-center leading-none">無効</span>
+                                        <span className="text-xs bg-[#dddddd] text-[#616161] border border-[#cbcbcb] px-1 py-1 text-center leading-none">無効</span>
                                       ) : (
-                                        <span className="text-[9px] bg-[#f4f8f4] text-[#2d5a2d] border border-[#f4f8f4] px-1 py-0.5 text-center leading-none">報酬確定</span>
+                                        <span className="text-xs bg-[#daebd8] text-[#488c3d] border border-[#94d986] px-1 py-1 text-center leading-none">報酬確定</span>
                                       )}
                                     </div>
-                                    {/* 右側：ゲスト名と担当者（縦ライン揃え） */}
                                     <div className="flex-1 flex flex-col">
                                       <p className={`text-sm text-[#333333] mb-1 leading-snug ${isCanceled ? 'line-through text-[#999999]' : ''}`}>
-                                        {item.customer_name || '匿名のお客様'} <span className="text-[#999999] text-[10px]">({item.recurring_count > 1 ? `定期${item.recurring_count}回目` : '初回'})</span>
+                                        {item.customer_name || '匿名のお客様'} <span className="text-[#999999] text-sm">[{item.recurring_count > 1 ? `定期${item.recurring_count}` : '初回'}]</span>
                                       </p>
-                                      <p className="text-xs text-[#666666]">担当: {item.staffName}</p>
+                                      <p className="text-sm text-[#666666]">担当: {item.staffName}</p>
                                     </div>
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0 pl-2">
@@ -553,7 +550,6 @@ export default function MemberMagicPage() {
                     <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2">
                       {/* プレゼン用ヘッダーテキスト */}
                       <div className="w-full text-center mb-6">
-                        {/* ★ Duacel® のデザイン調整 */}
                         <h2 className="text-3xl font-black font-inter tracking-normal text-[#1a1a1a] mb-2">Duacel<sup className="text-lg font-medium -ml-0.5">®</sup></h2>
                         <p className="text-sm text-[#666666] tracking-widest font-bold">{shop?.name}</p>
                         <p className="text-sm text-[#1a1a1a] tracking-widest mt-1">{staff.name} のご紹介</p>
@@ -689,16 +685,6 @@ export default function MemberMagicPage() {
                         </AnimatePresence>
                       </div>
                       
-                      {isOwner && (
-                        <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-6">
-                          <p className="text-sm text-[#333333] mb-4">オーナー専用メニュー</p>
-                          {/* ★ オーナー専用ボタン (スミベタ) */}
-                          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm transition active:scale-[0.98] flex items-center justify-center gap-2 px-6">
-                            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
-                          </button>
-                        </div>
-                      )}
-
                       {/* アプリ仕様：ログアウトボタンを一番下に配置 */}
                       <div className="pt-4">
                         <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] bg-[#fffef2] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
