@@ -1,35 +1,41 @@
 import type { Metadata, Viewport } from "next";
-// ★ Inter と Noto Sans JP をインポート
-import { Inter, Noto_Sans_JP } from "next/font/google";
+// ★ Roboto_Mono を含めてインポート
+import { Inter, Noto_Sans_JP, Roboto_Mono } from "next/font/google";
 import "./globals.css";
 
-// ★ 英数字用フォント（SF Proの代わりとなる洗練されたフォント）
+// ★ 英数字用：洗練されたメインフォント
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
   display: "swap",
 });
 
-// ★ 日本語用フォント
+// ★ 日本語用：標準的で美しいゴシック体
 const notoSansJP = Noto_Sans_JP({
   variable: "--font-noto-sans-jp",
   subsets: ["latin"],
   display: "swap",
 });
 
-// ★ スマホでの表示領域とステータスバーの色を設定
+// ★ 数字・等幅用：クセがなく読みやすい王道フォント
+const robotoMono = Roboto_Mono({
+  variable: "--font-roboto-mono",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+// スマホのステータスバーを背景色（イソップ風）に合わせる
 export const viewport: Viewport = {
-  themeColor: '#fffef2', // イソップ風の背景色に合わせて変更
+  themeColor: '#fffef2',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1, // ユーザーの誤タップによる拡大縮小を防ぐ
+  maximumScale: 1,
 }
 
-// ★ アプリ化のための必須設定
 export const metadata: Metadata = {
   title: 'Duacel',
   description: 'Duacel 紹介プログラム',
-  manifest: '/manifest.webmanifest', // ★ PWA用にマニフェストを追加
+  manifest: '/manifest.webmanifest',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
@@ -47,10 +53,10 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="ja" // ★ en から ja に変更
-      className={`${inter.variable} ${notoSansJP.variable} h-full antialiased`}
+      lang="ja"
+      // ★ 3つのフォント変数をすべて適用
+      className={`${inter.variable} ${notoSansJP.variable} ${robotoMono.variable} h-full antialiased`}
     >
-      {/* ★ デフォルトの背景色と文字色、フォントを指定 */}
       <body className="min-h-full flex flex-col bg-[#fffef2] text-[#333333] font-sans">
         {children}
       </body>
