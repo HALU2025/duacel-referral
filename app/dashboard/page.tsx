@@ -30,7 +30,7 @@ export default function OwnerDashboard() {
   const [activeTab, setActiveTab] = useState<'stats' | 'staff' | 'info' | 'shop' | 'settings'>('stats')
   const [loading, setLoading] = useState(true)
   const [isUnlocked, setIsUnlocked] = useState(false)
-  const [showRoleError, setShowRoleError] = useState(false) // ★ Adminセッション検知用
+  const [showRoleError, setShowRoleError] = useState(false) 
 
   // データ状態
   const [shop, setShop] = useState<any>(null)
@@ -98,6 +98,7 @@ export default function OwnerDashboard() {
       owner: shopData.ratio_owner ?? 0 
     }
     setRatios(currentRatios)
+    setSelectedPattern(getPatternFromRatios(currentRatios.individual, currentRatios.team, currentRatios.owner))
     
     // 4. スタッフ・成果・取引データの取得
     const [staffRes, refRes, txRes] = await Promise.all([
@@ -111,7 +112,7 @@ export default function OwnerDashboard() {
     const pointLogs = txRes.data || []
     const eligibleStaffCount = staffList.filter(s => s.is_team_pool_eligible !== false).length || 1
 
-    // 5. 統計・履歴の加工（マイページと共通のロジック）
+    // 5. 統計・履歴の加工
     const rewardPoints = shopData.shop_categories?.reward_points || 0
     const firstBonusEnabled = shopData.shop_categories?.first_bonus_enabled || false
     const firstBonusPoints = shopData.shop_categories?.first_bonus_points || 0
@@ -120,7 +121,6 @@ export default function OwnerDashboard() {
     let storeGen = 0, storeInd = 0, storeTeam = 0, storeOwn = 0, pendPts = 0, pendCount = 0
     
     const enrichedReferrals = referralLogs.map((log, index) => {
-      const isMine = log.staff_id === staffList.find(s => s.email === shopData.owner_email)?.id
       const isCanceled = log.status === 'cancel'
       const isPending = log.status === 'pending'
       
@@ -179,7 +179,27 @@ export default function OwnerDashboard() {
 
   useEffect(() => { loadData() }, [])
 
-  // アクション類
+  const getPatternFromRatios = (ind: number, team: number, owner: number) => {
+    const match = POLICY_PATTERNS.find(p => p.ratios && p.ratios.individual === ind && p.ratios.team === team && p.ratios.owner === owner)
+    return match ? match.id : 'custom'
+  }
+
+  const handlePatternSelect = (id: string) => {
+    setSelectedPattern(id)
+    const pattern = POLICY_PATTERNS.find(p => p.id === id)
+    if (pattern && pattern.ratios) setRatios(pattern.ratios)
+  }
+
+  const handleSliderChange = (key: 'individual' | 'team', value: number) => {
+    setSelectedPattern('custom')
+    setRatios(prev => {
+      let nextInd = key === 'individual' ? value : prev.individual;
+      let nextTeam = key === 'team' ? value : prev.team;
+      if (nextInd + nextTeam > 100) { if (key === 'individual') nextTeam = 100 - nextInd; else nextInd = 100 - nextTeam; }
+      return { individual: nextInd, team: nextTeam, owner: 100 - (nextInd + nextTeam) }
+    });
+  };
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.replace('/verify')
@@ -215,10 +235,20 @@ export default function OwnerDashboard() {
     setIsUpdatingAuth(false)
   }
 
-  const handleToggleTeam = async (s: any) => {
-    const newVal = s.is_team_pool_eligible === false ? true : false
-    const { error } = await supabase.from('staffs').update({ is_team_pool_eligible: newVal }).eq('id', s.id)
-    if (!error) loadData(true)
+  const handleToggleTeam = async () => {
+    if (!detailStaff) return;
+    const newVal = detailStaff.is_team_pool_eligible === false ? true : false
+    const { error } = await supabase.from('staffs').update({ is_team_pool_eligible: newVal }).eq('id', detailStaff.id)
+    if (!error) {
+      setDetailStaff({ ...detailStaff, is_team_pool_eligible: newVal })
+      loadData(true)
+    }
+  }
+
+  const handleDeleteStaff = async (staffId: string, staffName: string) => {
+    if (!confirm(`スタッフ「${staffName}」を非表示にしますか？`)) return
+    await supabase.from('staffs').update({ is_deleted: true }).eq('id', staffId)
+    setDetailStaff(null); await loadData(true)
   }
 
   const formatDateYMD = (iso: string) => {
@@ -229,6 +259,64 @@ export default function OwnerDashboard() {
   const inviteUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/reg/${shop?.invite_token}`
   const inviteText = `【${shop?.name}】紹介パートナー登録URLです。\n${inviteUrl}`
 
+  // ★ 削除してしまっていた policyEditorJSX 変数を復元
+  const policyEditorJSX = (
+    <div className="space-y-4 mb-8">
+      <div className="grid grid-cols-1 gap-2">
+        {POLICY_PATTERNS.map(pattern => (
+          <button 
+            key={pattern.id} onClick={() => handlePatternSelect(pattern.id)}
+            className={`flex items-center gap-3 p-4 border transition-all duration-200 outline-none ${selectedPattern === pattern.id ? 'bg-[#f5f2e6] border-[#1a1a1a]' : 'bg-[#fffef2] border-[#e6e2d3]'}`}
+          >
+            <div className={`flex-1 flex flex-col justify-center text-left ${selectedPattern === pattern.id ? 'text-[#1a1a1a]' : 'text-[#666666]'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span>{pattern.icon}</span>
+                <h4 className="text-sm font-bold">{pattern.label}</h4>
+              </div>
+              <p className="text-[11px] opacity-80">{pattern.desc}</p>
+            </div>
+            {selectedPattern === pattern.id && <CheckCircle2 className="w-5 h-5 text-[#1a1a1a] shrink-0" />}
+          </button>
+        ))}
+      </div>
+
+      <AnimatePresence>
+        {selectedPattern === 'custom' && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="p-5 bg-[#f5f2e6] border border-[#e6e2d3] space-y-6 overflow-hidden">
+            <div>
+              <div className="flex justify-between items-end mb-2">
+                <label className="text-[11px] text-[#666666]">本人へ還元</label>
+                <span className="text-lg font-mono text-[#1a1a1a]">{ratios.individual}%</span>
+              </div>
+              <input type="range" min="0" max="100" step="5" value={ratios.individual} onChange={(e) => handleSliderChange('individual', parseInt(e.target.value))} className="w-full h-1.5 bg-[#e6e2d3] appearance-none accent-[#1a1a1a]" />
+            </div>
+            <div>
+              <div className="flex justify-between items-end mb-2">
+                <label className="text-[11px] text-[#666666]">チーム分配</label>
+                <span className="text-lg font-mono text-[#1a1a1a]">{ratios.team}%</span>
+              </div>
+              <input type="range" min="0" max="100" step="5" value={ratios.team} onChange={(e) => handleSliderChange('team', parseInt(e.target.value))} className="w-full h-1.5 bg-[#e6e2d3] appearance-none accent-[#1a1a1a]" />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="p-5 bg-[#fffef2] border border-[#e6e2d3] flex flex-col gap-3">
+        <p className="text-[11px] text-[#666666]">変更後の分配シミュレーション</p>
+        <div className="flex h-2.5 w-full overflow-hidden bg-[#e6e2d3]">
+          <div style={{width: `${ratios.individual}%`}} className="bg-[#1a1a1a] transition-all duration-300" />
+          <div style={{width: `${ratios.team}%`}} className="bg-[#666666] transition-all duration-300" />
+          <div style={{width: `${ratios.owner}%`}} className="bg-[#999999] transition-all duration-300" />
+        </div>
+        <div className="flex justify-between text-[11px] mt-1 text-[#666666]">
+          <span className="flex items-center gap-1"><User className="w-3 h-3"/> 本人 {ratios.individual}%</span>
+          <span className="flex items-center gap-1"><Handshake className="w-3 h-3"/> チーム {ratios.team}%</span>
+          <span className="flex items-center gap-1"><Store className="w-3 h-3"/> 店舗 {ratios.owner}%</span>
+        </div>
+      </div>
+    </div>
+  )
+
   // ==========================================
   // レンダー
   // ==========================================
@@ -237,16 +325,16 @@ export default function OwnerDashboard() {
 
   // ★ 権限エラー画面 (Adminが来た時)
   if (showRoleError) return (
-    <div className="fixed inset-0 bg-[#fffef2] flex items-center justify-center p-8 text-center font-sans">
+    <div className="fixed inset-0 bg-[#fffef2] flex items-center justify-center p-8 text-center font-sans text-[#333333]">
       <div className="max-w-xs space-y-6">
-        <ShieldAlert className="w-12 h-12 text-[#a24343] mx-auto" strokeWidth={1.5} />
+        <ShieldAlert className="w-12 h-12 text-[#8a3c3c] mx-auto" strokeWidth={1.5} />
         <h1 className="text-lg font-bold text-[#1a1a1a]">⚠️ 権限エラー</h1>
-        <p className="text-sm text-[#666666] leading-relaxed">
+        <p className="text-[11px] text-[#666666] leading-relaxed">
           現在、システム管理者（Admin）としてログインしています。<br/><br/>
-          店舗オーナー用の画面にアクセスするには、一度ログアウトして電話番号でログインし直してください。
+          店舗オーナー用の画面にアクセスするには、一度ログアウトして電話番号でご本人確認をやり直してください。
         </p>
-        <button onClick={handleLogout} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm font-bold tracking-widest active:scale-[0.98] transition-all">
-          ログアウトしてログイン画面へ
+        <button onClick={handleLogout} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-[11px] tracking-widest active:scale-[0.98] transition-all">
+          ログアウトして認証画面へ
         </button>
       </div>
     </div>
@@ -458,26 +546,24 @@ export default function OwnerDashboard() {
             { id: 'shop', icon: <Store className="w-6 h-6" strokeWidth={1.5} />, label: 'SHOP' },
             { id: 'settings', icon: <Settings className="w-6 h-6" strokeWidth={1.5} />, label: 'SETTING' },
           ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center justify-center flex-1 gap-1.5 transition-colors ${activeTab === tab.id ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
-              {tab.icon}
-              <span className="text-[11px] tracking-wider font-medium">{tab.label}</span>
+            <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex flex-col items-center justify-center flex-1 py-2 gap-1 transition-colors ${activeTab === tab.id ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
+              <div className={`transition-transform duration-200 ${activeTab === tab.id ? 'scale-110' : 'scale-100'}`}>{tab.icon}</div>
+              <span className="text-[11px] tracking-wider">{tab.label}</span>
             </button>
           ))}
         </nav>
 
-        {/* ==========================================
-            MODALS
-        ========================================== */}
+        {/* モーダル群 */}
         <AnimatePresence>
           {/* 分配ポリシーモーダル */}
           {isPolicyModalOpen && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
-              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
                 <button onClick={() => setIsPolicyModalOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
                 <h3 className="text-base text-[#1a1a1a] mb-6 font-bold flex items-center gap-2"><Percent className="w-5 h-5" /> 分配ポリシーの変更</h3>
                 {policyEditorJSX}
                 <button onClick={handleSavePolicy} disabled={isSavingPolicy} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm uppercase tracking-widest font-bold active:scale-[0.98] transition-all flex justify-center items-center gap-2">
-                  {isSavingPolicy ? <Loader2 className="w-5 h-5 animate-spin"/> : "設定を保存する"}
+                  {isSavingPolicy ? <Loader2 className="w-5 h-5 animate-spin mx-auto"/> : "設定を保存する"}
                 </button>
               </motion.div>
             </motion.div>
@@ -497,7 +583,7 @@ export default function OwnerDashboard() {
                 <p className="text-[11px] text-[#666666] text-center leading-relaxed mb-8">
                   スタッフのカメラで読み取ると、<br/>紹介パートナー登録画面が開きます。
                 </p>
-                <button onClick={() => setIsQRModalOpen(false)} className="w-full py-4 bg-[#f5f2e6] text-[#333333] text-sm font-bold active:scale-[0.98]">閉じる</button>
+                <button onClick={() => setIsQRModalOpen(false)} className="w-full py-4 bg-[#f5f2e6] text-[#333333] text-sm font-bold transition-all active:scale-[0.98]">閉じる</button>
               </motion.div>
             </motion.div>
           )}
@@ -516,13 +602,19 @@ export default function OwnerDashboard() {
                     <h4 className="text-sm font-bold text-[#1a1a1a] mb-1">チーム分配の対象にする</h4>
                     <p className="text-[11px] text-[#666666]">店舗のチーム売上から分配を受け取る権利</p>
                   </div>
-                  <button onClick={() => handleToggleTeam(detailStaff)} className="transition-transform active:scale-90 ml-4">
+                  <button onClick={handleToggleTeam} className="transition-transform active:scale-90 ml-4">
                     {detailStaff.is_team_pool_eligible !== false ? (
                       <ToggleRight className="w-10 h-10 text-[#1a1a1a]" strokeWidth={1.5} />
                     ) : (
                       <ToggleLeft className="w-10 h-10 text-[#999999]" strokeWidth={1.5} />
                     )}
                   </button>
+                </div>
+
+                <div className="flex justify-center mb-8">
+                  <div className="p-4 bg-white border border-[#e6e2d3]">
+                    <QRCodeCanvas value={`${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${detailStaff.referral_code || ''}`} size={140} level="H" fgColor="#1a1a1a" />
+                  </div>
                 </div>
 
                 <div className="space-y-3 mb-8">
@@ -534,14 +626,15 @@ export default function OwnerDashboard() {
                   </button>
                 </div>
 
-                {detailStaff.email !== shop?.owner_email && (
-                  <button onClick={() => { if(confirm('スタッフを削除しますか？')) alert('削除機能（物理削除/論理削除）の実装が必要です'); }} className="w-full py-4 border border-[#fcf0f0] text-[#8a3c3c] text-[11px] uppercase font-bold tracking-widest flex items-center justify-center gap-2 hover:bg-[#fcf0f0]">
-                    <Trash2 className="w-4 h-4" /> メンバーを削除
+                {!detailStaff.isOwner && (
+                  <button onClick={() => handleDeleteStaff(detailStaff.id, detailStaff.name)} className="w-full py-4 border border-[#fcf0f0] text-[#8a3c3c] text-[11px] uppercase font-bold tracking-widest flex items-center justify-center gap-2 hover:bg-[#fcf0f0] transition">
+                    <Trash2 className="w-4 h-4" /> アカウントを削除
                   </button>
                 )}
               </motion.div>
             </motion.div>
           )}
+
         </AnimatePresence>
       </div>
     </div>
