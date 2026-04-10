@@ -12,7 +12,7 @@ import {
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
   Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList,
-  Edit3, Award
+  Edit3, Award, ExternalLink // ★ ExternalLinkを追加
 } from 'lucide-react'
 
 export default function MemberMagicPage() {
@@ -22,7 +22,6 @@ export default function MemberMagicPage() {
 
   const [loading, setLoading] = useState(true)
   
-  // セッション管理
   const [isUnlocked, setIsUnlocked] = useState(false)
   const [pin, setPin] = useState(['', '', '', '']) 
   const [pinError, setPinError] = useState(false)
@@ -38,16 +37,13 @@ export default function MemberMagicPage() {
   const [isResetting, setIsResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{success?: boolean, message: string} | null>(null)
 
-  // メインコンテンツ用ステート
   const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'qr' | 'info' | 'settings'>('qr')
   const [staff, setStaff] = useState<any>(null)
   const [shop, setShop] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [summary, setSummary] = useState({ total: 0, pending: 0, confirmed: 0, paid: 0 })
-
   const [copied, setCopied] = useState(false)
   
-  // プロフィール・PIN編集用ステート
   const [isEditMode, setIsEditMode] = useState(false) 
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
@@ -56,7 +52,6 @@ export default function MemberMagicPage() {
   const [profileError, setProfileError] = useState('')       
   const [isSaving, setIsSaving] = useState(false)
 
-  // モーダル制御用ステート
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false)
   const [exchangeType, setExchangeType] = useState<'all' | 'custom'>('all')
   const [exchangeAmount, setExchangeAmount] = useState('')
@@ -67,15 +62,12 @@ export default function MemberMagicPage() {
   const [shareTarget, setShareTarget] = useState<'line' | 'email'>('line')
   const [shareMessage, setShareMessage] = useState('')
 
-  // バッジ説明用モーダル
   const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false)
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false)
 
-  // 未読CV（ポップアップ）用ステート
   const [unreadReferrals, setUnreadReferrals] = useState<any[]>([])
   const [currentUnreadIndex, setCurrentUnreadIndex] = useState(0)
 
-  // SHOP（仕入れ）用ダミーデータ
   const MOCK_PRODUCTS = [
     { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-6 h-6 text-[#999999]" />, desc: 'お客様への店販用に最適なスカルプセラムです。店内でのお試し用にもご利用いただけます。' },
     { id: 2, name: '専用導入機器 (Proモデル)', price: 45000, ptPrice: 42000, icon: <ShieldCheck className="w-6 h-6 text-[#999999]" />, desc: 'サロンでの本格的な施術に使用する専用機器です。保証期間1年付き。' },
@@ -331,9 +323,6 @@ export default function MemberMagicPage() {
     return `${d.toLocaleDateString('ja-JP')} ${d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
   }
 
-  // ==========================================
-  // レンダー
-  // ==========================================
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2]"><Loader2 className="w-8 h-8 animate-spin text-[#1a1a1a]" /></div>
   if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2] text-[#666666] text-base">ページが見つかりません。</div>
 
@@ -341,9 +330,6 @@ export default function MemberMagicPage() {
     <div className="fixed inset-0 bg-[#fffef2] flex justify-center font-sans text-[#333333] overflow-hidden selection:bg-[#e6e2d3] selection:text-[#333333]">
       <div className="w-full max-w-md bg-[#fffef2] h-full relative shadow-sm border-x border-[#e6e2d3] flex flex-col overflow-hidden">
       
-        {/* ==========================================
-            LOCK SCREEN
-        ========================================== */}
         {!isUnlocked ? (
           <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center p-6 bg-[#fffef2]">
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
@@ -391,11 +377,7 @@ export default function MemberMagicPage() {
           </div>
         ) : (
           <>
-            {/* ==========================================
-                MAIN APP HEADER
-            ========================================== */}
             <header className="px-6 pt-safe-top pb-4 pt-6 flex items-start justify-between border-b border-[#e6e2d3] bg-[#fffef2]/90 backdrop-blur-md z-20 shrink-0">
-              {/* 左：店舗情報 */}
               <div className="flex flex-col items-start gap-2">
                 <h1 className="text-base text-[#1a1a1a] font-bold">{shop?.name}</h1>
                 {shop?.shop_categories?.label && (
@@ -405,7 +387,6 @@ export default function MemberMagicPage() {
                 )}
               </div>
               
-              {/* 右：ユーザー情報 */}
               <div className="flex flex-col items-end gap-2 text-right">
                 <div className="flex items-baseline gap-1">
                   <span className="text-[11px] text-[#999999] tracking-wider font-inter">NAME:</span>
@@ -436,12 +417,12 @@ export default function MemberMagicPage() {
                       
                       {/* ★ オーナー専用 管理ダッシュボードボタン */}
                       {isOwner && (
-                        <button onClick={() => router.push('/admin')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
-                          <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
+                        <button onClick={() => window.open('/dashboard', '_blank')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
+                          <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
                         </button>
                       )}
 
-                      {/* ★ メインウォレット (通常の枠組みに戻す) */}
+                      {/* メインウォレット */}
                       <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
@@ -452,17 +433,17 @@ export default function MemberMagicPage() {
                         </div>
                       </div>
 
-                      {/* 確定待ち (左寄せ、時計アイコン削除、上のスペース狭め、＋マーク削除) */}
+                      {/* 確定待ち */}
                       <div className="bg-transparent border-b border-[#e6e2d3] pb-3 pt-2 flex items-center justify-between">
                         <p className="text-xs text-[#666666] tracking-wider">確定待ち（仮計上）</p>
                         <p className="text-lg font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-[11px] ml-1 text-[#999999]">pt</span></p>
                       </div>
 
-                      {/* 紹介履歴 (報酬未確定) - フルワイド、一番上だけborder-t */}
+                      {/* 紹介履歴 (報酬未確定) */}
                       {pendingReferrals.length > 0 && (
                         <div className="pt-2">
                           <h2 className="text-sm text-[#1a1a1a] mb-1">紹介履歴（報酬未確定）</h2>
-                          <p className="text-[11px] text-[#666666] mb-4">商品のお届け完了後にポイントが発行されます。</p>
+                          <p className="text-[11px] text-[#666666] mb-4">商品のお届け完了後に報酬が確定します。</p>
                           <div className="space-y-0">
                             {pendingReferrals.map((item) => (
                               <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-transparent border-b border-[#e6e2d3] first:border-t py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
@@ -491,7 +472,7 @@ export default function MemberMagicPage() {
                         </div>
                       )}
 
-                      {/* ポイント獲得履歴 - フルワイド、一番上だけborder-t */}
+                      {/* ポイント獲得履歴 */}
                       <div className="pt-2">
                         <h2 className="text-sm text-[#1a1a1a] mb-4">ポイント獲得履歴</h2>
                         <div className="space-y-0">
@@ -577,20 +558,16 @@ export default function MemberMagicPage() {
                     </div>
                   )}
 
-                  {/* 📱 TAB 3: QRコード (メイン・プレゼン画面化) */}
+                  {/* 📱 TAB 3: QRコード */}
                   {activeTab === 'qr' && (
                     <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2">
-                      {/* プレゼン用ヘッダーテキスト */}
                       <div className="w-full text-center mb-6">
                         <h2 className="text-3xl font-black font-inter tracking-normal text-[#1a1a1a] mb-2">Duacel<sup className="text-lg font-medium -ml-0.5">®</sup></h2>
                         <p className="text-sm text-[#666666] tracking-widest font-bold">{shop?.name}</p>
                         <p className="text-sm text-[#1a1a1a] tracking-widest mt-1">{staff.name} のご紹介</p>
                       </div>
 
-                      {/* 全体を包含するプレゼンカード */}
                       <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8 overflow-hidden">
-                        
-                        {/* ★ 画像配置エリア */}
                         <div className="w-full aspect-[4/3] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
                           <img src="/qr-hero.jpg" alt="Duacel Benefit" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                           <div className="absolute inset-0 flex items-center justify-center text-[#999999] text-xs -z-10">
@@ -598,7 +575,6 @@ export default function MemberMagicPage() {
                           </div>
                         </div>
 
-                        {/* QRとアクションボタン群 */}
                         <div className="w-full p-8 flex flex-col items-center">
                           <div className="p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6">
                             <QRCodeCanvas value={referralUrl} size={180} level={"H"} fgColor="#1a1a1a" />
@@ -708,7 +684,6 @@ export default function MemberMagicPage() {
                           {isEditMode && (
                             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-6 border-t border-[#e6e2d3]">
                               {profileError && (<div className="mb-4 text-xs text-[#8a3c3c]">{profileError}</div>)}
-                              {/* ★ Primary Action (スミベタ) */}
                               <button onClick={handleSaveProfile} disabled={isSaving} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest disabled:opacity-50 transition-all active:scale-[0.98]">
                                 {isSaving ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'SAVE CHANGES'}
                               </button>
@@ -717,17 +692,15 @@ export default function MemberMagicPage() {
                         </AnimatePresence>
                       </div>
                       
+                      {/* ★ オーナー専用ボタン (スミベタ) */}
                       {isOwner && (
-                        <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-6">
-                          <p className="text-sm text-[#333333] mb-4">オーナー専用メニュー</p>
-                          {/* ★ オーナー専用ボタン (スミベタ) */}
-                          <button onClick={() => router.push('/admin')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm transition active:scale-[0.98] flex items-center justify-center gap-2 px-6">
-                            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
+                        <div className="bg-transparent pb-2">
+                          <button onClick={() => window.open('/dashboard', '_blank')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
                           </button>
                         </div>
                       )}
 
-                      {/* アプリ仕様：ログアウトボタンを一番下に配置 */}
                       <div className="pt-4">
                         <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] bg-[#fffef2] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
                           <LogOut className="w-4 h-4" /> ログアウトする
@@ -741,7 +714,7 @@ export default function MemberMagicPage() {
             </main>
 
             {/* ==========================================
-                BOTTOM NAVIGATION (漆黒のスミベタベース)
+                BOTTOM NAVIGATION
             ========================================== */}
             <nav className="bg-[#1a1a1a] px-2 py-4 flex justify-between items-center z-50 pb-safe relative shrink-0">
               <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'stats' ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
@@ -792,7 +765,6 @@ export default function MemberMagicPage() {
                       <Edit3 className="absolute right-4 bottom-4 w-4 h-4 text-[#999999] pointer-events-none" />
                     </div>
 
-                    {/* ★ Primary Action (スミベタ) */}
                     <button onClick={handleExecuteShare} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                       <Send className="w-4 h-4" strokeWidth={1.5} /> 送信する
                     </button>
@@ -930,14 +902,13 @@ export default function MemberMagicPage() {
                         <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-5 mb-8 flex justify-between items-end">
                           <div>
                             <p className="text-xs text-[#999999] mb-1 line-through">通常価格: ¥{selectedDetail.data.price.toLocaleString()}</p>
-                            <p className="text-xs text-[#666666] tracking-wider uppercase">交換必要ポイント</p>
+                            <p className="text-[11px] text-[#666666] tracking-wider uppercase">交換必要ポイント</p>
                           </div>
                           <p className="text-2xl font-sans tabular-nums text-[#1a1a1a]">
                             {selectedDetail.data.ptPrice.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
                           </p>
                         </div>
                         
-                        {/* ★ Primary Action (スミベタ) */}
                         <button 
                           onClick={() => {
                             alert('※ 購入フローへ遷移します');
@@ -978,8 +949,8 @@ export default function MemberMagicPage() {
                       </ul>
                     </div>
                     
-                    <button onClick={() => { setIsOwnerModalOpen(false); router.push('/admin'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-                      <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
+                    <button onClick={() => { setIsOwnerModalOpen(false); window.open('/dashboard', '_blank'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                      <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
                     </button>
                   </motion.div>
                 </motion.div>
@@ -1006,8 +977,8 @@ export default function MemberMagicPage() {
                     </div>
                     
                     {isOwner ? (
-                      <button onClick={() => { setIsTeamModalOpen(false); router.push('/admin'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-                        分配率を設定する（管理画面）
+                      <button onClick={() => { setIsTeamModalOpen(false); window.open('/dashboard', '_blank'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                        分配率を設定する <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
                       </button>
                     ) : (
                       <button onClick={() => setIsTeamModalOpen(false)} className="w-full py-5 bg-[#f5f2e6] border border-[#e6e2d3] text-[#333333] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
@@ -1053,7 +1024,7 @@ export default function MemberMagicPage() {
                     </div>
 
                     <p className="text-[11px] text-[#666666] text-center mb-6 leading-relaxed">
-                      商品のお届け完了後にポイントが確定します。
+                      商品のお届け完了後に報酬が確定します。
                     </p>
 
                     <button onClick={handleCloseUnread} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest active:scale-[0.98] transition-all flex justify-center items-center">
