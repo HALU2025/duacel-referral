@@ -71,7 +71,7 @@ export default function MemberMagicPage() {
   const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false)
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false)
 
-  // ★ 未読CV（ポップアップ）用ステート
+  // 未読CV（ポップアップ）用ステート
   const [unreadReferrals, setUnreadReferrals] = useState<any[]>([])
   const [currentUnreadIndex, setCurrentUnreadIndex] = useState(0)
 
@@ -187,7 +187,6 @@ export default function MemberMagicPage() {
     setHistory(finalHistory)
     setSummary({ total: sTotal + sConfirmed, pending: sPending, confirmed: sConfirmed, paid: sPaid })
     
-    // ★ 未読CVのチェック
     if (typeof window !== 'undefined') {
       const localSeen = JSON.parse(localStorage.getItem(`seen_referrals_${magicToken}`) || '[]');
       const newUnreads = finalHistory.filter(r => r.status === 'pending' && !localSeen.includes(r.id));
@@ -297,7 +296,6 @@ export default function MemberMagicPage() {
     setIsShareModalOpen(false)
   }
 
-  // ★ 未読CVポップアップを閉じて次へ
   const handleCloseUnread = () => {
     const current = unreadReferrals[currentUnreadIndex];
     const localSeen = JSON.parse(localStorage.getItem(`seen_referrals_${magicToken}`) || '[]');
@@ -401,7 +399,7 @@ export default function MemberMagicPage() {
               <div className="flex flex-col items-start gap-2">
                 <h1 className="text-base text-[#1a1a1a] font-bold">{shop?.name}</h1>
                 {shop?.shop_categories?.label && (
-                  <span className="px-2 py-1 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider flex items-center gap-1">
+                  <span className="px-2 py-1 text-[11px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider flex items-center gap-1">
                     <Award className="w-3 h-3" /> {shop.shop_categories.label}
                   </span>
                 )}
@@ -410,17 +408,17 @@ export default function MemberMagicPage() {
               {/* 右：ユーザー情報 */}
               <div className="flex flex-col items-end gap-2 text-right">
                 <div className="flex items-baseline gap-1">
-                  <span className="text-[10px] text-[#999999] tracking-wider font-inter">NAME:</span>
+                  <span className="text-[11px] text-[#999999] tracking-wider font-inter">NAME:</span>
                   <h1 className="text-base text-[#1a1a1a]">{staff.name}</h1>
                 </div>
                 <div className="flex items-center gap-2">
                   {isOwner && (
-                    <button onClick={() => setIsOwnerModalOpen(true)} className="px-2 py-1 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1 active:scale-95 transition-transform">
+                    <button onClick={() => setIsOwnerModalOpen(true)} className="px-2 py-1 text-[11px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1 active:scale-95 transition-transform">
                       <Crown className="w-3 h-3"/> Owner
                     </button>
                   )}
                   {staff.is_team_pool_eligible !== false && (
-                    <button onClick={() => setIsTeamModalOpen(true)} className="px-2 py-1 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1 active:scale-95 transition-transform">
+                    <button onClick={() => setIsTeamModalOpen(true)} className="px-2 py-1 text-[11px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1 active:scale-95 transition-transform">
                       <Handshake className="w-3 h-3"/> Team
                     </button>
                   )}
@@ -434,11 +432,11 @@ export default function MemberMagicPage() {
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
-                    <div className="max-w-md mx-auto space-y-6">
+                    <div className="max-w-md mx-auto space-y-8">
                       
-                      {/* ★ オーナー専用 管理ダッシュボードボタン (上部に配置) */}
+                      {/* ★ オーナー専用 管理ダッシュボードボタン */}
                       {isOwner && (
-                        <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                        <button onClick={() => router.push('/admin')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
                           <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
                         </button>
                       )}
@@ -454,24 +452,24 @@ export default function MemberMagicPage() {
                         </div>
                       </div>
 
-                      {/* 確定待ち (左寄せ、時計アイコン削除、上のスペース狭め) */}
+                      {/* 確定待ち (左寄せ、時計アイコン削除、上のスペース狭め、＋マーク削除) */}
                       <div className="bg-transparent border-b border-[#e6e2d3] pb-3 pt-2 flex items-center justify-between">
                         <p className="text-xs text-[#666666] tracking-wider">確定待ち（仮計上）</p>
-                        <p className="text-lg font-sans tabular-nums tracking-tight text-[#333333]">+{summary.pending.toLocaleString()}<span className="text-[10px] ml-1 text-[#999999]">pt</span></p>
+                        <p className="text-lg font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-[11px] ml-1 text-[#999999]">pt</span></p>
                       </div>
 
                       {/* 紹介履歴 (報酬未確定) - フルワイド、一番上だけborder-t */}
                       {pendingReferrals.length > 0 && (
                         <div className="pt-2">
                           <h2 className="text-sm text-[#1a1a1a] mb-1">紹介履歴（報酬未確定）</h2>
-                          <p className="text-[10px] text-[#666666] mb-4">商品のお届け完了後にポイントが発行されます。</p>
+                          <p className="text-[11px] text-[#666666] mb-4">商品のお届け完了後にポイントが発行されます。</p>
                           <div className="space-y-0">
                             {pendingReferrals.map((item) => (
                               <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-transparent border-b border-[#e6e2d3] first:border-t py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
                                 <div className="flex items-start gap-3 flex-1">
                                   <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-1">
                                     <span className="text-xs text-[#999999] tabular-nums leading-none">{formatDateYMD(item.created_at)}</span>
-                                    <span className="text-xs bg-[#a24343] text-[#fffef2] border border-[#a24343] px-1 py-1 text-center leading-none">仮計上</span>
+                                    <span className="text-[11px] bg-[#a24343] text-[#fffef2] border border-[#a24343] px-1 py-1 text-center leading-none">仮計上</span>
                                   </div>
                                   <div className="flex-1 flex flex-col">
                                     <p className="text-sm text-[#333333] mb-1 leading-snug">
@@ -480,9 +478,12 @@ export default function MemberMagicPage() {
                                     <p className="text-sm text-[#666666]">担当: {item.staffName}</p>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0 pl-2">
-                                  <p className="text-lg font-sans tabular-nums text-[#1a1a1a]">+{item.staffVisibleTotal?.toLocaleString()} <span className="text-[10px] text-[#999999]">pt</span></p>
-                                  <ChevronRight className="w-4 h-4 text-[#999999]" />
+                                <div className="flex flex-col items-end shrink-0 pl-2">
+                                  <span className="text-[11px] text-[#999999] mb-1">獲得予定ポイント</span>
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-lg font-sans tabular-nums text-[#1a1a1a]">{item.staffVisibleTotal?.toLocaleString()} <span className="text-[11px] text-[#999999]">pt</span></p>
+                                    <ChevronRight className="w-4 h-4 text-[#999999]" />
+                                  </div>
                                 </div>
                               </button>
                             ))}
@@ -508,9 +509,9 @@ export default function MemberMagicPage() {
                                     <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-1">
                                       <span className="text-xs text-[#999999] tabular-nums leading-none">{formatDateYMD(item.created_at)}</span>
                                       {isCanceled ? (
-                                        <span className="text-xs bg-[#dddddd] text-[#616161] border border-[#cbcbcb] px-1 py-1 text-center leading-none">無効</span>
+                                        <span className="text-[11px] bg-[#dddddd] text-[#616161] border border-[#cbcbcb] px-1 py-1 text-center leading-none">無効</span>
                                       ) : (
-                                        <span className="text-xs bg-[#daebd8] text-[#488c3d] border border-[#94d986] px-1 py-1 text-center leading-none">報酬確定</span>
+                                        <span className="text-[11px] bg-[#577859] text-[#fffef2] border border-[#577859] px-1 py-1 text-center leading-none">報酬確定</span>
                                       )}
                                     </div>
                                     <div className="flex-1 flex flex-col">
@@ -520,11 +521,14 @@ export default function MemberMagicPage() {
                                       <p className="text-sm text-[#666666]">担当: {item.staffName}</p>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2 shrink-0 pl-2">
-                                    <p className={`text-lg font-sans tabular-nums ${isCanceled ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
-                                      +{item.totalPt.toLocaleString()} <span className="text-[10px] text-[#999999]">pt</span>
-                                    </p>
-                                    <ChevronRight className="w-4 h-4 text-[#999999]" />
+                                  <div className="flex flex-col items-end shrink-0 pl-2">
+                                    <span className="text-[11px] text-[#999999] mb-1">報酬確定ポイント</span>
+                                    <div className="flex items-center gap-2">
+                                      <p className={`text-lg font-sans tabular-nums ${isCanceled ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
+                                        +{item.totalPt.toLocaleString()} <span className="text-[11px] text-[#999999]">pt</span>
+                                      </p>
+                                      <ChevronRight className="w-4 h-4 text-[#999999]" />
+                                    </div>
                                   </div>
                                 </button>
                               )
@@ -660,16 +664,6 @@ export default function MemberMagicPage() {
                   {/* ⚙️ TAB 5: 設定 (Settings) */}
                   {activeTab === 'settings' && (
                     <div className="max-w-md mx-auto space-y-8 pb-10">
-                      
-                      {/* ★ オーナー専用 管理ダッシュボードボタン */}
-                      {isOwner && (
-                        <div className="bg-transparent pb-2">
-                          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
-                            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
-                          </button>
-                        </div>
-                      )}
-
                       <div className="flex justify-between items-center">
                         <p className="text-sm text-[#666666] tracking-wider">アカウント情報</p>
                         {!isOwner && (
@@ -722,6 +716,16 @@ export default function MemberMagicPage() {
                           )}
                         </AnimatePresence>
                       </div>
+                      
+                      {isOwner && (
+                        <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-6">
+                          <p className="text-sm text-[#333333] mb-4">オーナー専用メニュー</p>
+                          {/* ★ オーナー専用ボタン (スミベタ) */}
+                          <button onClick={() => router.push('/admin')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm transition active:scale-[0.98] flex items-center justify-center gap-2 px-6">
+                            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
+                          </button>
+                        </div>
+                      )}
 
                       {/* アプリ仕様：ログアウトボタンを一番下に配置 */}
                       <div className="pt-4">
@@ -742,12 +746,12 @@ export default function MemberMagicPage() {
             <nav className="bg-[#1a1a1a] px-2 py-4 flex justify-between items-center z-50 pb-safe relative shrink-0">
               <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'stats' ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
                 <Wallet className="w-6 h-6" strokeWidth={1.5} />
-                <span className="text-[10px] tracking-wider">STATS</span>
+                <span className="text-[11px] tracking-wider">STATS</span>
               </button>
               
               <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'shop' ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
                 <Store className="w-6 h-6" strokeWidth={1.5} />
-                <span className="text-[10px] tracking-wider">SHOP</span>
+                <span className="text-[11px] tracking-wider">SHOP</span>
               </button>
 
               <div className="px-4 flex-shrink-0 z-50 -mt-6">
@@ -758,12 +762,12 @@ export default function MemberMagicPage() {
 
               <button onClick={() => setActiveTab('info')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'info' ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
                 <BookOpen className="w-6 h-6" strokeWidth={1.5} />
-                <span className="text-[10px] tracking-wider">INFO</span>
+                <span className="text-[11px] tracking-wider">INFO</span>
               </button>
 
               <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'settings' ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
                 <Settings className="w-6 h-6" strokeWidth={1.5} />
-                <span className="text-[10px] tracking-wider">SETTING</span>
+                <span className="text-[11px] tracking-wider">SETTING</span>
               </button>
             </nav>
 
@@ -860,33 +864,33 @@ export default function MemberMagicPage() {
                         <h3 className="text-base text-[#1a1a1a] mb-6 border-b border-[#e6e2d3] pb-4">実績の詳細情報</h3>
                         <div className="space-y-6 mb-8">
                           <div>
-                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">ステータス</p>
+                            <p className="text-[11px] text-[#999999] mb-1 tracking-wider uppercase">ステータス</p>
                             <p className="text-sm text-[#333333]">
                               {selectedDetail.data.status === 'pending' ? '仮計上（確定待ち）' : selectedDetail.data.status === 'cancel' ? '無効（キャンセル）' : 'ポイント獲得済'}
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">お客様情報</p>
+                            <p className="text-[11px] text-[#999999] mb-1 tracking-wider uppercase">お客様情報</p>
                             <p className="text-sm text-[#333333]">
                               {selectedDetail.data.customer_name || '匿名のお客様'} <span className="text-xs text-[#666666]">({selectedDetail.data.recurring_count > 1 ? `定期${selectedDetail.data.recurring_count}回目` : '初回購入'})</span>
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">発生日時</p>
+                            <p className="text-[11px] text-[#999999] mb-1 tracking-wider uppercase">発生日時</p>
                             <p className="text-sm tabular-nums text-[#333333]">{formatDateTime(selectedDetail.data.created_at)}</p>
                           </div>
                           {selectedDetail.data.status !== 'pending' && (
                             <div>
-                              <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">確定日時</p>
+                              <p className="text-[11px] text-[#999999] mb-1 tracking-wider uppercase">確定日時</p>
                               <p className="text-sm tabular-nums text-[#333333]">{formatDateTime(selectedDetail.data.updated_at)}</p>
                             </div>
                           )}
                           <div>
-                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">担当スタッフ</p>
+                            <p className="text-[11px] text-[#999999] mb-1 tracking-wider uppercase">担当スタッフ</p>
                             <p className="text-sm text-[#333333]">{selectedDetail.data.staffName}</p>
                           </div>
                           <div className="pt-6 border-t border-[#e6e2d3]">
-                            <p className="text-xs text-[#999999] mb-2 tracking-wider uppercase">獲得予定 / 獲得済ポイント</p>
+                            <p className="text-[11px] text-[#999999] mb-2 tracking-wider uppercase">獲得予定 / 獲得済ポイント</p>
                             <p className={`text-3xl font-sans tabular-nums ${selectedDetail.data.status === 'cancel' ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
                               +{selectedDetail.data.totalPt.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
                             </p>
@@ -974,7 +978,7 @@ export default function MemberMagicPage() {
                       </ul>
                     </div>
                     
-                    <button onClick={() => { setIsOwnerModalOpen(false); router.push('/dashboard'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                    <button onClick={() => { setIsOwnerModalOpen(false); router.push('/admin'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                       <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
                     </button>
                   </motion.div>
@@ -1002,7 +1006,7 @@ export default function MemberMagicPage() {
                     </div>
                     
                     {isOwner ? (
-                      <button onClick={() => { setIsTeamModalOpen(false); router.push('/dashboard'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                      <button onClick={() => { setIsTeamModalOpen(false); router.push('/admin'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                         分配率を設定する（管理画面）
                       </button>
                     ) : (
@@ -1044,11 +1048,11 @@ export default function MemberMagicPage() {
                       </div>
                       <div className="flex justify-between text-xs text-[#666666] pt-3 border-t border-[#e6e2d3]">
                         <span>獲得予定</span>
-                        <span className="text-[#1a1a1a] font-sans font-bold text-sm tabular-nums">+{unreadReferrals[currentUnreadIndex].staffVisibleTotal?.toLocaleString()} pt</span>
+                        <span className="text-[#1a1a1a] font-sans font-bold text-sm tabular-nums">{unreadReferrals[currentUnreadIndex].staffVisibleTotal?.toLocaleString()} <span className="text-[11px]">pt</span></span>
                       </div>
                     </div>
 
-                    <p className="text-[10px] text-[#666666] text-center mb-6 leading-relaxed">
+                    <p className="text-[11px] text-[#666666] text-center mb-6 leading-relaxed">
                       商品のお届け完了後にポイントが確定します。
                     </p>
 
