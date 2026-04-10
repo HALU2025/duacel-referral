@@ -67,7 +67,7 @@ export default function MemberMagicPage() {
   const [shareTarget, setShareTarget] = useState<'line' | 'email'>('line')
   const [shareMessage, setShareMessage] = useState('')
 
-  // ★ バッジ説明用モーダル
+  // バッジ説明用モーダル
   const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false)
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false)
 
@@ -373,11 +373,9 @@ export default function MemberMagicPage() {
               
               {/* 右：ユーザー情報 */}
               <div className="flex flex-col items-end gap-2 text-right">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-base text-[#1a1a1a]">{staff.name} さん</h1>
-                  <button onClick={handleManualLock} className="p-1 text-[#999999] hover:text-[#333333] transition-colors active:scale-[0.98]">
-                    <Lock className="w-4 h-4" />
-                  </button>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-[10px] text-[#999999] tracking-wider font-inter">NAME:</span>
+                  <h1 className="text-base text-[#1a1a1a]">{staff.name}</h1>
                 </div>
                 <div className="flex items-center gap-2">
                   {isOwner && (
@@ -400,9 +398,9 @@ export default function MemberMagicPage() {
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
-                    <div className="max-w-md mx-auto space-y-8">
-                      {/* ★ メインウォレット */}
-                      <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
+                    <div className="max-w-md mx-auto space-y-6">
+                      {/* ★ メインウォレット (フルワイド・左右ボーダーなし・pxは揃える) */}
+                      <div className="bg-[#f5f2e6] border-y border-[#e6e2d3] py-6 px-6 -mx-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden -mt-6 mb-0">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
                           <p className="text-3xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
@@ -518,41 +516,59 @@ export default function MemberMagicPage() {
                     </div>
                   )}
 
-                  {/* 📱 TAB 3: QRコード (メイン) */}
+                  {/* 📱 TAB 3: QRコード (メイン・プレゼン画面化) */}
                   {activeTab === 'qr' && (
                     <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2">
-                      {/* ★ 全体を背景色のあるカードにまとめる */}
-                      <div className="w-full bg-[#f5f2e6] p-8 border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8">
-                        <div className="p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6">
-                          <QRCodeCanvas value={referralUrl} size={180} level={"H"} fgColor="#1a1a1a" />
-                        </div>
-                        <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-6">お客様のスマートフォンで<br/>読み込んでください</p>
+                      {/* プレゼン用ヘッダーテキスト */}
+                      <div className="w-full text-center mb-6">
+                        <h2 className="text-3xl font-black font-inter tracking-widest text-[#1a1a1a] mb-3 uppercase">Duacel</h2>
+                        <p className="text-sm text-[#666666] tracking-widest">{shop?.name}</p>
+                        <p className="text-sm text-[#1a1a1a] tracking-widest mt-1">{staff.name} のご紹介</p>
+                      </div>
+
+                      {/* 全体を包含するプレゼンカード */}
+                      <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8 overflow-hidden">
                         
-                        {/* ★ QR枠内にアクションボタンを入れる（Chevron形式） */}
-                        <div className="w-full space-y-3">
-                          <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
-                            <div className="flex items-center gap-3">
-                              {copied ? <CheckCircle2 className="w-5 h-5 text-[#333333]" /> : <Copy className="w-5 h-5 text-[#333333]" />}
-                              <span className="text-sm text-[#333333]">{copied ? 'URLをコピーしました' : '紹介URLをコピー'}</span>
-                            </div>
-                            <ChevronRight className="w-5 h-5 text-[#999999]" />
-                          </button>
+                        {/* ★ 画像配置エリア (アスペクト比固定、public/qr-hero.jpg等を作成して配置) */}
+                        <div className="w-full aspect-[4/3] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
+                          <img src="/qr-hero.jpg" alt="Duacel Benefit" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                          <div className="absolute inset-0 flex items-center justify-center text-[#999999] text-xs -z-10">
+                            [ Image: /qr-hero.jpg ]
+                          </div>
+                        </div>
+
+                        {/* QRとアクションボタン群 */}
+                        <div className="w-full p-8 flex flex-col items-center">
+                          <div className="p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6">
+                            <QRCodeCanvas value={referralUrl} size={180} level={"H"} fgColor="#1a1a1a" />
+                          </div>
+                          <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-6">お客様のスマートフォンで<br/>読み込んでください</p>
                           
-                          <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
-                            <div className="flex items-center gap-3">
-                              <MessageCircle className="w-5 h-5 text-[#333333]" />
-                              <span className="text-sm text-[#333333]">LINEで送信</span>
-                            </div>
-                            <ChevronRight className="w-5 h-5 text-[#999999]" />
-                          </button>
-                          
-                          <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
-                            <div className="flex items-center gap-3">
-                              <Mail className="w-5 h-5 text-[#333333]" />
-                              <span className="text-sm text-[#333333]">メールで送信</span>
-                            </div>
-                            <ChevronRight className="w-5 h-5 text-[#999999]" />
-                          </button>
+                          <div className="w-full space-y-3">
+                            <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                              <div className="flex items-center gap-3">
+                                {copied ? <CheckCircle2 className="w-5 h-5 text-[#333333]" /> : <Copy className="w-5 h-5 text-[#333333]" />}
+                                <span className="text-sm text-[#333333]">{copied ? 'URLをコピーしました' : '紹介URLをコピー'}</span>
+                              </div>
+                              <ChevronRight className="w-5 h-5 text-[#999999]" />
+                            </button>
+                            
+                            <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                              <div className="flex items-center gap-3">
+                                <MessageCircle className="w-5 h-5 text-[#333333]" />
+                                <span className="text-sm text-[#333333]">LINEで送信</span>
+                              </div>
+                              <ChevronRight className="w-5 h-5 text-[#999999]" />
+                            </button>
+                            
+                            <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                              <div className="flex items-center gap-3">
+                                <Mail className="w-5 h-5 text-[#333333]" />
+                                <span className="text-sm text-[#333333]">メールで送信</span>
+                              </div>
+                              <ChevronRight className="w-5 h-5 text-[#999999]" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -640,8 +656,18 @@ export default function MemberMagicPage() {
                         </AnimatePresence>
                       </div>
                       
+                      {isOwner && (
+                        <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-6">
+                          <p className="text-sm text-[#333333] mb-4">オーナー専用メニュー</p>
+                          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#f5f2e6] text-[#333333] text-sm transition active:scale-[0.98] flex items-center justify-between px-6">
+                            <span className="flex items-center gap-3"><LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボード</span>
+                            <ChevronRight className="w-5 h-5 text-[#999999]" />
+                          </button>
+                        </div>
+                      )}
+
                       {/* ★ アプリ仕様：ログアウトボタンを一番下に配置 */}
-                      <div className="pt-4">
+                      <div className="pt-8">
                         <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] bg-[#fffef2] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
                           <LogOut className="w-4 h-4" /> ログアウトする
                         </button>
