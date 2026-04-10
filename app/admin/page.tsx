@@ -6,11 +6,11 @@ import { useRouter } from 'next/navigation'
 import { 
   RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon,
   LayoutDashboard, Users, Store, Gift, Settings, ChevronRight, ChevronDown,
-  Building, User, Info, LogOut, Shield // ★ Shieldアイコン追加
+  Building, User, Info, LogOut, Shield, Edit2, CheckCircle2 // ★ アイコン追加
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createAdminUserAction } from '@/app/actions/admin' // ★ STEP 1で作ったServer Actionをインポート
-import { clearAdminSessionCookie } from '@/app/actions/admin-auth' // ★ 追加
+import { createAdminUserAction } from '@/app/actions/admin'
+import { clearAdminSessionCookie } from '@/app/actions/admin-auth'
 
 // ==========================================
 // 1. 定数・型定義
@@ -37,14 +37,13 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
-// ★ 名称変更
 const PAGE_TITLES: Record<string, string> = {
   home: 'ダッシュボード',
   referrals: '成果一覧',
   redemptions: 'ポイント交換管理',
   users: 'ユーザー・店舗管理',
   settings: 'ポイント設定',
-  admins: '管理者設定' // ★ 追加
+  admins: '管理者設定'
 }
 
 export default function AdminDashboard() {
@@ -61,12 +60,12 @@ export default function AdminDashboard() {
   const [staffs, setStaffs] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   const [pointTransactions, setPointTransactions] = useState<any[]>([])
-  const [systemAdmins, setSystemAdmins] = useState<any[]>([]) // ★ 管理者一覧データ
+  const [systemAdmins, setSystemAdmins] = useState<any[]>([]) 
   
   const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
   const [authError, setAuthError] = useState('')
-  const [currentUserId, setCurrentUserId] = useState('') // ★ 自分のID
+  const [currentUserId, setCurrentUserId] = useState('')
 
   // 検索・フィルター用
   const [refFilters, setRefFilters] = useState({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
@@ -81,7 +80,12 @@ export default function AdminDashboard() {
   const [editingCategories, setEditingCategories] = useState<any[]>([])
   const [expandedShopId, setExpandedShopId] = useState<string | null>(null) 
 
-  // ★ 管理者設定用ステート
+  // ★ 追加：編集モードのトグル用ステート
+  const [isEditingSettings, setIsEditingSettings] = useState(false)
+  const [showAddAdminForm, setShowAddAdminForm] = useState(false)
+  const [showPasswordForm, setShowPasswordForm] = useState(false)
+
+  // 管理者設定用ステート
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [isAddingAdmin, setIsAddingAdmin] = useState(false)
@@ -115,7 +119,7 @@ export default function AdminDashboard() {
       return
     }
 
-    setCurrentUserId(user.id) // 自分のIDを保存
+    setCurrentUserId(user.id)
 
     const [r, s, st, cat, tx, ex, sys] = await Promise.all([
       supabase.from('referrals').select('*').order('created_at', { ascending: false }).limit(2000),
@@ -124,13 +128,16 @@ export default function AdminDashboard() {
       supabase.from('shop_categories').select('*').order('reward_points', { ascending: true }),
       supabase.from('point_transactions').select('*').order('created_at', { ascending: true }),
       supabase.from('reward_exchanges').select('*').order('created_at', { ascending: false }),
-      supabase.from('system_admins').select('*').order('created_at', { ascending: true }) // ★ 管理者一覧を取得
+      supabase.from('system_admins').select('*').order('created_at', { ascending: true }) 
     ])
     
     if (r.data) { setReferrals(r.data); setFilteredReferrals(r.data); }
     if (s.data) setShops(s.data)
     if (st.data) setStaffs(st.data)
-    if (cat.data) { setCategories(cat.data); setEditingCategories(cat.data); }
+    if (cat.data) { 
+      setCategories(cat.data); 
+      setEditingCategories(cat.data); // 初期データを編集用ステートにもコピー
+    }
     if (tx.data) setPointTransactions(tx.data)
     if (ex.data) setRedemptions(ex.data)
     if (sys.data) setSystemAdmins(sys.data)
@@ -140,18 +147,15 @@ export default function AdminDashboard() {
 
   useEffect(() => { fetchData() }, [])
 
-  // handleLogout 関数を以下のように書き換えます
-const handleLogout = async () => {
-  if (!confirm('ログアウトしますか？')) return
-  
-  await supabase.auth.signOut() 
-  await clearAdminSessionCookie() // ★ 追加：サーバーの一時Cookieも破棄
-  
-  router.replace('/admin-login')
-}
+  const handleLogout = async () => {
+    if (!confirm('ログアウトしますか？')) return
+    await supabase.auth.signOut()
+    await clearAdminSessionCookie()
+    router.replace('/admin-login')
+  }
 
   // ==========================================
-  // ★ 管理者設定のアクションハンドラー
+  // アクションハンドラー
   // ==========================================
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -165,7 +169,8 @@ const handleLogout = async () => {
       alert('管理者を登録しました。')
       setNewAdminEmail('')
       setNewAdminPassword('')
-      fetchData() // 一覧を再取得
+      setShowAddAdminForm(false) // 成功したらフォームを閉じる
+      fetchData()
     } else {
       alert('登録エラー: ' + res.error)
     }
@@ -190,13 +195,13 @@ const handleLogout = async () => {
     setIsUpdatingPassword(false)
     
     if (error) alert('パスワードの変更に失敗しました: ' + error.message)
-    else { alert('自分のパスワードを変更しました。次回から新しいパスワードでログインしてください。'); setNewPassword(''); }
+    else { 
+      alert('自分のパスワードを変更しました。次回から新しいパスワードでログインしてください。'); 
+      setNewPassword(''); 
+      setShowPasswordForm(false); // 成功したらフォームを閉じる
+    }
   }
 
-
-  // ==========================================
-  // 既存のアクションハンドラー（省略せず維持）
-  // ==========================================
   const getShopOwnerName = (shopId: string) => {
     const owner = staffs.find(staff => staff.shop_id === shopId && staff.email === shops.find(s => s.id === shopId)?.owner_email)
     return owner ? owner.name : '不明'
@@ -327,6 +332,14 @@ const handleLogout = async () => {
       isNew: true
     }])
   }
+  
+  // ★ 編集キャンセル処理
+  const handleCancelSettings = () => {
+    if (!confirm('編集内容を破棄してよろしいですか？')) return;
+    setEditingCategories([...categories]); // 元のデータに戻す
+    setIsEditingSettings(false); // 閲覧モードに戻す
+  }
+
   const handleSaveAllSettings = async () => {
     if (!confirm('カテゴリ設定を保存しますか？')) return
     setIsProcessing(true)
@@ -346,6 +359,7 @@ const handleLogout = async () => {
     }
     await fetchData()
     setIsProcessing(false)
+    setIsEditingSettings(false) // 保存完了後に閲覧モードに戻す
     alert('設定を保存しました。')
   }
 
@@ -363,7 +377,7 @@ const handleLogout = async () => {
       <aside className="w-full md:w-64 bg-white border-r border-gray-200 shadow-sm md:min-h-screen flex flex-col shrink-0">
         <div className="px-6 py-4 flex items-center gap-3 border-b border-gray-200">
           <img src="/logo-duacel.svg" alt="Duacel" className="h-6 w-auto" onError={(e) => e.currentTarget.style.display = 'none'} />
-          <span className="text-base font-bold tracking-wider text-gray-900">Duacel Pro</span> {/* ★ 名称変更 */}
+          <span className="text-base font-bold tracking-wider text-gray-900">Duacel Pro</span>
         </div>
         
         <nav className="flex md:flex-col gap-1 p-4 overflow-x-auto md:overflow-x-visible">
@@ -373,7 +387,7 @@ const handleLogout = async () => {
             { id: 'redemptions', icon: <Gift className="w-4 h-4"/>, label: PAGE_TITLES.redemptions },
             { id: 'users', icon: <Users className="w-4 h-4"/>, label: PAGE_TITLES.users },
             { id: 'settings', icon: <Settings className="w-4 h-4"/>, label: PAGE_TITLES.settings },
-            { id: 'admins', icon: <Shield className="w-4 h-4"/>, label: PAGE_TITLES.admins }, // ★ 追加
+            { id: 'admins', icon: <Shield className="w-4 h-4"/>, label: PAGE_TITLES.admins },
           ].map((tab) => (
             <button 
               key={tab.id} 
@@ -404,8 +418,7 @@ const handleLogout = async () => {
           {isProcessing && <span className="flex items-center gap-2 text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-full"><Loader2 className="w-4 h-4 animate-spin"/> 処理中...</span>}
         </div>
 
-        {/* --- 省略せずに維持：Home, Referrals, Redemptions, Users --- */}
-        
+        {/* --- Home, Referrals, Redemptions, Users (そのまま) --- */}
         {activeTab === 'home' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -426,7 +439,6 @@ const handleLogout = async () => {
                 <p className="text-3xl font-black font-mono text-amber-600">{summary.pendingReferrals}<span className="text-sm font-sans text-gray-400 ml-1">件</span></p>
               </div>
             </div>
-            
             <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
               <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5"/>
               <div>
@@ -494,7 +506,6 @@ const handleLogout = async () => {
                     const status = REF_STATUS_OPTIONS.find(s => s.value === ref.status) || REF_STATUS_OPTIONS[0];
                     const isDead = ref.status === 'cancel' || ref.status === 'issued';
                     
-                    // ポイント計算
                     const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
                     const isOldest = referrals.filter(r => r.shop_id === ref.shop_id && r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0]?.id === ref.id;
                     const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
@@ -677,141 +688,194 @@ const handleLogout = async () => {
         )}
 
         {/* =========================================
-            タブ: Settings (ポイント設定)
+            ★ UI改修：Settings (ポイント設定) 
         ========================================= */}
         {activeTab === 'settings' && (
-          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto">
-            <div className="mb-6">
-              <h3 className="text-base font-black text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
-              <p className="text-xs text-gray-500 font-medium">店舗の属性ごとに、通常報酬・初回・定期継続ボーナスを設定します。</p>
+          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto relative">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h3 className="text-base font-black text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
+                <p className="text-xs text-gray-500 font-medium">店舗の属性ごとに、通常報酬・初回・定期継続ボーナスを設定します。</p>
+              </div>
+              {!isEditingSettings && (
+                <button onClick={() => setIsEditingSettings(true)} className="flex items-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
+                  <Edit2 className="w-4 h-4"/> 編集する
+                </button>
+              )}
             </div>
-            
-            <div className="space-y-6">
-              {editingCategories.map(cat => (
-                <div key={cat.id} className="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
-                  <div className="mb-4 pb-4 border-b border-gray-200 flex items-center gap-4">
-                    <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-1/3 border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400" placeholder="カテゴリ名" />
-                  </div>
-                  
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-2">通常報酬（ベース）</label>
-                      <div className="flex items-center gap-2">
-                        <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono focus:ring-2 focus:ring-blue-100" />
-                        <span className="text-xs text-gray-500 font-bold">pt</span>
+
+            {/* --- 閲覧モード（Read-only） --- */}
+            {!isEditingSettings ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {categories.map(cat => (
+                  <div key={cat.id} className="border border-gray-200 rounded-xl p-5 bg-gray-50/50 flex flex-col gap-4">
+                    <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+                      <span className="font-black text-gray-900 text-lg">{cat.label}</span>
+                      <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-bold">基本 {cat.reward_points} pt</span>
+                    </div>
+                    <div className="space-y-2 text-sm font-medium text-gray-600">
+                      <div className="flex justify-between items-center">
+                        <span>初回ボーナス</span>
+                        {cat.first_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.first_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
                       </div>
+                      <div className="flex justify-between items-center">
+                        <span>定期ボーナス</span>
+                        {cat.recurring_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.recurring_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span>登録ボーナス</span>
+                        {cat.signup_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.signup_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* --- 編集モード（Form） --- */
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+                {editingCategories.map(cat => (
+                  <div key={cat.id} className="border-2 border-blue-100 rounded-xl p-4 bg-white shadow-sm">
+                    <div className="mb-4 pb-4 border-b border-gray-100 flex items-center gap-4">
+                      <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-1/3 border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="カテゴリ名" />
                     </div>
                     
-                    <div>
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
-                        <input type="checkbox" checked={cat.first_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
-                        初回ボーナス
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input type="number" disabled={!cat.first_bonus_enabled} value={cat.first_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-100" />
-                        <span className="text-xs text-gray-500 font-bold">pt</span>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-2">通常報酬（ベース）</label>
+                        <div className="flex items-center gap-2">
+                          <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
+                          <span className="text-xs text-gray-500 font-bold">pt</span>
+                        </div>
                       </div>
-                    </div>
-
-                    <div>
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
-                        <input type="checkbox" checked={cat.recurring_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
-                        定期ボーナス (2回目以降)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input type="number" disabled={!cat.recurring_bonus_enabled} value={cat.recurring_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-100" />
-                        <span className="text-xs text-gray-500 font-bold">pt</span>
+                      
+                      <div>
+                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
+                          <input type="checkbox" checked={cat.first_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
+                          初回ボーナス
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input type="number" disabled={!cat.first_bonus_enabled} value={cat.first_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
+                          <span className="text-xs text-gray-500 font-bold">pt</span>
+                        </div>
                       </div>
-                    </div>
 
-                    <div>
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
-                        <input type="checkbox" checked={cat.signup_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
-                        登録ボーナス
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-100" />
-                        <span className="text-xs text-gray-500 font-bold">pt</span>
+                      <div>
+                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
+                          <input type="checkbox" checked={cat.recurring_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
+                          定期ボーナス (2回目以降)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input type="number" disabled={!cat.recurring_bonus_enabled} value={cat.recurring_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
+                          <span className="text-xs text-gray-500 font-bold">pt</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
+                          <input type="checkbox" checked={cat.signup_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
+                          登録ボーナス
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
+                          <span className="text-xs text-gray-500 font-bold">pt</span>
+                        </div>
                       </div>
                     </div>
                   </div>
+                ))}
+                
+                <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-200">
+                  <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-gray-900 bg-gray-100 px-4 py-2 rounded-lg transition-colors"><Plus className="w-4 h-4"/>カテゴリ追加</button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={handleCancelSettings} className="px-6 py-3 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">キャンセル</button>
+                    <button onClick={handleSaveAllSettings} disabled={isProcessing} className="bg-gray-900 text-white text-sm font-bold px-8 py-3 rounded-lg hover:bg-black transition-colors flex items-center gap-2 disabled:opacity-50">
+                      {isProcessing ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4"/>} 保存して終了
+                    </button>
+                  </div>
                 </div>
-              ))}
-            </div>
-
-            <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-200">
-              <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-gray-900 bg-gray-100 px-4 py-2 rounded-lg transition-colors"><Plus className="w-4 h-4"/>カテゴリ追加</button>
-              <button onClick={handleSaveAllSettings} disabled={isProcessing} className="bg-gray-900 text-white text-sm font-bold px-8 py-3 rounded-lg hover:bg-black transition-colors flex items-center gap-2 disabled:opacity-50">
-                {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 設定を保存する
-              </button>
-            </div>
+              </motion.div>
+            )}
           </div>
         )}
 
         {/* =========================================
-            ★ 新規追加：タブ: Admins (管理者設定)
+            ★ UI改修：Admins (管理者設定)
         ========================================= */}
         {activeTab === 'admins' && (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* 1. 管理者一覧 */}
-              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <h3 className="text-base font-black text-gray-900 mb-4">システム管理者一覧</h3>
-                <div className="space-y-3">
-                  {systemAdmins.map(admin => (
-                    <div key={admin.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg bg-gray-50/50">
-                      <div>
-                        <p className="text-sm font-bold text-gray-900 flex items-center gap-2">
-                          {admin.email}
-                          {admin.id === currentUserId && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-bold">You</span>}
-                        </p>
-                        <p className="text-xs text-gray-500 font-mono mt-0.5">{new Date(admin.created_at).toLocaleString('ja-JP')}</p>
-                      </div>
-                      {admin.id !== currentUserId && (
-                        <button onClick={() => handleDeleteAdmin(admin.id, admin.email)} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-1.5 rounded-lg transition-colors">
-                          削除
+            <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full md:w-2/3">
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-base font-black text-gray-900">システム管理者一覧</h3>
+                <div className="flex gap-2">
+                  <button onClick={() => setShowPasswordForm(!showPasswordForm)} className="text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 px-3 py-2 rounded-lg transition-colors">
+                    自分のパスワード変更
+                  </button>
+                  <button onClick={() => setShowAddAdminForm(!showAddAdminForm)} className="flex items-center gap-1 text-xs font-bold bg-gray-900 text-white hover:bg-black px-3 py-2 rounded-lg transition-colors">
+                    <Plus className="w-3 h-3"/> 新規追加
+                  </button>
+                </div>
+              </div>
+
+              {/* パスワード変更フォーム (トグル) */}
+              <AnimatePresence>
+                {showPasswordForm && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-6">
+                    <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                      <p className="text-sm font-bold mb-3 text-gray-700">新しいパスワード (6文字以上)</p>
+                      <div className="flex gap-2">
+                        <input type="password" required minLength={6} placeholder="••••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="flex-1 border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
+                        <button onClick={handleUpdatePassword} disabled={isUpdatingPassword || newPassword.length < 6} className="bg-blue-600 text-white font-bold text-sm px-4 rounded-lg hover:bg-blue-500 transition-colors disabled:opacity-50">
+                          {isUpdatingPassword ? <Loader2 className="w-4 h-4 animate-spin"/> : '更新'}
                         </button>
-                      )}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              <div className="space-y-6">
-                {/* 2. 新規管理者追加 */}
-                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                  <h3 className="text-base font-black text-gray-900 mb-4">新規管理者の追加</h3>
-                  <form onSubmit={handleAddAdmin} className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">メールアドレス</label>
-                      <input type="email" placeholder="admin@duacel.net" required value={newAdminEmail} onChange={e => setNewAdminEmail(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">初期パスワード (6文字以上)</label>
-                      <input type="text" placeholder="password123" required minLength={6} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
-                    </div>
-                    <button type="submit" disabled={isAddingAdmin || !newAdminEmail || newAdminPassword.length < 6} className="w-full bg-gray-900 text-white font-bold text-sm py-2.5 rounded-lg hover:bg-black transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                      {isAddingAdmin ? <Loader2 className="w-4 h-4 animate-spin"/> : '管理者を追加する'}
-                    </button>
-                  </form>
-                </div>
+              {/* 新規管理者追加フォーム (トグル) */}
+              <AnimatePresence>
+                {showAddAdminForm && (
+                  <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-6">
+                    <form onSubmit={handleAddAdmin} className="p-4 bg-blue-50/50 border border-blue-100 rounded-lg space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">メールアドレス</label>
+                        <input type="email" placeholder="admin@duacel.net" required value={newAdminEmail} onChange={e => setNewAdminEmail(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">初期パスワード (6文字以上)</label>
+                        <input type="text" placeholder="password123" required minLength={6} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => setShowAddAdminForm(false)} className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-blue-100 rounded-lg transition-colors">キャンセル</button>
+                        <button type="submit" disabled={isAddingAdmin || !newAdminEmail || newAdminPassword.length < 6} className="bg-blue-600 text-white font-bold text-sm px-6 py-2 rounded-lg hover:bg-blue-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                          {isAddingAdmin ? <Loader2 className="w-4 h-4 animate-spin"/> : '登録する'}
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-                {/* 3. 自分のパスワード変更 */}
-                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                  <h3 className="text-base font-black text-gray-900 mb-4">自分のパスワードを変更</h3>
-                  <div className="space-y-4">
+              {/* 管理者リスト */}
+              <div className="space-y-3">
+                {systemAdmins.map(admin => (
+                  <div key={admin.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
                     <div>
-                      <label className="block text-xs font-bold text-gray-500 mb-1">新しいパスワード (6文字以上)</label>
-                      <input type="password" required minLength={6} placeholder="••••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
+                      <p className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                        {admin.email}
+                        {admin.id === currentUserId && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-bold">You</span>}
+                      </p>
+                      <p className="text-xs text-gray-500 font-mono mt-0.5">登録: {new Date(admin.created_at).toLocaleString('ja-JP')}</p>
                     </div>
-                    <button onClick={handleUpdatePassword} disabled={isUpdatingPassword || newPassword.length < 6} className="w-full bg-blue-50 text-blue-700 font-bold text-sm py-2.5 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                      {isUpdatingPassword ? <Loader2 className="w-4 h-4 animate-spin"/> : 'パスワードを更新する'}
-                    </button>
+                    {admin.id !== currentUserId && (
+                      <button onClick={() => handleDeleteAdmin(admin.id, admin.email)} className="text-xs font-bold text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 px-3 py-1.5 rounded-lg transition-all">
+                        削除
+                      </button>
+                    )}
                   </div>
-                </div>
+                ))}
               </div>
-
             </div>
           </div>
         )}
@@ -819,7 +883,7 @@ const handleLogout = async () => {
       </div>
 
       {/* =========================================
-          モーダル類（省略せず維持）
+          モーダル類 (そのまま)
       ========================================= */}
       {isRefModalOpen && editingRef && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
