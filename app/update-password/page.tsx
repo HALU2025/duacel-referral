@@ -3,18 +3,17 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
+import { Loader2, KeyRound } from 'lucide-react'
 
 export default function UpdatePasswordPage() {
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    // 1. パスワードの入力チェック
     if (newPassword.length < 6) {
       alert('パスワードは6文字以上で入力してください。')
       return
@@ -26,8 +25,6 @@ export default function UpdatePasswordPage() {
 
     setLoading(true)
 
-    // 2. Supabaseでパスワードを上書き更新
-    // ※ メールのリンクを踏んだ時点で一時的に認証されているため、このメソッドが通ります
     const { error } = await supabase.auth.updateUser({
       password: newPassword,
     })
@@ -37,75 +34,68 @@ export default function UpdatePasswordPage() {
     if (error) {
       alert(`エラーが発生しました: ${error.message}`)
     } else {
-      alert('パスワードの再設定が完了しました！\n新しいパスワードでログインしてください。')
-      // 完了したらログイン画面へ飛ばす
-      router.push('/login')
+      alert('パスワードの再設定が完了しました。\nご本人確認画面へ移動します。')
+      router.replace('/verify')
     }
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
-      <div className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm">
-        <h1 className="text-2xl font-bold mb-6 text-center text-gray-800">パスワードの再設定</h1>
-        <p className="text-sm text-gray-600 mb-6 text-center">
-          新しいパスワードを入力してください。
-        </p>
+    <div className="min-h-screen flex items-center justify-center bg-[#fffef2] font-sans text-[#333333] selection:bg-[#e6e2d3] selection:text-[#333333]">
+      <div className="w-full max-w-md bg-[#fffef2] min-h-screen sm:min-h-[500px] sm:h-auto relative shadow-none sm:shadow-sm sm:border border-[#e6e2d3] flex flex-col overflow-hidden p-8 pt-16">
         
-        <form onSubmit={handleUpdatePassword} className="space-y-4">
-          
-          {/* 新しいパスワード入力 */}
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="新しいパスワード（6文字以上）"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 pr-16"
-              required
-              disabled={loading}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-3 text-sm text-gray-500 hover:text-gray-700 font-bold"
-              tabIndex={-1}
-            >
-              {showPassword ? '隠す' : '表示'}
-            </button>
+        <div className="text-center mb-10">
+          <h1 className="text-2xl font-serif tracking-[0.2em] text-[#1a1a1a] mb-8">Duacel.</h1>
+          <h2 className="text-sm font-bold text-[#1a1a1a] mb-2">パスワードの再設定</h2>
+          <p className="text-[11px] text-[#666666] leading-relaxed">
+            新しいパスワードを入力してください。
+          </p>
+        </div>
+        
+        <form onSubmit={handleUpdatePassword} className="space-y-6">
+          <div className="space-y-4">
+            <div className="relative">
+              <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
+              <input
+                type="password"
+                placeholder="新しいパスワード（6文字以上）"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-[#f5f2e6] border-none text-[#333333] text-sm outline-none focus:ring-1 focus:ring-[#333333] transition-all"
+                required
+                disabled={loading}
+              />
+            </div>
+            <div className="relative">
+              <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
+              <input
+                type="password"
+                placeholder="新しいパスワード（確認用）"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-[#f5f2e6] border-none text-[#333333] text-sm outline-none focus:ring-1 focus:ring-[#333333] transition-all"
+                required
+                disabled={loading}
+              />
+            </div>
           </div>
 
-          {/* 確認用パスワード入力 */}
-          <div>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="新しいパスワード（確認用）"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-              disabled={loading}
-            />
-          </div>
-
-          {/* 更新ボタン */}
           <button 
             type="submit" 
             disabled={loading}
-            className={`w-full text-white p-3 rounded font-bold transition-colors mt-2 ${loading ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+            className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            {loading ? '更新中...' : 'パスワードを変更する'}
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'パスワードを変更する'}
           </button>
         </form>
 
-        {/* ログイン画面へ戻るリンク */}
-        <div className="mt-6 text-center">
+        <div className="mt-8 text-center">
           <button 
             type="button" 
-            onClick={() => router.push('/login')}
+            onClick={() => router.push('/verify')}
             disabled={loading}
-            className="text-sm text-gray-500 hover:underline hover:text-gray-800 bg-transparent border-none cursor-pointer"
+            className="text-[11px] text-[#666666] hover:text-[#1a1a1a] transition-colors underline underline-offset-4"
           >
-            ログイン画面に戻る
+            ご本人確認画面へ戻る
           </button>
         </div>
       </div>

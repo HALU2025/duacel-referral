@@ -15,7 +15,6 @@ export default function ConversionTestPage() {
   const [isOrdered, setIsOrdered] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  // クッキーから紹介コードを取得
   useEffect(() => {
     const id = document.cookie
       .split('; ')
@@ -39,8 +38,8 @@ export default function ConversionTestPage() {
     const staffId = parts[1]
     const orderId = `ORD-${Date.now()}`
 
-try {
-      // 1. Supabaseへ保存（ここを修正！）
+    try {
+      // 1. Supabaseへ保存
       const { error } = await supabase
         .from('referrals')
         .insert([
@@ -72,7 +71,6 @@ try {
         })
       })
 
-      // 成功演出へ
       setIsOrdered(true)
       setStatus('✅ 全てのプロセスが完了しました')
     } catch (err: any) {
@@ -87,7 +85,6 @@ try {
     <main className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-6 font-sans text-gray-800">
       
       {!isOrdered ? (
-        // --- 注文前：商品LP風のテスト画面 ---
         <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="bg-white rounded-[2.5rem] shadow-xl border border-gray-200 overflow-hidden">
             <div className="h-48 bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white p-8">
@@ -98,7 +95,6 @@ try {
             </div>
 
             <div className="p-8">
-              {/* あなたが好きだと言ってくれた「紹介セッション情報」エリア */}
               <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5 mb-8">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
@@ -135,9 +131,7 @@ try {
             </div>
           </div>
         </div>
-
       ) : (
-        // --- 注文完了：成果達成（コンバージョン）画面 ---
         <div className="w-full max-w-md animate-in zoom-in-95 duration-500">
           <div className="bg-white rounded-[2.5rem] shadow-2xl border border-emerald-100 p-8 text-center relative overflow-hidden">
             <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500" />
@@ -194,8 +188,8 @@ try {
             <ExternalLink className="w-3 h-3" /> ADMIN
           </a>
           <div className="w-px h-3 bg-gray-200" />
-          <a href="/login" className="text-[10px] font-bold text-gray-400 hover:text-indigo-600 flex items-center gap-1 transition">
-            <ExternalLink className="w-3 h-3" /> OWNER LOGIN
+          <a href="/verify" className="text-[10px] font-bold text-gray-400 hover:text-indigo-600 flex items-center gap-1 transition">
+            <ExternalLink className="w-3 h-3" /> OWNER VERIFY
           </a>
         </div>
         <p className="text-[9px] text-gray-400 font-medium tracking-widest uppercase">
