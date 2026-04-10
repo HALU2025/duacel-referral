@@ -1,17 +1,13 @@
 @import "tailwindcss";
 
-/* ★ Tailwind v4 テーマ設定 */
 @theme {
-  /* 英数Inter + 日本語Noto Sans の黄金比 */
   --font-sans: var(--font-inter), var(--font-noto-sans-jp), ui-sans-serif, system-ui, sans-serif;
-  
-  /* 数字・等幅に Roboto Mono を適用 */
-  --font-mono: var(--font-roboto-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  /* font-mono は Tailwind のデフォルト（システム標準）に戻します */
 }
 
 :root {
-  --background: #fffef2; /* イソップ風ベージュ */
-  --foreground: #333333; /* 濃いチャコール */
+  --background: #fffef2;
+  --foreground: #333333;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,23 +22,16 @@ body {
   color: var(--foreground);
 }
 
-/* ==========================================
-   PWA向けスクロール・UI制御（アプリ化必須設定）
-========================================== */
 html, body {
-  /* 画面全体のバウンスを禁止 */
   overscroll-behavior-y: none;
-  /* 画面を固定 */
   overflow: hidden;
   position: fixed;
   width: 100%;
   height: 100%;
-  /* 文字選択を禁止してアプリ感を出す */
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* スクロールが必要なメインエリアにのみ適用 */
 main, .scrollable {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
