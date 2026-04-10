@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createAdminUserAction } from '@/app/actions/admin' // ★ STEP 1で作ったServer Actionをインポート
+import { clearAdminSessionCookie } from '@/app/actions/admin-auth' // ★ 追加
 
 // ==========================================
 // 1. 定数・型定義
@@ -139,11 +140,15 @@ export default function AdminDashboard() {
 
   useEffect(() => { fetchData() }, [])
 
-  const handleLogout = async () => {
-    if (!confirm('ログアウトしますか？')) return
-    await supabase.auth.signOut()
-    router.replace('/admin-login')
-  }
+  // handleLogout 関数を以下のように書き換えます
+const handleLogout = async () => {
+  if (!confirm('ログアウトしますか？')) return
+  
+  await supabase.auth.signOut() 
+  await clearAdminSessionCookie() // ★ 追加：サーバーの一時Cookieも破棄
+  
+  router.replace('/admin-login')
+}
 
   // ==========================================
   // ★ 管理者設定のアクションハンドラー

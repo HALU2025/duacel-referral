@@ -1,16 +1,19 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react' // ★ useEffectを追加
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Loader2, Mail, Lock, ShieldAlert } from 'lucide-react'
+import { setAdminSessionCookie } from '@/app/actions/admin-auth' // ★ 追加
 
 export default function AdminLogin() {
   const router = useRouter()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  // ... (ステート定義などそのまま) ...
+
+  // ★ 追加：ブラウザを閉じて弾かれて来た場合、残ったゴミセッションを掃除する
+  useEffect(() => {
+    supabase.auth.signOut()
+  }, [])
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -18,30 +21,25 @@ export default function AdminLogin() {
     setLoading(true)
 
     try {
-      // 1. まず通常のメール・パスワードで認証
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
       if (authError) throw new Error('メールアドレスまたはパスワードが間違っています。')
       if (!authData.user) throw new Error('ユーザー情報の取得に失敗しました。')
 
-      // 2. ログインしたユーザーが system_admins テーブルに存在するか厳格にチェック
-      const { data: adminData, error: adminError } = await supabase
+      const { data: adminData } = await supabase
         .from('system_admins')
         .select('id')
         .eq('id', authData.user.id)
         .maybeSingle()
 
       if (!adminData) {
-        // system_adminsに存在しない場合（一般スタッフが迷い込んだ等）は強制ログアウト
         await supabase.auth.signOut()
         throw new Error('管理者権限がありません。このアクセスは記録されました。')
       }
 
-      // 3. 認証成功＆権限確認OKならAdminダッシュボードへ遷移
-      router.push('/admin') // ※実際の管理画面のURLに合わせてください
+      // ★ 追加：認証成功＆権限確認OKなら、サーバー側で一時Cookieを発行！
+      await setAdminSessionCookie()
+
+      router.push('/admin')
     } catch (err: any) {
       console.error(err)
       setError(err.message || 'ログインに失敗しました。')
