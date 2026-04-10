@@ -1,16 +1,21 @@
 'use client'
 
-import { useState, useEffect } from 'react' // ★ useEffectを追加
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { Loader2, Mail, Lock, ShieldAlert } from 'lucide-react'
-import { setAdminSessionCookie } from '@/app/actions/admin-auth' // ★ 追加
+import { setAdminSessionCookie } from '@/app/actions/admin-auth'
 
 export default function AdminLogin() {
   const router = useRouter()
-  // ... (ステート定義などそのまま) ...
+  
+  // ★ 消えてしまっていたステート定義を復活
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  // ★ 追加：ブラウザを閉じて弾かれて来た場合、残ったゴミセッションを掃除する
+  // ブラウザを閉じて弾かれて来た場合、残ったゴミセッションを掃除する
   useEffect(() => {
     supabase.auth.signOut()
   }, [])
@@ -21,7 +26,11 @@ export default function AdminLogin() {
     setLoading(true)
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password })
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
+
       if (authError) throw new Error('メールアドレスまたはパスワードが間違っています。')
       if (!authData.user) throw new Error('ユーザー情報の取得に失敗しました。')
 
@@ -36,7 +45,7 @@ export default function AdminLogin() {
         throw new Error('管理者権限がありません。このアクセスは記録されました。')
       }
 
-      // ★ 追加：認証成功＆権限確認OKなら、サーバー側で一時Cookieを発行！
+      // 認証成功＆権限確認OKなら、サーバー側で一時Cookieを発行！
       await setAdminSessionCookie()
 
       router.push('/admin')
@@ -57,7 +66,7 @@ export default function AdminLogin() {
           <div className="w-16 h-16 bg-gray-800 rounded-2xl flex items-center justify-center mb-6 shadow-inner border border-gray-700">
             <Lock className="w-8 h-8 text-blue-400" strokeWidth={1.5} />
           </div>
-          <h1 className="text-2xl font-bold tracking-widest text-white mb-2">HQ SYSTEM</h1>
+          <h1 className="text-2xl font-bold tracking-widest text-white mb-2">Duacel Pro</h1>
           <p className="text-xs text-gray-500 font-mono tracking-widest">AUTHORIZED PERSONNEL ONLY</p>
         </div>
 
