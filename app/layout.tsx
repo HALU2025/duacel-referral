@@ -45,7 +45,8 @@ export default function RootLayout({
       lang="ja"
       className={`${inter.variable} ${notoSansJP.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[#fffef2] text-[#333333] font-sans">
+      {/* ★ font-medium を追加し、アプリ全体のベースの太さを一段階上げました */}
+      <body className="min-h-full flex flex-col bg-[#fffef2] text-[#333333] font-sans font-medium">
         {children}
       </body>
     </html>

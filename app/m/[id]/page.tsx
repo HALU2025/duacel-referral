@@ -61,11 +61,14 @@ export default function MemberMagicPage() {
   const [exchangeAmount, setExchangeAmount] = useState('')
   const [isExchanging, setIsExchanging] = useState(false)
 
+  // ★ 詳細表示用ステート
+  const [selectedDetail, setSelectedDetail] = useState<{type: 'referral' | 'shop', data: any} | null>(null)
+
   // SHOP（仕入れ）用ダミーデータ
   const MOCK_PRODUCTS = [
-    { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-6 h-6 text-[#999999]" /> },
-    { id: 2, name: '専用導入機器 (Proモデル)', price: 45000, ptPrice: 42000, icon: <ShieldCheck className="w-6 h-6 text-[#999999]" /> },
-    { id: 3, name: '店販用パンフレット (100部)', price: 2000, ptPrice: 2000, icon: <BookOpen className="w-6 h-6 text-[#999999]" /> },
+    { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-6 h-6 text-[#999999]" />, desc: 'お客様への店販用に最適なスカルプセラムです。店内でのお試し用にもご利用いただけます。' },
+    { id: 2, name: '専用導入機器 (Proモデル)', price: 45000, ptPrice: 42000, icon: <ShieldCheck className="w-6 h-6 text-[#999999]" />, desc: 'サロンでの本格的な施術に使用する専用機器です。保証期間1年付き。' },
+    { id: 3, name: '店販用パンフレット (100部)', price: 2000, ptPrice: 2000, icon: <BookOpen className="w-6 h-6 text-[#999999]" />, desc: 'お客様へお渡しする商品解説のパンフレットです。QRコードを貼付してご活用ください。' },
   ]
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code || ''}` : ''
@@ -262,11 +265,6 @@ export default function MemberMagicPage() {
     setIsExchanging(false); setIsExchangeModalOpen(false); setExchangeAmount(''); loadData(true);
   }
 
-  const handleDetailClick = (type: string, data?: any) => {
-    // 将来的な詳細画面やモーダルへの導線
-    alert(`${type}の詳細画面を開きます（実装予定）`);
-  }
-
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (lockoutUntil) { const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval) }
@@ -276,11 +274,17 @@ export default function MemberMagicPage() {
     return history.filter(r => r.status === 'pending')
   }, [history])
 
+  // 日付フォーマットのヘルパー
+  const formatDateTime = (isoString: string) => {
+    const d = new Date(isoString);
+    return `${d.toLocaleDateString('ja-JP')} ${d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
   // ==========================================
   // レンダー
   // ==========================================
   if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2]"><Loader2 className="w-8 h-8 animate-spin text-[#1a1a1a]" /></div>
-  if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2] text-[#666666] text-sm">ページが見つかりません。</div>
+  if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2] text-[#666666] text-base">ページが見つかりません。</div>
 
   return (
     <div className="fixed inset-0 bg-[#fffef2] flex justify-center font-sans text-[#333333] overflow-hidden selection:bg-[#e6e2d3] selection:text-[#333333]">
@@ -294,8 +298,8 @@ export default function MemberMagicPage() {
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
               <div className="text-center mb-12">
                 <h1 className="text-2xl font-serif tracking-[0.2em] text-[#1a1a1a] mb-8">Duacel.</h1>
-                <p className="text-sm font-medium text-[#666666] mb-2">{shop?.name}</p>
-                <h2 className="text-xl font-medium text-[#1a1a1a] mb-6">{staff.name}</h2>
+                <p className="text-sm text-[#666666] mb-2">{shop?.name}</p>
+                <h2 className="text-xl text-[#1a1a1a] mb-6">{staff.name}</h2>
                 <p className="text-sm text-[#999999] leading-relaxed">アクセスするには4桁の暗証番号を<br/>入力してください。</p>
               </div>
               <div className={`flex justify-center gap-4 mb-10 ${pinError ? 'animate-[shake_0.5s_ease-in-out]' : ''}`}>
@@ -317,7 +321,7 @@ export default function MemberMagicPage() {
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
                   <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
                     <button onClick={() => setIsForgotPinOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" /></button>
-                    <h3 className="text-lg font-medium text-[#1a1a1a] mb-4">暗証番号の再設定</h3>
+                    <h3 className="text-lg text-[#1a1a1a] mb-4">暗証番号の再設定</h3>
                     <p className="text-sm text-[#666666] leading-relaxed mb-6">ご登録のメールアドレスを入力してください。<br/>新しい暗証番号を送信します。</p>
                     <form onSubmit={handleForgotPin} className="space-y-6">
                       <input type="email" required placeholder="example@email.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} disabled={isResetting} className="w-full px-4 py-5 bg-[#f5f2e6] border-none rounded-none text-base text-[#333333] focus:ring-1 focus:ring-[#333333] outline-none" />
@@ -326,7 +330,7 @@ export default function MemberMagicPage() {
                           {resetResult.message}
                         </div>
                       )}
-                      <button type="submit" disabled={isResetting || !forgotEmail} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm uppercase tracking-widest font-medium transition-all active:scale-[0.98] flex justify-center items-center gap-2 disabled:opacity-50">
+                      <button type="submit" disabled={isResetting || !forgotEmail} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm uppercase tracking-widest transition-all active:scale-[0.98] flex justify-center items-center gap-2 disabled:opacity-50">
                         {isResetting ? <Loader2 className="w-5 h-5 animate-spin" /> : '送信する'}
                       </button>
                     </form>
@@ -344,7 +348,7 @@ export default function MemberMagicPage() {
               <div>
                 <p className="text-xs text-[#666666] tracking-wider mb-1">{shop?.name}</p>
                 <div className="flex items-center gap-3">
-                  <h1 className="text-base font-medium text-[#1a1a1a]">{staff.name}</h1>
+                  <h1 className="text-base text-[#1a1a1a]">{staff.name}</h1>
                   {staff.is_team_pool_eligible !== false && (
                     <span className="px-2 py-0.5 text-[10px] border border-[#d5d0b5] text-[#666666] flex items-center gap-1"><Handshake className="w-3 h-3"/> TEAM</span>
                   )}
@@ -390,7 +394,7 @@ export default function MemberMagicPage() {
                           <p className="text-sm text-[#333333] mb-4">新しい購入が発生しました ({pendingReferrals.length}件)</p>
                           <div className="space-y-3">
                             {pendingReferrals.slice(0, 3).map((item) => (
-                              <button key={item.id} onClick={() => handleDetailClick('仮計上詳細', item)} className="w-full text-left bg-[#fffef2] border border-[#e6e2d3] p-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors shadow-[0_0_15px_rgba(0,0,0,0.02)]">
+                              <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-[#fffef2] border border-[#e6e2d3] p-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors shadow-[0_0_15px_rgba(0,0,0,0.02)]">
                                 <div>
                                   <p className="text-sm text-[#333333] mb-1">{item.customer_name || '匿名'} <span className="text-xs text-[#666666] ml-1">({item.recurring_count > 1 ? `定期${item.recurring_count}回` : '初回'})</span></p>
                                   <p className="text-xs text-[#999999]">{new Date(item.created_at).toLocaleDateString('ja-JP')} 担当: {item.staffName}</p>
@@ -415,10 +419,10 @@ export default function MemberMagicPage() {
                             history.map((item) => {
                               const isPending = item.status === 'pending';
                               const isCanceled = item.status === 'cancel';
-                              if (isPending) return null; // 確定待ちと分ける場合
+                              if (isPending) return null; 
                               
                               return (
-                                <button key={item.id} onClick={() => handleDetailClick('実績詳細', item)} className="w-full text-left bg-transparent border-b border-[#e6e2d3] py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
+                                <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-transparent border-b border-[#e6e2d3] py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
                                   <div>
                                     <div className="flex items-center gap-2 mb-1">
                                       <span className="text-xs text-[#999999] tabular-nums">{new Date(item.created_at).toLocaleDateString('ja-JP')}</span>
@@ -453,11 +457,10 @@ export default function MemberMagicPage() {
 
                       <div className="space-y-4">
                         {MOCK_PRODUCTS.map(product => {
-                          const canBuyWithPoint = summary.confirmed >= product.ptPrice;
                           return (
                             <button 
                               key={product.id} 
-                              onClick={() => handleDetailClick('商品詳細', product)}
+                              onClick={() => setSelectedDetail({ type: 'shop', data: product })}
                               className="w-full text-left bg-[#fffef2] border border-[#e6e2d3] p-5 shadow-[0_0_20px_rgba(0,0,0,0.03)] flex gap-5 items-center active:bg-[#f5f2e6] transition-colors"
                             >
                               <div className="w-16 h-16 bg-[#f5f2e6] flex items-center justify-center shrink-0">
@@ -472,7 +475,6 @@ export default function MemberMagicPage() {
                                       {product.ptPrice.toLocaleString()}<span className="text-xs text-[#666666] ml-1">pt</span>
                                     </p>
                                   </div>
-                                  {/* リスト内のアクション要素（詳細へ進むアフォーダンス） */}
                                   <ChevronRight className="w-5 h-5 text-[#999999]" />
                                 </div>
                               </div>
@@ -524,7 +526,7 @@ export default function MemberMagicPage() {
                           { icon: <MessageCircle className="w-5 h-5"/>, title: 'トーク集', desc: 'お客様へのご案内' },
                           { icon: <PlayCircle className="w-5 h-5"/>, title: '施術動画', desc: '機器の利用手順' },
                         ].map((item, i) => (
-                          <button key={i} onClick={() => handleDetailClick(item.title)} className="w-full bg-[#fffef2] p-5 border border-[#e6e2d3] text-left hover:bg-[#f5f2e6] transition-colors flex items-center justify-between shadow-[0_0_15px_rgba(0,0,0,0.02)] active:scale-[0.98]">
+                          <button key={i} onClick={() => alert(`${item.title} を開きます`)} className="w-full bg-[#fffef2] p-5 border border-[#e6e2d3] text-left hover:bg-[#f5f2e6] transition-colors flex items-center justify-between shadow-[0_0_15px_rgba(0,0,0,0.02)] active:scale-[0.98]">
                             <div className="flex items-center gap-4">
                               <div className="text-[#333333]">{item.icon}</div>
                               <div>
@@ -651,7 +653,7 @@ export default function MemberMagicPage() {
                   <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-[#fffef2] p-8 w-full max-w-sm shadow-[0_0_40px_rgba(0,0,0,0.2)] relative">
                     <button onClick={() => setIsExchangeModalOpen(false)} className="absolute top-4 right-4 p-2 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
                     
-                    <h3 className="text-base font-medium text-[#1a1a1a] mb-2">えらべるPayに交換</h3>
+                    <h3 className="text-base text-[#1a1a1a] mb-2">えらべるPayに交換</h3>
                     <p className="text-xs text-[#666666] mb-8 leading-relaxed">ポイントを各種電子マネーに交換します。</p>
                     
                     <div className="mb-8 pb-6 border-b border-[#e6e2d3]">
@@ -687,6 +689,110 @@ export default function MemberMagicPage() {
                     <button onClick={handleExchangePay} disabled={isExchanging || summary.confirmed <= 0} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50">
                       {isExchanging ? <Loader2 className="w-5 h-5 animate-spin"/> : "申請する"}
                     </button>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* ==========================================
+                DETAIL MODAL (詳細情報表示)
+            ========================================== */}
+            <AnimatePresence>
+              {selectedDetail && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+                  <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
+                    <button onClick={() => setSelectedDetail(null)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
+                    
+                    {selectedDetail.type === 'referral' && (
+                      <>
+                        <h3 className="text-base text-[#1a1a1a] mb-6 border-b border-[#e6e2d3] pb-4">実績の詳細情報</h3>
+                        <div className="space-y-6 mb-8">
+                          <div>
+                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">ステータス</p>
+                            <p className="text-sm text-[#333333]">
+                              {selectedDetail.data.status === 'pending' ? '仮計上（確定待ち）' : selectedDetail.data.status === 'cancel' ? '無効（キャンセル）' : 'ポイント獲得済'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">お客様情報</p>
+                            <p className="text-sm text-[#333333]">
+                              {selectedDetail.data.customer_name || '匿名のお客様'} <span className="text-xs text-[#666666]">({selectedDetail.data.recurring_count > 1 ? `定期${selectedDetail.data.recurring_count}回目` : '初回購入'})</span>
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">発生日時</p>
+                            <p className="text-sm tabular-nums text-[#333333]">{formatDateTime(selectedDetail.data.created_at)}</p>
+                          </div>
+                          {selectedDetail.data.status !== 'pending' && (
+                            <div>
+                              <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">確定日時</p>
+                              <p className="text-sm tabular-nums text-[#333333]">{formatDateTime(selectedDetail.data.updated_at)}</p>
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">担当スタッフ</p>
+                            <p className="text-sm text-[#333333]">{selectedDetail.data.staffName}</p>
+                          </div>
+                          <div className="pt-4 border-t border-[#e6e2d3]">
+                            <p className="text-[10px] text-[#999999] mb-2 tracking-wider uppercase">獲得予定 / 獲得済ポイント</p>
+                            <p className={`text-2xl font-sans tabular-nums ${selectedDetail.data.status === 'cancel' ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
+                              +{selectedDetail.data.totalPt.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
+                            </p>
+                            
+                            {/* 内訳 */}
+                            <div className="mt-3 bg-[#f5f2e6] p-4">
+                              <div className="flex justify-between text-xs text-[#666666] mb-2">
+                                <span>対象合計</span>
+                                <span className="tabular-nums">{selectedDetail.data.staffVisibleTotal?.toLocaleString()}pt</span>
+                              </div>
+                              <div className="flex justify-between text-xs text-[#666666] pl-2 border-l border-[#e6e2d3] mb-2">
+                                <span>個人還元 ({selectedDetail.data.snapshot_ratio_individual}%)</span>
+                                <span className="tabular-nums">+{selectedDetail.data.myIndPart?.toLocaleString()}pt</span>
+                              </div>
+                              {selectedDetail.data.myTeamPart > 0 && (
+                                <div className="flex justify-between text-xs text-[#666666] pl-2 border-l border-[#e6e2d3]">
+                                  <span>チーム還元 ({selectedDetail.data.snapshot_ratio_team}%)</span>
+                                  <span className="tabular-nums">+{selectedDetail.data.myTeamPart?.toLocaleString()}pt</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {selectedDetail.type === 'shop' && (
+                      <>
+                        <div className="flex justify-center mb-6">
+                          <div className="w-24 h-24 bg-[#f5f2e6] flex items-center justify-center rounded-full">
+                            {selectedDetail.data.icon}
+                          </div>
+                        </div>
+                        <h3 className="text-lg text-[#1a1a1a] mb-4 text-center">{selectedDetail.data.name}</h3>
+                        <p className="text-sm text-[#666666] leading-relaxed mb-8">{selectedDetail.data.desc}</p>
+                        
+                        <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-5 mb-8 flex justify-between items-end">
+                          <div>
+                            <p className="text-xs text-[#999999] mb-1 line-through">通常価格: ¥{selectedDetail.data.price.toLocaleString()}</p>
+                            <p className="text-[10px] text-[#666666] tracking-wider uppercase">交換必要ポイント</p>
+                          </div>
+                          <p className="text-2xl font-sans tabular-nums text-[#1a1a1a]">
+                            {selectedDetail.data.ptPrice.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
+                          </p>
+                        </div>
+                        
+                        {/* ★ Primary Action (スミベタ) */}
+                        <button 
+                          onClick={() => {
+                            alert('※ 購入フローへ遷移します');
+                            setSelectedDetail(null);
+                          }} 
+                          className={`w-full py-5 text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${summary.confirmed >= selectedDetail.data.ptPrice ? 'bg-[#1a1a1a] text-[#fffef2]' : 'bg-transparent border border-[#e6e2d3] text-[#666666]'}`}
+                        >
+                          {summary.confirmed >= selectedDetail.data.ptPrice ? '交換手続きへ進む' : 'ポイント不足（購入へ進む）'}
+                        </button>
+                      </>
+                    )}
                   </motion.div>
                 </motion.div>
               )}
