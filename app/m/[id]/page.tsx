@@ -292,6 +292,16 @@ export default function MemberMagicPage() {
     return history.filter(r => r.status === 'pending')
   }, [history])
 
+  // ★ 年月日を固定幅(ゼロ埋め)にするフォーマッター
+  const formatDateYMD = (isoString: string) => {
+    const d = new Date(isoString);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}/${m}/${day}`;
+  }
+
+  // 日時詳細フォーマッター
   const formatDateTime = (isoString: string) => {
     const d = new Date(isoString);
     return `${d.toLocaleDateString('ja-JP')} ${d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
@@ -315,7 +325,7 @@ export default function MemberMagicPage() {
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
               <div className="text-center mb-12">
                 <h1 className="text-2xl font-serif tracking-[0.2em] text-[#1a1a1a] mb-8">Duacel.</h1>
-                <p className="text-sm text-[#666666] mb-2">{shop?.name}</p>
+                <p className="text-sm font-bold text-[#666666] mb-2">{shop?.name}</p>
                 <h2 className="text-xl text-[#1a1a1a] mb-6">{staff.name}</h2>
                 <p className="text-sm text-[#999999] leading-relaxed">アクセスするには4桁の暗証番号を<br/>入力してください。</p>
               </div>
@@ -363,7 +373,7 @@ export default function MemberMagicPage() {
             <header className="px-6 pt-safe-top pb-4 pt-6 flex items-start justify-between border-b border-[#e6e2d3] bg-[#fffef2]/90 backdrop-blur-md z-20 shrink-0">
               {/* 左：店舗情報 */}
               <div className="flex flex-col items-start gap-2">
-                <h1 className="text-base text-[#1a1a1a]">{shop?.name}</h1>
+                <h1 className="text-base text-[#1a1a1a] font-bold">{shop?.name}</h1>
                 {shop?.shop_categories?.label && (
                   <span className="px-2 py-1 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider flex items-center gap-1">
                     <Award className="w-3 h-3" /> {shop.shop_categories.label}
@@ -398,9 +408,17 @@ export default function MemberMagicPage() {
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
-                    <div className="max-w-md mx-auto space-y-6">
-                      {/* ★ メインウォレット (フルワイド・左右ボーダーなし・pxは揃える) */}
-                      <div className="bg-[#f5f2e6] border-y border-[#e6e2d3] py-6 px-6 -mx-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden -mt-6 mb-0">
+                    <div className="max-w-md mx-auto space-y-4">
+                      
+                      {/* ★ オーナー専用 管理ダッシュボードボタン (上部に配置) */}
+                      {isOwner && (
+                        <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
+                          <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードを開く
+                        </button>
+                      )}
+
+                      {/* ★ メインウォレット (元のカード枠に戻す) */}
+                      <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
                           <p className="text-3xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
@@ -410,28 +428,33 @@ export default function MemberMagicPage() {
                         </div>
                       </div>
 
-                      {/* 確定待ち */}
-                      <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-4 flex items-center justify-between">
-                        <div>
-                          <p className="text-xs text-[#666666] mb-1 tracking-wider">確定待ち（仮計上）</p>
-                          <p className="text-2xl font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
-                        </div>
-                        <Clock className="w-6 h-6 text-[#999999]" strokeWidth={1.5} />
+                      {/* 確定待ち (左寄せ、時計アイコン削除) */}
+                      <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-4 flex flex-col justify-center">
+                        <p className="text-xs text-[#666666] mb-1 tracking-wider">確定待ち（仮計上）</p>
+                        <p className="text-2xl font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
                       </div>
 
-                      {/* 新着要素 (枠あり・タップ可能UI) */}
+                      {/* 新着要素 (枠あり・タップ可能UI・リストレイアウト統一) */}
                       {pendingReferrals.length > 0 && (
                         <div className="pt-2">
                           <p className="text-sm text-[#333333] mb-4">新しい購入が発生しました ({pendingReferrals.length}件)</p>
                           <div className="space-y-3">
                             {pendingReferrals.slice(0, 3).map((item) => (
                               <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-[#fffef2] border border-[#e6e2d3] p-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors shadow-[0_0_15px_rgba(0,0,0,0.02)]">
-                                <div>
-                                  <p className="text-sm text-[#333333] mb-1">{item.customer_name || '匿名'} <span className="text-xs text-[#666666] ml-1">({item.recurring_count > 1 ? `定期${item.recurring_count}回` : '初回'})</span></p>
-                                  <p className="text-xs text-[#999999]">{new Date(item.created_at).toLocaleDateString('ja-JP')} 担当: {item.staffName}</p>
+                                <div className="flex items-start gap-3 flex-1">
+                                  <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-0.5">
+                                    <span className="text-[10px] text-[#999999] tabular-nums font-mono leading-none">{formatDateYMD(item.created_at)}</span>
+                                    <span className="text-[9px] bg-[#f5f2e6] text-[#666666] border border-[#e6e2d3] px-1 py-0.5 text-center leading-none">仮計上</span>
+                                  </div>
+                                  <div className="flex-1 flex flex-col">
+                                    <p className="text-sm text-[#333333] mb-1 leading-snug">
+                                      {item.customer_name || '匿名のお客様'} <span className="text-[#999999] text-[10px]">({item.recurring_count > 1 ? `定期${item.recurring_count}回目` : '初回'})</span>
+                                    </p>
+                                    <p className="text-xs text-[#666666]">担当: {item.staffName}</p>
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-3">
-                                  <p className="text-base font-sans tabular-nums text-[#333333]">+{item.staffVisibleTotal?.toLocaleString()}<span className="text-xs ml-0.5">pt</span></p>
+                                <div className="flex items-center gap-2 shrink-0 pl-2">
+                                  <p className="text-base font-sans tabular-nums text-[#333333]">+{item.staffVisibleTotal?.toLocaleString()}<span className="text-[10px] text-[#999999] ml-0.5">pt</span></p>
                                   <ChevronRight className="w-4 h-4 text-[#999999]" />
                                 </div>
                               </button>
@@ -440,9 +463,9 @@ export default function MemberMagicPage() {
                         </div>
                       )}
 
-                      {/* 実績履歴 (枠なしボトムボーダーのみ・タップ可能UI) */}
+                      {/* 実績履歴 (枠なしボトムボーダーのみ・リストレイアウト統一) */}
                       <div className="pt-6">
-                        <h2 className="text-sm text-[#1a1a1a] mb-4">実績履歴</h2>
+                        <h2 className="text-sm text-[#1a1a1a] mb-3 pb-3 border-b border-[#e6e2d3]">実績履歴</h2>
                         <div className="space-y-0">
                           {history.length === 0 ? (
                             <div className="text-center py-10 text-[#999999] text-sm">まだ実績がありません</div>
@@ -454,18 +477,27 @@ export default function MemberMagicPage() {
                               
                               return (
                                 <button key={item.id} onClick={() => setSelectedDetail({ type: 'referral', data: item })} className="w-full text-left bg-transparent border-b border-[#e6e2d3] py-4 flex justify-between items-center active:bg-[#f5f2e6] transition-colors">
-                                  <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className="text-xs text-[#999999] tabular-nums">{new Date(item.created_at).toLocaleDateString('ja-JP')}</span>
-                                      <p className="text-sm text-[#333333]">
-                                        {isCanceled ? '[無効] ' : ''} {item.customer_name || '匿名'} <span className="text-[#999999] text-xs">({item.recurring_count > 1 ? `定期${item.recurring_count}` : '初回'})</span>
-                                      </p>
+                                  <div className="flex items-start gap-3 flex-1">
+                                    {/* 左側：日付とバッジを固定幅で縦並び */}
+                                    <div className="w-[72px] shrink-0 flex flex-col gap-1.5 pt-0.5">
+                                      <span className="text-[10px] text-[#999999] tabular-nums font-mono leading-none">{formatDateYMD(item.created_at)}</span>
+                                      {isCanceled ? (
+                                        <span className="text-[9px] bg-[#fcf0f0] text-[#8a3c3c] border border-[#fcf0f0] px-1 py-0.5 text-center leading-none">無効</span>
+                                      ) : (
+                                        <span className="text-[9px] bg-[#f4f8f4] text-[#2d5a2d] border border-[#f4f8f4] px-1 py-0.5 text-center leading-none">報酬確定</span>
+                                      )}
                                     </div>
-                                    <p className="text-xs text-[#666666]">担当: {item.staffName}</p>
+                                    {/* 右側：ゲスト名と担当者（縦ライン揃え） */}
+                                    <div className="flex-1 flex flex-col">
+                                      <p className={`text-sm text-[#333333] mb-1 leading-snug ${isCanceled ? 'line-through text-[#999999]' : ''}`}>
+                                        {item.customer_name || '匿名のお客様'} <span className="text-[#999999] text-[10px]">({item.recurring_count > 1 ? `定期${item.recurring_count}回目` : '初回'})</span>
+                                      </p>
+                                      <p className="text-xs text-[#666666]">担当: {item.staffName}</p>
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-2 shrink-0 pl-2">
                                     <p className={`text-lg font-sans tabular-nums ${isCanceled ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
-                                      +{item.totalPt.toLocaleString()} <span className="text-xs text-[#999999]">pt</span>
+                                      +{item.totalPt.toLocaleString()} <span className="text-[10px] text-[#999999]">pt</span>
                                     </p>
                                     <ChevronRight className="w-4 h-4 text-[#999999]" />
                                   </div>
@@ -521,15 +553,16 @@ export default function MemberMagicPage() {
                     <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2">
                       {/* プレゼン用ヘッダーテキスト */}
                       <div className="w-full text-center mb-6">
-                        <h2 className="text-3xl font-black font-inter tracking-widest text-[#1a1a1a] mb-3 uppercase">Duacel</h2>
-                        <p className="text-sm text-[#666666] tracking-widest">{shop?.name}</p>
+                        {/* ★ Duacel® のデザイン調整 */}
+                        <h2 className="text-3xl font-black font-inter tracking-normal text-[#1a1a1a] mb-2">Duacel<sup className="text-lg font-medium -ml-0.5">®</sup></h2>
+                        <p className="text-sm text-[#666666] tracking-widest font-bold">{shop?.name}</p>
                         <p className="text-sm text-[#1a1a1a] tracking-widest mt-1">{staff.name} のご紹介</p>
                       </div>
 
                       {/* 全体を包含するプレゼンカード */}
                       <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8 overflow-hidden">
                         
-                        {/* ★ 画像配置エリア (アスペクト比固定、public/qr-hero.jpg等を作成して配置) */}
+                        {/* ★ 画像配置エリア */}
                         <div className="w-full aspect-[4/3] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
                           <img src="/qr-hero.jpg" alt="Duacel Benefit" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                           <div className="absolute inset-0 flex items-center justify-center text-[#999999] text-xs -z-10">
@@ -659,15 +692,15 @@ export default function MemberMagicPage() {
                       {isOwner && (
                         <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-6">
                           <p className="text-sm text-[#333333] mb-4">オーナー専用メニュー</p>
-                          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#f5f2e6] text-[#333333] text-sm transition active:scale-[0.98] flex items-center justify-between px-6">
-                            <span className="flex items-center gap-3"><LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボード</span>
-                            <ChevronRight className="w-5 h-5 text-[#999999]" />
+                          {/* ★ オーナー専用ボタン (スミベタ) */}
+                          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm transition active:scale-[0.98] flex items-center justify-center gap-2 px-6">
+                            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
                           </button>
                         </div>
                       )}
 
-                      {/* ★ アプリ仕様：ログアウトボタンを一番下に配置 */}
-                      <div className="pt-8">
+                      {/* アプリ仕様：ログアウトボタンを一番下に配置 */}
+                      <div className="pt-4">
                         <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] bg-[#fffef2] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
                           <LogOut className="w-4 h-4" /> ログアウトする
                         </button>
