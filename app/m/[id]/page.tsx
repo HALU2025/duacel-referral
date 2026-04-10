@@ -11,7 +11,8 @@ import {
   Settings, Mail, User, CheckCircle2, Ban, CheckCheck, ChevronRight, 
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
-  Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList
+  Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList,
+  Edit3
 } from 'lucide-react'
 
 export default function MemberMagicPage() {
@@ -61,8 +62,13 @@ export default function MemberMagicPage() {
   const [exchangeAmount, setExchangeAmount] = useState('')
   const [isExchanging, setIsExchanging] = useState(false)
 
-  // ★ 詳細表示用ステート
+  // 詳細表示用ステート
   const [selectedDetail, setSelectedDetail] = useState<{type: 'referral' | 'shop', data: any} | null>(null)
+
+  // ★ LINE/Email シェア編集用ステート
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false)
+  const [shareTarget, setShareTarget] = useState<'line' | 'email'>('line')
+  const [shareMessage, setShareMessage] = useState('')
 
   // SHOP（仕入れ）用ダミーデータ
   const MOCK_PRODUCTS = [
@@ -73,7 +79,7 @@ export default function MemberMagicPage() {
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code || ''}` : ''
   const isOwner = shop?.owner_email === staff?.email
-  const shareText = `【${shop?.name || '店舗'}】Duacelスカルプセラムの専用購入ページです。\n以下のURLからご購入いただけます。\n\n${referralUrl}`
+  const defaultShareText = `【${shop?.name || '店舗'}】Duacelスカルプセラムの専用購入ページです。\n以下のURLからご購入いただけます。\n\n${referralUrl}`
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -177,6 +183,9 @@ export default function MemberMagicPage() {
   }
 
   useEffect(() => { if (magicToken) loadData() }, [magicToken])
+  
+  // デフォルトのシェアテキストをセット
+  useEffect(() => { if (staff && shop) setShareMessage(defaultShareText) }, [staff, shop, defaultShareText])
 
   useEffect(() => {
     if (!staff?.shop_id) return;
@@ -265,6 +274,16 @@ export default function MemberMagicPage() {
     setIsExchanging(false); setIsExchangeModalOpen(false); setExchangeAmount(''); loadData(true);
   }
 
+  // ★ 編集したテキストでシェアを実行
+  const handleExecuteShare = () => {
+    if (shareTarget === 'line') {
+      window.open(`https://line.me/R/msg/text/?${encodeURIComponent(shareMessage)}`, '_blank')
+    } else {
+      window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からのご案内')}&body=${encodeURIComponent(shareMessage)}`
+    }
+    setIsShareModalOpen(false)
+  }
+
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (lockoutUntil) { const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval) }
@@ -274,7 +293,6 @@ export default function MemberMagicPage() {
     return history.filter(r => r.status === 'pending')
   }, [history])
 
-  // 日付フォーマットのヘルパー
   const formatDateTime = (isoString: string) => {
     const d = new Date(isoString);
     return `${d.toLocaleDateString('ja-JP')} ${d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}`;
@@ -315,7 +333,6 @@ export default function MemberMagicPage() {
               <div className="mt-10 text-center"><button onClick={() => setIsForgotPinOpen(true)} className="text-sm text-[#666666] hover:text-[#1a1a1a] underline underline-offset-4 transition-colors">暗証番号を忘れた方</button></div>
             </div>
             
-            {/* PINリセットモーダル */}
             <AnimatePresence>
               {isForgotPinOpen && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
@@ -330,7 +347,7 @@ export default function MemberMagicPage() {
                           {resetResult.message}
                         </div>
                       )}
-                      <button type="submit" disabled={isResetting || !forgotEmail} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm uppercase tracking-widest transition-all active:scale-[0.98] flex justify-center items-center gap-2 disabled:opacity-50">
+                      <button type="submit" disabled={isResetting || !forgotEmail} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm uppercase tracking-widest font-medium transition-all active:scale-[0.98] flex justify-center items-center gap-2 disabled:opacity-50">
                         {isResetting ? <Loader2 className="w-5 h-5 animate-spin" /> : '送信する'}
                       </button>
                     </form>
@@ -366,15 +383,13 @@ export default function MemberMagicPage() {
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
                     <div className="max-w-md mx-auto space-y-8">
-                      {/* メインウォレット */}
-                      <div className="bg-[#fffef2] border border-[#e6e2d3] p-8 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
+                      {/* ★ メインウォレット (デザイン変更) */}
+                      <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
-                        <p className="text-4xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-base ml-1 text-[#999999]">pt</span></p>
-                        
-                        <div className="mt-8 pt-6 border-t border-[#e6e2d3]">
-                          {/* ★ Primary Action (スミベタ) */}
-                          <button onClick={() => setIsExchangeModalOpen(true)} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm uppercase tracking-[0.1em] flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
-                            えらべるPayに交換
+                        <div className="flex items-center justify-between">
+                          <p className="text-3xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
+                          <button onClick={() => setIsExchangeModalOpen(true)} className="px-5 py-3 bg-[#1a1a1a] text-[#fffef2] text-xs font-medium tracking-widest active:scale-[0.98] transition-transform">
+                            ポイント交換
                           </button>
                         </div>
                       </div>
@@ -495,19 +510,19 @@ export default function MemberMagicPage() {
                         <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed">お客様のスマートフォンで<br/>読み込んでください</p>
                       </div>
                       
-                      {/* ★ Primary Action (スミベタ) */}
+                      {/* ★ Primary Action (URLコピー) */}
                       <button onClick={() => handleCopy(referralUrl)} className={`w-full py-5 text-sm tracking-widest transition-all flex items-center justify-center gap-3 mb-6 active:scale-[0.98] ${copied ? 'bg-[#f5f2e6] text-[#333333]' : 'bg-[#1a1a1a] text-[#fffef2]'}`}>
                         {copied ? <CheckCircle2 className="w-5 h-5" strokeWidth={1.5} /> : <Copy className="w-5 h-5" strokeWidth={1.5} />}
                         {copied ? 'COPIED' : 'COPY URL'}
                       </button>
 
-                      {/* Secondary Actions (別色) */}
+                      {/* ★ Secondary Actions (LINE / Email - スミベタに変更) */}
                       <div className="w-full grid grid-cols-2 gap-4">
-                        <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(shareText)}`, '_blank')} className="py-4 bg-[#f5f2e6] hover:bg-[#e6e2d3] text-[#333333] transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
+                        <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="py-4 bg-[#1a1a1a] text-[#fffef2] transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
                           <MessageCircle className="w-4 h-4" strokeWidth={1.5} />
                           <span className="text-xs tracking-wider">LINE</span>
                         </button>
-                        <button onClick={() => window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からのご案内')}&body=${encodeURIComponent(shareText)}`} className="py-4 bg-[#f5f2e6] hover:bg-[#e6e2d3] text-[#333333] transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
+                        <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="py-4 bg-[#1a1a1a] text-[#fffef2] transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
                           <Mail className="w-4 h-4" strokeWidth={1.5} />
                           <span className="text-xs tracking-wider">EMAIL</span>
                         </button>
@@ -645,6 +660,35 @@ export default function MemberMagicPage() {
             </nav>
 
             {/* ==========================================
+                ★ SHARE PREVIEW & EDIT MODAL
+            ========================================== */}
+            <AnimatePresence>
+              {isShareModalOpen && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+                  <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
+                    <button onClick={() => setIsShareModalOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
+                    
+                    <h3 className="text-base font-medium text-[#1a1a1a] mb-2">{shareTarget === 'line' ? 'LINEで送信' : 'メールで送信'}</h3>
+                    <p className="text-xs text-[#666666] mb-6 leading-relaxed">送信するテキストを確認・編集できます。</p>
+                    
+                    <div className="relative mb-8">
+                      <textarea 
+                        value={shareMessage}
+                        onChange={(e) => setShareMessage(e.target.value)}
+                        className="w-full h-48 bg-[#f5f2e6] border-none p-5 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333] resize-none leading-relaxed"
+                      />
+                      <Edit3 className="absolute right-4 bottom-4 w-4 h-4 text-[#999999] pointer-events-none" />
+                    </div>
+
+                    <button onClick={handleExecuteShare} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                      <Send className="w-4 h-4" strokeWidth={1.5} /> 送信する
+                    </button>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* ==========================================
                 EXCHANGE MODAL
             ========================================== */}
             <AnimatePresence>
@@ -685,7 +729,6 @@ export default function MemberMagicPage() {
                       </label>
                     </div>
 
-                    {/* ★ Primary Action (スミベタ) */}
                     <button onClick={handleExchangePay} disabled={isExchanging || summary.confirmed <= 0} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50">
                       {isExchanging ? <Loader2 className="w-5 h-5 animate-spin"/> : "申請する"}
                     </button>
@@ -708,49 +751,49 @@ export default function MemberMagicPage() {
                         <h3 className="text-base text-[#1a1a1a] mb-6 border-b border-[#e6e2d3] pb-4">実績の詳細情報</h3>
                         <div className="space-y-6 mb-8">
                           <div>
-                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">ステータス</p>
+                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">ステータス</p>
                             <p className="text-sm text-[#333333]">
                               {selectedDetail.data.status === 'pending' ? '仮計上（確定待ち）' : selectedDetail.data.status === 'cancel' ? '無効（キャンセル）' : 'ポイント獲得済'}
                             </p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">お客様情報</p>
+                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">お客様情報</p>
                             <p className="text-sm text-[#333333]">
                               {selectedDetail.data.customer_name || '匿名のお客様'} <span className="text-xs text-[#666666]">({selectedDetail.data.recurring_count > 1 ? `定期${selectedDetail.data.recurring_count}回目` : '初回購入'})</span>
                             </p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">発生日時</p>
+                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">発生日時</p>
                             <p className="text-sm tabular-nums text-[#333333]">{formatDateTime(selectedDetail.data.created_at)}</p>
                           </div>
                           {selectedDetail.data.status !== 'pending' && (
                             <div>
-                              <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">確定日時</p>
+                              <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">確定日時</p>
                               <p className="text-sm tabular-nums text-[#333333]">{formatDateTime(selectedDetail.data.updated_at)}</p>
                             </div>
                           )}
                           <div>
-                            <p className="text-[10px] text-[#999999] mb-1 tracking-wider uppercase">担当スタッフ</p>
+                            <p className="text-xs text-[#999999] mb-1 tracking-wider uppercase">担当スタッフ</p>
                             <p className="text-sm text-[#333333]">{selectedDetail.data.staffName}</p>
                           </div>
-                          <div className="pt-4 border-t border-[#e6e2d3]">
-                            <p className="text-[10px] text-[#999999] mb-2 tracking-wider uppercase">獲得予定 / 獲得済ポイント</p>
-                            <p className={`text-2xl font-sans tabular-nums ${selectedDetail.data.status === 'cancel' ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
+                          <div className="pt-6 border-t border-[#e6e2d3]">
+                            <p className="text-xs text-[#999999] mb-2 tracking-wider uppercase">獲得予定 / 獲得済ポイント</p>
+                            <p className={`text-3xl font-sans tabular-nums ${selectedDetail.data.status === 'cancel' ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
                               +{selectedDetail.data.totalPt.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
                             </p>
                             
                             {/* 内訳 */}
-                            <div className="mt-3 bg-[#f5f2e6] p-4">
-                              <div className="flex justify-between text-xs text-[#666666] mb-2">
+                            <div className="mt-4 bg-[#f5f2e6] p-5">
+                              <div className="flex justify-between text-sm text-[#666666] mb-3">
                                 <span>対象合計</span>
                                 <span className="tabular-nums">{selectedDetail.data.staffVisibleTotal?.toLocaleString()}pt</span>
                               </div>
-                              <div className="flex justify-between text-xs text-[#666666] pl-2 border-l border-[#e6e2d3] mb-2">
+                              <div className="flex justify-between text-sm text-[#666666] pl-3 border-l border-[#e6e2d3] mb-2">
                                 <span>個人還元 ({selectedDetail.data.snapshot_ratio_individual}%)</span>
                                 <span className="tabular-nums">+{selectedDetail.data.myIndPart?.toLocaleString()}pt</span>
                               </div>
                               {selectedDetail.data.myTeamPart > 0 && (
-                                <div className="flex justify-between text-xs text-[#666666] pl-2 border-l border-[#e6e2d3]">
+                                <div className="flex justify-between text-sm text-[#666666] pl-3 border-l border-[#e6e2d3]">
                                   <span>チーム還元 ({selectedDetail.data.snapshot_ratio_team}%)</span>
                                   <span className="tabular-nums">+{selectedDetail.data.myTeamPart?.toLocaleString()}pt</span>
                                 </div>
@@ -774,7 +817,7 @@ export default function MemberMagicPage() {
                         <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-5 mb-8 flex justify-between items-end">
                           <div>
                             <p className="text-xs text-[#999999] mb-1 line-through">通常価格: ¥{selectedDetail.data.price.toLocaleString()}</p>
-                            <p className="text-[10px] text-[#666666] tracking-wider uppercase">交換必要ポイント</p>
+                            <p className="text-xs text-[#666666] tracking-wider uppercase">交換必要ポイント</p>
                           </div>
                           <p className="text-2xl font-sans tabular-nums text-[#1a1a1a]">
                             {selectedDetail.data.ptPrice.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
