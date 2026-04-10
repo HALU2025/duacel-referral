@@ -600,7 +600,7 @@ export default function OwnerDashboard() {
                 <div className="mb-8 bg-[#f5f2e6] p-5 border border-[#e6e2d3] flex items-center justify-between">
                   <div>
                     <h4 className="text-sm font-bold text-[#1a1a1a] mb-1">チーム分配の対象にする</h4>
-                    <p className="text-[11px] text-[#666666]">店舗のチーム売上から分配を受け取る権利</p>
+                    <p className="text-[11px] text-[#666666]">店舗のチーム売上から分配を受け取る</p>
                   </div>
                   <button onClick={handleToggleTeam} className="transition-transform active:scale-90 ml-4">
                     {detailStaff.is_team_pool_eligible !== false ? (
