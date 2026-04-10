@@ -65,7 +65,7 @@ export default function MemberMagicPage() {
   // 詳細表示用ステート
   const [selectedDetail, setSelectedDetail] = useState<{type: 'referral' | 'shop', data: any} | null>(null)
 
-  // ★ LINE/Email シェア編集用ステート
+  // LINE/Email シェア編集用ステート
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [shareTarget, setShareTarget] = useState<'line' | 'email'>('line')
   const [shareMessage, setShareMessage] = useState('')
@@ -184,7 +184,6 @@ export default function MemberMagicPage() {
 
   useEffect(() => { if (magicToken) loadData() }, [magicToken])
   
-  // デフォルトのシェアテキストをセット
   useEffect(() => { if (staff && shop) setShareMessage(defaultShareText) }, [staff, shop, defaultShareText])
 
   useEffect(() => {
@@ -274,7 +273,6 @@ export default function MemberMagicPage() {
     setIsExchanging(false); setIsExchangeModalOpen(false); setExchangeAmount(''); loadData(true);
   }
 
-  // ★ 編集したテキストでシェアを実行
   const handleExecuteShare = () => {
     if (shareTarget === 'line') {
       window.open(`https://line.me/R/msg/text/?${encodeURIComponent(shareMessage)}`, '_blank')
@@ -361,19 +359,31 @@ export default function MemberMagicPage() {
             {/* ==========================================
                 MAIN APP HEADER
             ========================================== */}
-            <header className="px-6 pt-safe-top pb-4 flex items-center justify-between border-b border-[#e6e2d3] bg-[#fffef2]/90 backdrop-blur-md z-20 shrink-0">
-              <div>
-                <p className="text-xs text-[#666666] tracking-wider mb-1">{shop?.name}</p>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-base text-[#1a1a1a]">{staff.name}</h1>
+            <header className="px-6 pt-safe-top pb-4 pt-6 flex items-start justify-between border-b border-[#e6e2d3] bg-[#fffef2]/90 backdrop-blur-md z-20 shrink-0">
+              {/* 左：ユーザー情報 */}
+              <div className="flex flex-col items-start gap-2">
+                <h1 className="text-base text-[#1a1a1a]">{staff.name}</h1>
+                <div className="flex items-center gap-2">
+                  {isOwner && (
+                    <span className="px-2 py-0.5 text-[10px] bg-[#1a1a1a] text-[#fffef2] tracking-widest uppercase">Owner</span>
+                  )}
                   {staff.is_team_pool_eligible !== false && (
-                    <span className="px-2 py-0.5 text-[10px] border border-[#d5d0b5] text-[#666666] flex items-center gap-1"><Handshake className="w-3 h-3"/> TEAM</span>
+                    <span className="px-2 py-0.5 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1">
+                      <Handshake className="w-3 h-3"/> Team
+                    </span>
                   )}
                 </div>
               </div>
-              <button onClick={handleManualLock} className="p-3 text-[#999999] hover:text-[#333333] transition-colors active:scale-[0.98]">
-                <Lock className="w-5 h-5" />
-              </button>
+              
+              {/* 右：店舗情報 */}
+              <div className="flex flex-col items-end gap-2 text-right">
+                <p className="text-sm text-[#333333]">{shop?.name}</p>
+                {shop?.shop_categories?.label && (
+                  <span className="px-2 py-0.5 text-[10px] border border-[#e6e2d3] bg-[#fffef2] text-[#999999] tracking-wider">
+                    {shop.shop_categories.label}
+                  </span>
+                )}
+              </div>
             </header>
 
             <main className="flex-1 relative overflow-hidden bg-[#fffef2]">
@@ -383,12 +393,12 @@ export default function MemberMagicPage() {
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
                     <div className="max-w-md mx-auto space-y-8">
-                      {/* ★ メインウォレット (デザイン変更) */}
+                      {/* ★ メインウォレット (背景f5f2e6, 横並び配置) */}
                       <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
                           <p className="text-3xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
-                          <button onClick={() => setIsExchangeModalOpen(true)} className="px-5 py-3 bg-[#1a1a1a] text-[#fffef2] text-xs font-medium tracking-widest active:scale-[0.98] transition-transform">
+                          <button onClick={() => setIsExchangeModalOpen(true)} className="px-5 py-3 bg-[#1a1a1a] text-[#fffef2] text-xs tracking-widest active:scale-[0.98] transition-transform">
                             ポイント交換
                           </button>
                         </div>
@@ -502,7 +512,7 @@ export default function MemberMagicPage() {
 
                   {/* 📱 TAB 3: QRコード (メイン) */}
                   {activeTab === 'qr' && (
-                    <div className="flex flex-col items-center max-w-sm mx-auto h-full justify-center mt-4">
+                    <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2">
                       <div className="w-full bg-[#fffef2] p-10 border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8">
                         <div className="p-4 bg-[#ffffff] border border-[#f5f2e6] mb-8">
                           <QRCodeCanvas value={referralUrl} size={200} level={"H"} fgColor="#1a1a1a" />
@@ -510,21 +520,30 @@ export default function MemberMagicPage() {
                         <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed">お客様のスマートフォンで<br/>読み込んでください</p>
                       </div>
                       
-                      {/* ★ Primary Action (URLコピー) */}
-                      <button onClick={() => handleCopy(referralUrl)} className={`w-full py-5 text-sm tracking-widest transition-all flex items-center justify-center gap-3 mb-6 active:scale-[0.98] ${copied ? 'bg-[#f5f2e6] text-[#333333]' : 'bg-[#1a1a1a] text-[#fffef2]'}`}>
-                        {copied ? <CheckCircle2 className="w-5 h-5" strokeWidth={1.5} /> : <Copy className="w-5 h-5" strokeWidth={1.5} />}
-                        {copied ? 'COPIED' : 'COPY URL'}
-                      </button>
-
-                      {/* ★ Secondary Actions (LINE / Email - スミベタに変更) */}
-                      <div className="w-full grid grid-cols-2 gap-4">
-                        <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="py-4 bg-[#1a1a1a] text-[#fffef2] transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
-                          <MessageCircle className="w-4 h-4" strokeWidth={1.5} />
-                          <span className="text-xs tracking-wider">LINE</span>
+                      {/* ★ リスト形式のシェアアクション群 */}
+                      <div className="w-full space-y-3">
+                        <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-5 flex items-center justify-between hover:bg-[#f5f2e6] transition-colors active:scale-[0.98]">
+                          <div className="flex items-center gap-4">
+                            {copied ? <CheckCircle2 className="w-5 h-5 text-[#333333]" /> : <Copy className="w-5 h-5 text-[#333333]" />}
+                            <span className="text-sm text-[#333333]">{copied ? 'URLをコピーしました' : '紹介URLをコピー'}</span>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-[#999999]" />
                         </button>
-                        <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="py-4 bg-[#1a1a1a] text-[#fffef2] transition-colors flex items-center justify-center gap-2 active:scale-[0.98]">
-                          <Mail className="w-4 h-4" strokeWidth={1.5} />
-                          <span className="text-xs tracking-wider">EMAIL</span>
+                        
+                        <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-5 flex items-center justify-between hover:bg-[#f5f2e6] transition-colors active:scale-[0.98]">
+                          <div className="flex items-center gap-4">
+                            <MessageCircle className="w-5 h-5 text-[#333333]" />
+                            <span className="text-sm text-[#333333]">LINEで送信</span>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-[#999999]" />
+                        </button>
+                        
+                        <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-5 flex items-center justify-between hover:bg-[#f5f2e6] transition-colors active:scale-[0.98]">
+                          <div className="flex items-center gap-4">
+                            <Mail className="w-5 h-5 text-[#333333]" />
+                            <span className="text-sm text-[#333333]">メールで送信</span>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-[#999999]" />
                         </button>
                       </div>
                     </div>
@@ -558,7 +577,7 @@ export default function MemberMagicPage() {
 
                   {/* ⚙️ TAB 5: 設定 (Settings) */}
                   {activeTab === 'settings' && (
-                    <div className="max-w-md mx-auto space-y-8">
+                    <div className="max-w-md mx-auto space-y-8 pb-10">
                       <div className="flex justify-between items-center">
                         <p className="text-sm text-[#666666] tracking-wider">アカウント情報</p>
                         {!isOwner && (
@@ -621,6 +640,13 @@ export default function MemberMagicPage() {
                           </button>
                         </div>
                       )}
+
+                      {/* ★ アプリ仕様：ログアウトボタンを一番下に配置 */}
+                      <div className="pt-8">
+                        <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
+                          <LogOut className="w-4 h-4" /> ログアウトする
+                        </button>
+                      </div>
                     </div>
                   )}
                   
@@ -680,6 +706,7 @@ export default function MemberMagicPage() {
                       <Edit3 className="absolute right-4 bottom-4 w-4 h-4 text-[#999999] pointer-events-none" />
                     </div>
 
+                    {/* ★ Primary Action (スミベタ) */}
                     <button onClick={handleExecuteShare} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                       <Send className="w-4 h-4" strokeWidth={1.5} /> 送信する
                     </button>
@@ -729,6 +756,7 @@ export default function MemberMagicPage() {
                       </label>
                     </div>
 
+                    {/* ★ Primary Action (スミベタ) */}
                     <button onClick={handleExchangePay} disabled={isExchanging || summary.confirmed <= 0} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50">
                       {isExchanging ? <Loader2 className="w-5 h-5 animate-spin"/> : "申請する"}
                     </button>
