@@ -14,11 +14,6 @@ import {
   Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList
 } from 'lucide-react'
 
-const getGradient = (name: string) => {
-  const colors = ['from-indigo-500 to-purple-500', 'from-emerald-400 to-cyan-500', 'from-rose-400 to-orange-400', 'from-blue-500 to-indigo-500'];
-  return colors[name.length % colors.length];
-}
-
 export default function MemberMagicPage() {
   const params = useParams()
   const magicToken = params.id as string 
@@ -26,7 +21,7 @@ export default function MemberMagicPage() {
 
   const [loading, setLoading] = useState(true)
   
-  // ★ ページ全体のロック・セッション管理
+  // セッション管理
   const [isUnlocked, setIsUnlocked] = useState(false)
   const [pin, setPin] = useState(['', '', '', '']) 
   const [pinError, setPinError] = useState(false)
@@ -42,7 +37,7 @@ export default function MemberMagicPage() {
   const [isResetting, setIsResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{success?: boolean, message: string} | null>(null)
 
-  // ★ メインコンテンツ用ステート (5つのタブ)
+  // メインコンテンツ用ステート
   const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'qr' | 'info' | 'settings'>('qr')
   const [staff, setStaff] = useState<any>(null)
   const [shop, setShop] = useState<any>(null)
@@ -60,17 +55,17 @@ export default function MemberMagicPage() {
   const [profileError, setProfileError] = useState('')       
   const [isSaving, setIsSaving] = useState(false)
 
-  // ★ えらべるPay交換用ステート
+  // えらべるPay交換用ステート
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false)
   const [exchangeType, setExchangeType] = useState<'all' | 'custom'>('all')
   const [exchangeAmount, setExchangeAmount] = useState('')
   const [isExchanging, setIsExchanging] = useState(false)
 
-  // ★ SHOP（仕入れ）用ダミーデータ
+  // SHOP（仕入れ）用ダミーデータ
   const MOCK_PRODUCTS = [
-    { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-6 h-6 text-gray-400" /> },
-    { id: 2, name: '専用導入機器 (Proモデル)', price: 45000, ptPrice: 42000, icon: <ShieldCheck className="w-6 h-6 text-gray-400" /> },
-    { id: 3, name: '店販用パンフレット (100部セット)', price: 2000, ptPrice: 2000, icon: <BookOpen className="w-6 h-6 text-gray-400" /> },
+    { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-5 h-5 text-[#999999]" /> },
+    { id: 2, name: '専用導入機器 (Proモデル)', price: 45000, ptPrice: 42000, icon: <ShieldCheck className="w-5 h-5 text-[#999999]" /> },
+    { id: 3, name: '店販用パンフレット (100部)', price: 2000, ptPrice: 2000, icon: <BookOpen className="w-5 h-5 text-[#999999]" /> },
   ]
 
   const referralUrl = staff ? `${typeof window !== 'undefined' ? window.location.origin : ''}/welcome/${staff.referral_code || ''}` : ''
@@ -115,12 +110,10 @@ export default function MemberMagicPage() {
     const firstBonusPoints = category?.first_bonus_points || 0;
 
     const shopHasBonusTx = pointLogs.some(tx => tx.metadata?.is_bonus === true);
-    
     const reversedLogs = [...referralLogs].reverse();
 
     let sTotal = 0; let sPending = 0; let sConfirmed = 0; let sPaid = 0;
     const myReferrals: any[] = [];
-
     const isMeEligible = staffData.is_team_pool_eligible !== false;
 
     const { data: allStaffsData } = await supabase.from('staffs').select('id, name').eq('shop_id', staffData.shop_id);
@@ -139,7 +132,6 @@ export default function MemberMagicPage() {
 
       const ratioInd = r.snapshot_ratio_individual ?? (shopData.ratio_individual ?? 100);
       const ratioTeam = r.snapshot_ratio_team ?? (shopData.ratio_team ?? 0);
-      const ratioOwner = r.snapshot_ratio_owner ?? (shopData.ratio_owner ?? 0);
 
       const totalIndPart = Math.floor(totalBase * (ratioInd / 100));
       const totalTeamPool = Math.floor(totalBase * (ratioTeam / 100));
@@ -148,8 +140,6 @@ export default function MemberMagicPage() {
       const teamPart = isMeEligible ? (totalTeamPool / activeStaffCount) : 0;
       const myEarnedPoints = Math.floor(indPart + teamPart);
 
-      const staffVisibleTotal = totalIndPart + totalTeamPool;
-
       if (!isCanceled && (isMine || isMeEligible)) {
         myReferrals.push({ 
           ...r, 
@@ -157,7 +147,7 @@ export default function MemberMagicPage() {
           totalPt: myEarnedPoints, 
           myIndPart: Math.floor(indPart),
           myTeamPart: Math.floor(teamPart),
-          staffVisibleTotal: staffVisibleTotal, 
+          staffVisibleTotal: totalIndPart + totalTeamPool, 
           snapshot_ratio_individual: ratioInd,
           snapshot_ratio_team: ratioTeam,
           isMine, 
@@ -185,41 +175,15 @@ export default function MemberMagicPage() {
 
   useEffect(() => { if (magicToken) loadData() }, [magicToken])
 
-// ★ リアルタイム監視設定 (デバッグ用ログ付き)
   useEffect(() => {
     if (!staff?.shop_id) return;
-
-    console.log('📡 Realtime: 監視カメラを設置します... 対象店舗:', staff.shop_id);
-
     const channel = supabase
       .channel('member-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'referrals', filter: `shop_id=eq.${staff.shop_id}` },
-        (payload) => {
-          console.log('🎉 Realtime: referrals に変更がありました！', payload);
-          loadData(true);
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'point_transactions', filter: `shop_id=eq.${staff.shop_id}` },
-        (payload) => {
-          console.log('💰 Realtime: point_transactions に変更がありました！', payload);
-          loadData(true);
-        }
-      )
-      .subscribe((status) => {
-        // ここで接続が成功したかどうかが分かります！
-        console.log('🔌 Realtime 接続ステータス:', status);
-      });
-
-    return () => {
-      console.log('🛑 Realtime: 画面が閉じられたので監視を解除します');
-      supabase.removeChannel(channel);
-    };
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'referrals', filter: `shop_id=eq.${staff.shop_id}` }, () => loadData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'point_transactions', filter: `shop_id=eq.${staff.shop_id}` }, () => loadData(true))
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [staff?.shop_id]);
-  // （※ loadData を依存配列に入れると無限ループする可能性があるため、ここでは外しています）
 
   const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url)
@@ -264,7 +228,7 @@ export default function MemberMagicPage() {
       const res = await fetch('/api/reset-pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secretToken: magicToken, email: forgotEmail }) })
       const data = await res.json()
       if (!res.ok || !data.success) throw new Error(data.error || 'エラーが発生しました')
-      setResetResult({ success: true, message: '新しい暗証番号をメールで送信しました！\nメールをご確認ください。' })
+      setResetResult({ success: true, message: '新しい暗証番号を送信しました。\nメールをご確認ください。' })
       setTimeout(() => { setIsForgotPinOpen(false); setResetResult(null); setForgotEmail('') }, 3000)
     } catch (err: any) { setResetResult({ success: false, message: err.message }) } 
     finally { setIsResetting(false) }
@@ -284,27 +248,18 @@ export default function MemberMagicPage() {
   }
 
   const handleCancelEdit = () => {
-    setIsEditMode(false)
-    setEditName(staff.name)
-    setEditEmail(staff.email)
-    setCurrentPinInput('')
-    setNewPinInput('')
-    setProfileError('')
+    setIsEditMode(false); setEditName(staff.name); setEditEmail(staff.email); setCurrentPinInput(''); setNewPinInput(''); setProfileError('')
   }
 
   const handleExchangePay = async () => {
     const pt = exchangeType === 'all' ? summary.confirmed : Number(exchangeAmount);
     if (pt <= 0 || pt > summary.confirmed) {
-      alert('交換可能なポイント数が正しくありません。');
-      return;
+      alert('交換可能なポイント数が正しくありません。'); return;
     }
     setIsExchanging(true);
     await new Promise(resolve => setTimeout(resolve, 1500)); 
-    alert(`${pt.toLocaleString()}pt を えらべるPay に交換申請しました！\n（※現在はテスト環境のため実際の交換は行われません）`);
-    setIsExchanging(false);
-    setIsExchangeModalOpen(false);
-    setExchangeAmount('');
-    loadData(true);
+    alert(`${pt.toLocaleString()}pt を えらべるPay に交換申請しました。\n（※現在はテスト環境です）`);
+    setIsExchanging(false); setIsExchangeModalOpen(false); setExchangeAmount(''); loadData(true);
   }
 
   const [now, setNow] = useState(Date.now())
@@ -316,52 +271,58 @@ export default function MemberMagicPage() {
     return history.filter(r => r.status === 'pending')
   }, [history])
 
-  if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>
-  if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-gray-500 font-bold">ページが見つかりません。</div>
+  // ==========================================
+  // レンダー
+  // ==========================================
+  if (loading) return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2]"><Loader2 className="w-6 h-6 animate-spin text-[#333333]" /></div>
+  if (!staff) return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2] text-[#666666] text-sm">ページが見つかりません。</div>
 
   return (
-    <div className="fixed inset-0 bg-gray-100 flex justify-center font-sans text-gray-800 overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
-      <div className="w-full max-w-md bg-white h-full relative shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-[#fffef2] flex justify-center font-sans text-[#333333] overflow-hidden selection:bg-[#e6e2d3] selection:text-[#333333]">
+      <div className="w-full max-w-md bg-[#fffef2] h-full relative shadow-sm border-x border-[#e6e2d3] flex flex-col overflow-hidden">
       
+        {/* ==========================================
+            LOCK SCREEN
+        ========================================== */}
         {!isUnlocked ? (
-          <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center p-6 bg-white">
+          <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center p-6 bg-[#fffef2]">
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
               <div className="text-center mb-10">
-                <p className="text-[10px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-2">Duacel 紹介プログラム</p>
-                <div className="flex justify-center mb-4"><div className={`w-20 h-20 rounded-full bg-gradient-to-tr ${getGradient(staff.name)} flex items-center justify-center text-white font-black text-3xl shadow-lg border-4 border-white`}>{staff.name.charAt(0).toUpperCase()}</div></div>
-                <h1 className="text-2xl font-black text-gray-900 leading-tight mb-2 tracking-tight">{shop?.name}<br/>{staff.name} さんのページ</h1>
-                <p className="text-xs text-gray-500 font-medium mt-4">アクセスするには4桁の暗証番号を<br/>入力してください。</p>
+                <h1 className="text-xl font-serif tracking-[0.2em] text-[#1a1a1a] mb-8">Duacel.</h1>
+                <p className="text-xs font-medium text-[#666666] mb-2">{shop?.name}</p>
+                <h2 className="text-lg font-medium text-[#1a1a1a] mb-6">{staff.name}</h2>
+                <p className="text-xs text-[#999999] leading-relaxed">アクセスするには4桁の暗証番号を<br/>入力してください。</p>
               </div>
               <div className={`flex justify-center gap-4 mb-8 ${pinError ? 'animate-[shake_0.5s_ease-in-out]' : ''}`}>
                 {pin.map((digit, index) => (
                   <input key={index} ref={pinInputRefs[index]} type="password" inputMode="numeric" maxLength={1} value={digit} onChange={(e) => handlePinChange(index, e.target.value)} onKeyDown={(e) => handlePinKeyDown(index, e)}
-                    className={`w-14 h-16 text-center text-2xl font-black rounded-2xl border-2 outline-none transition-all shadow-sm ${pinError ? 'border-red-400 bg-red-50 text-red-600' : digit ? 'border-indigo-600 bg-indigo-50 text-indigo-900 shadow-indigo-100' : 'border-gray-200 bg-gray-50 focus:border-indigo-400 focus:bg-white'}`}
+                    className={`w-14 h-16 text-center text-xl font-medium rounded-none border-none outline-none transition-all ${pinError ? 'bg-[#fcf0f0] text-[#8a3c3c]' : 'bg-[#f5f2e6] text-[#333333] focus:ring-1 focus:ring-[#333333]'}`}
                   />
                 ))}
               </div>
               <div className="h-8 flex flex-col items-center">
-                {pinError ? (<><p className="text-center text-xs font-bold text-red-500 animate-in fade-in mb-1">暗証番号が間違っています</p><p className="text-[10px] font-bold text-gray-400">残り試行回数: <span className="text-red-500">{attemptsLeft}回</span></p></>) : (<p className="text-center text-[10px] text-gray-400 font-bold">※登録時に設定したPINコードです</p>)}
+                {pinError ? (<><p className="text-center text-xs text-[#8a3c3c] animate-in fade-in mb-1">暗証番号が異なります</p><p className="text-[10px] text-[#999999]">残り試行回数: <span className="text-[#8a3c3c]">{attemptsLeft}回</span></p></>) : null}
               </div>
-              <div className="mt-8 text-center"><button onClick={() => setIsForgotPinOpen(true)} className="text-xs font-bold text-indigo-500 hover:text-indigo-600 underline underline-offset-4 transition-colors">暗証番号を忘れた方はこちら</button></div>
+              <div className="mt-8 text-center"><button onClick={() => setIsForgotPinOpen(true)} className="text-xs text-[#666666] hover:text-[#1a1a1a] underline underline-offset-4 transition-colors">暗証番号を忘れた方</button></div>
             </div>
             
+            {/* PINリセットモーダル */}
             <AnimatePresence>
               {isForgotPinOpen && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-gray-900/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
-                  <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 200 }} className="bg-white rounded-[2rem] p-6 sm:p-8 w-full max-w-md mx-auto shadow-2xl relative overflow-hidden">
-                    <button onClick={() => setIsForgotPinOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X className="w-5 h-5" /></button>
-                    <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mb-6"><Mail className="w-6 h-6" /></div>
-                    <h3 className="text-xl font-black text-gray-900 mb-2">暗証番号の再設定</h3>
-                    <p className="text-xs text-gray-500 font-medium leading-relaxed mb-6">ご登録されているメールアドレスを入力してください。<br/>新しい暗証番号を発行して送信します。</p>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/40 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+                  <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] rounded-t-3xl p-6 sm:p-8 w-full max-w-md mx-auto relative overflow-hidden">
+                    <button onClick={() => setIsForgotPinOpen(false)} className="absolute top-4 right-4 p-2 text-[#999999] hover:text-[#333333]"><X className="w-5 h-5" /></button>
+                    <h3 className="text-base font-medium text-[#1a1a1a] mb-4">暗証番号の再設定</h3>
+                    <p className="text-xs text-[#666666] leading-relaxed mb-6">ご登録のメールアドレスを入力してください。<br/>新しい暗証番号を送信します。</p>
                     <form onSubmit={handleForgotPin} className="space-y-4">
-                      <input type="email" required placeholder="example@email.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} disabled={isResetting} className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold text-gray-900 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all outline-none" />
+                      <input type="email" required placeholder="example@email.com" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} disabled={isResetting} className="w-full px-4 py-4 bg-[#f5f2e6] border-none rounded-none text-sm text-[#333333] focus:ring-1 focus:ring-[#333333] outline-none" />
                       {resetResult && (
-                        <div className={`p-3 rounded-xl text-xs font-bold flex items-start gap-2 whitespace-pre-wrap ${resetResult.success ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-                          {resetResult.success ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <Ban className="w-4 h-4 shrink-0" />} {resetResult.message}
+                        <div className={`p-4 text-xs flex items-start gap-2 whitespace-pre-wrap ${resetResult.success ? 'bg-[#f4f8f4] text-[#2d5a2d]' : 'bg-[#fcf0f0] text-[#8a3c3c]'}`}>
+                          {resetResult.message}
                         </div>
                       )}
-                      <button type="submit" disabled={isResetting || !forgotEmail} className="w-full py-4 bg-gray-900 text-white rounded-xl text-sm font-bold shadow-lg active:scale-95 transition flex justify-center items-center gap-2 disabled:opacity-50">
-                        {isResetting ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Send className="w-4 h-4" /> 再発行メールを送信する</>}
+                      <button type="submit" disabled={isResetting || !forgotEmail} className="w-full py-4 bg-[#333333] text-[#fffef2] text-sm uppercase tracking-widest font-medium transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50">
+                        {isResetting ? <Loader2 className="w-4 h-4 animate-spin" /> : '送信する'}
                       </button>
                     </form>
                   </motion.div>
@@ -371,152 +332,110 @@ export default function MemberMagicPage() {
           </div>
         ) : (
           <>
-            {/* ★ ヘッダー */}
-            <header className="px-5 pt-safe-top pb-4 flex items-center justify-between border-b border-gray-100 bg-white/90 backdrop-blur-md z-20 shadow-sm shrink-0">
+            {/* ==========================================
+                MAIN APP HEADER
+            ========================================== */}
+            <header className="px-6 pt-safe-top pb-4 flex items-center justify-between border-b border-[#e6e2d3] bg-[#fffef2]/90 backdrop-blur-md z-20 shrink-0">
               <div>
-                <p className="text-[9px] font-bold text-indigo-600 tracking-wider mb-1 uppercase">{shop?.name}</p>
-                <div className="flex items-center gap-2">
-                  <h1 className="text-lg font-black text-gray-900">{staff.name}</h1>
+                <p className="text-[10px] text-[#666666] tracking-wider mb-1">{shop?.name}</p>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-base font-medium text-[#1a1a1a]">{staff.name}</h1>
                   {staff.is_team_pool_eligible !== false && (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 flex items-center gap-1"><Handshake className="w-2.5 h-2.5"/> チーム対象</span>
+                    <span className="px-2 py-0.5 text-[10px] border border-[#d5d0b5] text-[#666666] flex items-center gap-1"><Handshake className="w-3 h-3"/> TEAM</span>
                   )}
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-2">
-                <button onClick={handleManualLock} className="p-2 text-gray-400 hover:text-gray-900 transition-colors bg-gray-50 hover:bg-gray-100 rounded-full active:scale-95">
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
+              <button onClick={handleManualLock} className="p-2 text-[#999999] hover:text-[#333333] transition-colors active:scale-95">
+                <Lock className="w-4 h-4" />
+              </button>
             </header>
 
-            <main className="flex-1 relative overflow-hidden bg-gray-50/30">
+            <main className="flex-1 relative overflow-hidden bg-[#fffef2]">
               <AnimatePresence mode="wait">
-                <motion.div key={activeTab} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.25, ease: "easeOut" }} className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-5 -webkit-overflow-scrolling-touch">
+                <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-6 -webkit-overflow-scrolling-touch">
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
                     <div className="max-w-md mx-auto space-y-6">
-                      <button 
-                        onClick={() => setIsExchangeModalOpen(true)}
-                        className="w-full p-5 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-2xl shadow-md flex items-center justify-between active:scale-95 transition-transform"
-                      >
-                        <div className="text-left">
-                          <h2 className="text-sm font-bold flex items-center gap-2"><JapaneseYen className="w-4 h-4"/> えらべるPayに交換する</h2>
-                          <p className="text-[10px] text-gray-300 mt-1 leading-tight">貯まったポイントを、PayPayやAmazonギフトなどの<br/>お好きな電子マネーに交換できます。</p>
+                      <div className="bg-[#fffef2] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.02)] relative overflow-hidden">
+                        <p className="text-xs text-[#666666] mb-2 tracking-wider">交換可能な確定ポイント</p>
+                        <p className="text-3xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
+                        
+                        <div className="mt-6 pt-6 border-t border-[#e6e2d3]">
+                          <button onClick={() => setIsExchangeModalOpen(true)} className="w-full py-4 bg-[#333333] text-[#fffef2] text-sm uppercase tracking-[0.1em] font-medium flex items-center justify-center gap-2 active:scale-95 transition-transform">
+                            えらべるPayに交換
+                          </button>
                         </div>
-                        <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center shrink-0">
-                          <ChevronRight className="w-4 h-4 text-white" />
+                      </div>
+
+                      <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-5 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] text-[#666666] mb-1 tracking-wider">確定待ち（仮計上）</p>
+                          <p className="text-lg font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-xs ml-1 text-[#999999]">pt</span></p>
                         </div>
-                      </button>
+                        <Clock className="w-5 h-5 text-[#999999]" strokeWidth={1.5} />
+                      </div>
 
                       {pendingReferrals.length > 0 && (
-                        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 shadow-sm">
-                          <div className="flex items-center gap-2 mb-3">
-                            <div className="bg-white p-1.5 rounded-full shadow-sm shrink-0">
-                              <Sparkles className="w-4 h-4 text-amber-500" />
-                            </div>
-                            <h3 className="text-xs font-bold text-amber-900">
-                              🎉 {pendingReferrals.length}件の新しい購入（仮計上）が発生しました！
-                            </h3>
-                          </div>
-                          
-                          <div className="space-y-2 mb-3">
+                        <div className="bg-[#fffef2] border border-[#d5d0b5] p-5 shadow-[0_0_20px_rgba(0,0,0,0.02)]">
+                          <p className="text-xs font-medium text-[#333333] mb-4">新しい購入が発生しました ({pendingReferrals.length}件)</p>
+                          <div className="space-y-3 mb-3">
                             {pendingReferrals.slice(0, 3).map((item) => (
-                              <div key={item.id} className="bg-white/80 p-3 rounded-xl border border-amber-100 shadow-sm">
-                                <div className="flex justify-between items-start mb-1.5">
-                                  <p className="text-[10px] font-bold text-gray-900">{item.customer_name || '匿名のお客様'} <span className="font-normal text-gray-500 text-[9px] ml-1">の{item.recurring_count > 1 ? `定期${item.recurring_count}回目` : '初回購入'}</span></p>
-                                  <span className="text-[8px] text-gray-500">
-                                    {new Date(item.created_at).toLocaleDateString('ja-JP')} {new Date(item.created_at).toLocaleTimeString('ja-JP', {hour:'2-digit', minute:'2-digit'})}
-                                  </span>
+                              <div key={item.id} className="bg-[#f5f2e6] p-3 flex justify-between items-center">
+                                <div>
+                                  <p className="text-xs text-[#333333]">{item.customer_name || '匿名'} <span className="text-[10px] text-[#666666] ml-1">{item.recurring_count > 1 ? `定期${item.recurring_count}回` : '初回'}</span></p>
+                                  <p className="text-[10px] text-[#999999] mt-0.5">{new Date(item.created_at).toLocaleDateString('ja-JP')}担当: {item.staffName}</p>
                                 </div>
-                                <div className="flex items-end justify-between">
-                                  <p className="text-[9px] font-semibold text-amber-700 bg-amber-100/50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                    <User className="w-2.5 h-2.5" /> 紹介者: {item.staffName}
-                                  </p>
-                                  <p className="text-xs font-mono font-bold text-amber-600">
-                                    予定: +{item.staffVisibleTotal?.toLocaleString()}<span className="text-[9px] font-sans ml-0.5">pt</span>
-                                  </p>
-                                </div>
+                                <p className="text-sm font-sans tabular-nums text-[#333333]">+{item.staffVisibleTotal?.toLocaleString()}<span className="text-[10px] ml-0.5">pt</span></p>
                               </div>
                             ))}
-                            {pendingReferrals.length > 3 && (
-                              <p className="text-[10px] text-center text-amber-600 font-semibold pt-1">
-                                他 {pendingReferrals.length - 3} 件の仮計上があります
-                              </p>
-                            )}
                           </div>
-
-                          <p className="text-[10px] text-amber-800/80 leading-relaxed font-medium">
-                            <Info className="w-3 h-3 inline mr-1 -mt-0.5" />
-                            現在はお届け待ちです。お客様へのお届けが完了すると、自動的にポイントが確定し、あなたへ還元されます。
+                          <p className="text-[10px] text-[#666666] leading-relaxed">
+                            商品のお届け完了後にポイントが確定します。
                           </p>
                         </div>
                       )}
 
-                      <div className="space-y-3">
-                        <div className="bg-white border border-gray-200 p-5 rounded-2xl shadow-sm relative overflow-hidden">
-                          <div className="absolute right-0 top-0 p-4 opacity-5"><Wallet className="w-16 h-16 text-gray-900" /></div>
-                          <p className="text-[10px] font-bold text-gray-500 mb-1">💰 あなたが交換できる確定ポイント</p>
-                          <p className="text-3xl font-mono font-black text-gray-900 tracking-tight">{summary.confirmed.toLocaleString()}<span className="text-xs ml-1 text-gray-400 font-sans">pt</span></p>
-                        </div>
-                        <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
-                          <div>
-                            <p className="text-[10px] font-bold text-gray-500 mb-0.5">🚀 確定待ち (もうすぐ入る予定)</p>
-                            <p className="text-lg font-mono font-bold tracking-tight text-gray-800">{summary.pending.toLocaleString()}<span className="text-[10px] ml-1 text-gray-400 font-sans">pt</span></p>
-                          </div>
-                          <Clock className="w-6 h-6 text-gray-300" />
-                        </div>
-                      </div>
-
-                      <div className="pt-2">
-                        <h2 className="text-sm font-bold mb-4 flex items-center gap-2 text-gray-900"><ClipboardList className="w-4 h-4 text-gray-400" /> あなたの実績フィード</h2>
-                        
+                      <div className="pt-4">
+                        <h2 className="text-sm font-medium text-[#1a1a1a] mb-4">実績履歴</h2>
                         <div className="space-y-3">
                           {history.length === 0 ? (
-                            <div className="text-center py-10 text-gray-400 text-xs">まだ実績がありません</div>
+                            <div className="text-center py-10 text-[#999999] text-xs">まだ実績がありません</div>
                           ) : (
                             history.map((item) => {
                               const isPending = item.status === 'pending';
                               const isCanceled = item.status === 'cancel';
-                              const customerName = item.customer_name || '匿名のお客様';
-                              const isRecurring = item.recurring_count > 1;
-
                               return (
-                                <div key={item.id} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm w-full hover:border-gray-300 transition-colors">
-                                  <div className="flex justify-between items-start mb-1.5">
-                                    <p className="text-[10px] font-bold text-gray-900 flex items-center gap-1">
-                                      {isPending ? <Clock className="w-3 h-3 text-amber-500"/> : isCanceled ? <Ban className="w-3 h-3 text-red-500"/> : <CheckCircle2 className="w-3 h-3 text-emerald-500"/>}
-                                      {isPending ? '【仮計上】' : isCanceled ? '【無効】' : '【ポイント獲得】'}
-                                      {customerName}の{isRecurring ? `定期${item.recurring_count}回目` : '初回購入'}
+                                <div key={item.id} className="bg-[#fffef2] border border-[#e6e2d3] p-4 shadow-[0_0_15px_rgba(0,0,0,0.02)]">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <p className="text-xs text-[#333333]">
+                                      {isPending ? '[仮計上] ' : isCanceled ? '[無効] ' : ''}
+                                      {item.customer_name || '匿名'} <span className="text-[#999999]">({item.recurring_count > 1 ? `定期${item.recurring_count}` : '初回'})</span>
                                     </p>
-                                    <span className="text-[8px] text-gray-400 whitespace-nowrap ml-2">
-                                      {new Date(item.created_at).toLocaleDateString('ja-JP', {month:'short', day:'numeric'})}
-                                    </span>
+                                    <span className="text-[10px] text-[#999999] tabular-nums">{new Date(item.created_at).toLocaleDateString('ja-JP')}</span>
                                   </div>
                                   
-                                  <div className="flex items-center justify-between mb-3 mt-2">
-                                    <span className="text-[9px] font-semibold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                      <User className="w-2.5 h-2.5" /> 紹介者: {item.staffName}
-                                    </span>
-                                    <p className={`text-sm font-mono font-bold ${isCanceled ? 'line-through text-gray-300' : 'text-gray-900'}`}>
-                                      獲得: +{item.totalPt.toLocaleString()} <span className="text-[9px] font-sans text-gray-500">pt</span>
+                                  <div className="flex items-end justify-between mb-3">
+                                    <span className="text-[10px] text-[#666666]">担当: {item.staffName}</span>
+                                    <p className={`text-base font-sans tabular-nums ${isCanceled ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
+                                      +{item.totalPt.toLocaleString()} <span className="text-xs text-[#999999]">pt</span>
                                     </p>
                                   </div>
                                   
                                   {!isPending && !isCanceled && (
-                                    <div className="pt-3 mt-3 border-t border-gray-100/80">
-                                      <div className="flex justify-between text-[10px] mb-1.5">
-                                        <span className="text-gray-500">還元対象ポイント</span>
-                                        <span className="font-mono text-gray-700">{item.staffVisibleTotal?.toLocaleString()}pt</span>
+                                    <div className="pt-3 border-t border-[#f5f2e6]">
+                                      <div className="flex justify-between text-[10px] text-[#666666] mb-1">
+                                        <span>対象ポイント</span>
+                                        <span className="tabular-nums">{item.staffVisibleTotal?.toLocaleString()}pt</span>
                                       </div>
-                                      <div className="flex justify-between text-[10px] mb-1.5 pl-2 border-l-2 border-gray-200">
-                                        <span className="text-gray-500 flex items-center gap-1"><User className="w-3 h-3"/> 本人還元 ({item.snapshot_ratio_individual}%)</span>
-                                        <span className="font-mono text-gray-700">+{item.myIndPart?.toLocaleString()}pt</span>
+                                      <div className="flex justify-between text-[10px] text-[#666666] pl-2 border-l border-[#e6e2d3] mb-1">
+                                        <span>本人 ({item.snapshot_ratio_individual}%)</span>
+                                        <span className="tabular-nums">+{item.myIndPart?.toLocaleString()}pt</span>
                                       </div>
                                       {item.myTeamPart > 0 && (
-                                        <div className="flex justify-between text-[10px] pl-2 border-l-2 border-gray-200">
-                                          <span className="text-gray-500 flex items-center gap-1"><Handshake className="w-3 h-3"/> チーム山分け ({item.snapshot_ratio_team}%)</span>
-                                          <span className="font-mono text-gray-700">+{item.myTeamPart?.toLocaleString()}pt</span>
+                                        <div className="flex justify-between text-[10px] text-[#666666] pl-2 border-l border-[#e6e2d3]">
+                                          <span>チーム ({item.snapshot_ratio_team}%)</span>
+                                          <span className="tabular-nums">+{item.myTeamPart?.toLocaleString()}pt</span>
                                         </div>
                                       )}
                                     </div>
@@ -532,40 +451,34 @@ export default function MemberMagicPage() {
 
                   {/* 🛒 TAB 2: 仕入れ (Shop) */}
                   {activeTab === 'shop' && (
-                    <div className="max-w-md mx-auto">
-                      <div className="flex justify-between items-end mb-6">
-                        <div>
-                          <h2 className="text-sm font-bold flex items-center gap-1.5"><Store className="w-4 h-4 text-gray-400" /> 仕入れ・交換</h2>
-                          <p className="text-[10px] text-gray-500 mt-1">貯まったポイントで商材をお得にゲット！</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-[10px] text-gray-400 mb-0.5">現在のポイント</p>
-                          <p className="text-xl font-mono leading-none">{summary.confirmed.toLocaleString()}<span className="text-xs ml-0.5 font-sans text-gray-500">pt</span></p>
-                        </div>
+                    <div className="max-w-md mx-auto space-y-6">
+                      <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-5 flex items-center justify-between">
+                        <p className="text-xs text-[#666666] tracking-wider">保有ポイント</p>
+                        <p className="text-xl font-sans tabular-nums tracking-tight text-[#333333]">{summary.confirmed.toLocaleString()}<span className="text-xs ml-1 text-[#999999]">pt</span></p>
                       </div>
 
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {MOCK_PRODUCTS.map(product => {
                           const canBuyWithPoint = summary.confirmed >= product.ptPrice;
                           return (
-                            <div key={product.id} className="bg-white p-3 rounded-xl border border-gray-100 flex items-center gap-4 hover:border-gray-300 transition-colors">
-                              <div className="w-16 h-16 rounded-lg bg-gray-50 flex items-center justify-center shrink-0 border border-gray-100">
+                            <div key={product.id} className="bg-[#fffef2] border border-[#e6e2d3] p-4 shadow-[0_0_20px_rgba(0,0,0,0.02)] flex gap-4 items-center">
+                              <div className="w-14 h-14 bg-[#f5f2e6] flex items-center justify-center shrink-0">
                                 {product.icon}
                               </div>
                               <div className="flex-1">
-                                <h3 className="text-xs font-semibold leading-snug mb-2 text-gray-800">{product.name}</h3>
+                                <h3 className="text-xs text-[#333333] mb-1">{product.name}</h3>
                                 <div className="flex items-end justify-between">
                                   <div>
-                                    <p className="text-[10px] text-gray-400 line-through">通常: ¥{product.price.toLocaleString()}</p>
-                                    <p className="text-sm font-mono flex items-baseline gap-1">
-                                      {product.ptPrice.toLocaleString()}<span className="text-[9px] font-sans text-gray-500">pt</span>
+                                    <p className="text-[10px] text-[#999999] line-through">¥{product.price.toLocaleString()}</p>
+                                    <p className="text-sm font-sans tabular-nums text-[#1a1a1a]">
+                                      {product.ptPrice.toLocaleString()}<span className="text-[10px] text-[#666666] ml-0.5">pt</span>
                                     </p>
                                   </div>
                                   <button 
-                                    className={`px-4 py-1.5 rounded-md text-[10px] font-bold transition-all active:scale-95 ${
-                                      canBuyWithPoint ? 'bg-gray-900 text-white hover:bg-gray-800' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+                                    className={`px-4 py-2 text-[10px] font-medium transition-all ${
+                                      canBuyWithPoint ? 'bg-[#333333] text-[#fffef2]' : 'bg-transparent border border-[#e6e2d3] text-[#666666]'
                                     }`}
-                                    onClick={() => alert('※ ここからecforceのAPIを叩き、クーポン付きでシークレットLPへ飛ばすフローが入ります。')}
+                                    onClick={() => alert('※ 購入フローへ遷移します')}
                                   >
                                     {canBuyWithPoint ? '交換する' : '購入する'}
                                   </button>
@@ -575,65 +488,57 @@ export default function MemberMagicPage() {
                           )
                         })}
                       </div>
-                      <div className="mt-6 p-4 bg-gray-50 rounded-xl flex items-start gap-2 border border-gray-200">
-                        <Info className="w-4 h-4 text-gray-400 shrink-0" />
-                        <p className="text-[10px] font-semibold text-gray-600 leading-relaxed">
-                          ポイントが足りない場合でも、クレジットカード決済でそのままご購入いただけます。（店舗宛の掛け払いはオーナーのみ可能です）
-                        </p>
-                      </div>
+                      
+                      <p className="text-[10px] text-[#666666] leading-relaxed">
+                        ポイントが不足している場合でも、クレジットカード決済でご購入いただけます。
+                      </p>
                     </div>
                   )}
 
-                  {/* 📱 TAB 3: QRコード (中央のメインタブ) */}
+                  {/* 📱 TAB 3: QRコード (メイン) */}
                   {activeTab === 'qr' && (
-                    <div className="flex flex-col items-center max-w-sm mx-auto h-full justify-center mt-4">
-                      <div className="w-full bg-white p-8 rounded-[2.5rem] shadow-sm border border-gray-100 flex flex-col items-center relative overflow-hidden mb-6">
-                        <div className="p-6 bg-white rounded-[2rem] shadow-sm border-2 border-gray-50 mb-2 flex items-center justify-center relative z-10">
-                          <QRCodeCanvas value={referralUrl} size={190} level={"H"} fgColor="#111827" />
+                    <div className="flex flex-col items-center max-w-sm mx-auto h-full justify-center mt-2">
+                      <div className="w-full bg-[#fffef2] p-8 border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8">
+                        <div className="p-4 bg-[#ffffff] border border-[#f5f2e6] mb-6">
+                          <QRCodeCanvas value={referralUrl} size={180} level={"H"} fgColor="#1a1a1a" />
                         </div>
-                        <p className="text-xs font-bold text-gray-600 mt-4 tracking-wider">お客様のスマートフォンで<br/>読み込んでください</p>
+                        <p className="text-xs text-[#666666] tracking-widest text-center leading-relaxed">お客様のスマートフォンで<br/>読み込んでください</p>
                       </div>
                       
-                      {/* ★ 追加: リンクでの招待ボタン群 */}
-                      <div className="w-full grid grid-cols-2 gap-3 mb-3">
-                        <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(shareText)}`, '_blank')} className="bg-[#06C755] text-white p-3 rounded-xl shadow-sm flex flex-col items-center justify-center gap-1 hover:bg-[#05b34c] transition-all active:scale-95">
-                          <MessageCircle className="w-5 h-5" />
-                          <span className="text-[10px] font-bold">LINEで送る</span>
+                      <div className="w-full grid grid-cols-2 gap-4 mb-4">
+                        <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(shareText)}`, '_blank')} className="py-4 border border-[#e6e2d3] bg-[#fffef2] hover:bg-[#f5f2e6] transition-colors flex flex-col items-center gap-2">
+                          <MessageCircle className="w-5 h-5 text-[#333333]" strokeWidth={1.5} />
+                          <span className="text-[10px] text-[#666666] tracking-wider">LINE</span>
                         </button>
-                        <button onClick={() => window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からのご案内')}&body=${encodeURIComponent(shareText)}`} className="bg-blue-500 text-white p-3 rounded-xl shadow-sm flex flex-col items-center justify-center gap-1 hover:bg-blue-600 transition-all active:scale-95">
-                          <Mail className="w-5 h-5" />
-                          <span className="text-[10px] font-bold">メールで送る</span>
+                        <button onClick={() => window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からのご案内')}&body=${encodeURIComponent(shareText)}`} className="py-4 border border-[#e6e2d3] bg-[#fffef2] hover:bg-[#f5f2e6] transition-colors flex flex-col items-center gap-2">
+                          <Mail className="w-5 h-5 text-[#333333]" strokeWidth={1.5} />
+                          <span className="text-[10px] text-[#666666] tracking-wider">EMAIL</span>
                         </button>
                       </div>
 
-                      <div className="w-full">
-                        <button onClick={() => handleCopy(referralUrl)} className={`w-full py-4 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 active:scale-95 shadow-sm ${copied ? 'bg-emerald-50 text-emerald-600 border border-emerald-200' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}>
-                          {copied ? <CheckCircle2 className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
-                          {copied ? 'URLをコピーしました！' : '専用URLをコピー'}
-                        </button>
-                      </div>
+                      <button onClick={() => handleCopy(referralUrl)} className={`w-full py-4 text-xs tracking-widest transition-all flex items-center justify-center gap-2 ${copied ? 'bg-[#f5f2e6] text-[#333333]' : 'bg-[#333333] text-[#fffef2]'}`}>
+                        {copied ? <CheckCircle2 className="w-4 h-4" strokeWidth={1.5} /> : <Copy className="w-4 h-4" strokeWidth={1.5} />}
+                        {copied ? 'COPIED' : 'COPY URL'}
+                      </button>
                     </div>
                   )}
 
                   {/* 📖 TAB 4: マニュアル (Info) */}
                   {activeTab === 'info' && (
                     <div className="max-w-md mx-auto">
-                      <div className="mb-6">
-                        <h2 className="text-sm font-bold flex items-center gap-1.5"><BookOpen className="w-4 h-4 text-gray-400" /> ドキュメント</h2>
-                        <p className="text-[10px] text-gray-500 mt-1">運用マニュアルやトークスクリプト</p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <p className="text-xs text-[#666666] tracking-wider mb-6">ドキュメント・マニュアル</p>
+                      <div className="grid grid-cols-2 gap-4">
                         {[
-                          { icon: <LayoutDashboard className="w-5 h-5"/>, title: '使い方ガイド', desc: 'マイページの見方' },
-                          { icon: <ShoppingBag className="w-5 h-5"/>, title: '製品カタログ', desc: '成分・効果の詳細' },
-                          { icon: <MessageCircle className="w-5 h-5"/>, title: 'トーク集', desc: 'お客様への声かけ例' },
-                          { icon: <PlayCircle className="w-5 h-5"/>, title: '施術動画', desc: '機器の正しい使い方' },
+                          { icon: <LayoutDashboard className="w-5 h-5"/>, title: '使い方ガイド', desc: 'アプリの操作方法' },
+                          { icon: <ShoppingBag className="w-5 h-5"/>, title: '製品カタログ', desc: '成分や効果の詳細' },
+                          { icon: <MessageCircle className="w-5 h-5"/>, title: 'トーク集', desc: 'お客様へのご案内' },
+                          { icon: <PlayCircle className="w-5 h-5"/>, title: '施術動画', desc: '機器の利用手順' },
                         ].map((item, i) => (
-                          <button key={i} className="bg-white p-4 rounded-2xl border border-gray-100 text-left hover:border-gray-300 transition-all flex flex-col justify-between aspect-square active:scale-95">
-                            <div className="w-8 h-8 bg-gray-50 text-gray-600 rounded-md flex items-center justify-center mb-3">{item.icon}</div>
+                          <button key={i} className="bg-[#fffef2] p-5 border border-[#e6e2d3] text-left hover:bg-[#f5f2e6] transition-colors flex flex-col justify-between aspect-square shadow-[0_0_15px_rgba(0,0,0,0.02)]">
+                            <div className="text-[#333333] mb-4">{item.icon}</div>
                             <div>
-                              <h3 className="text-xs font-semibold text-gray-900 mb-1">{item.title}</h3>
-                              <p className="text-[9px] text-gray-500 leading-tight">{item.desc}</p>
+                              <h3 className="text-xs text-[#1a1a1a] mb-1">{item.title}</h3>
+                              <p className="text-[10px] text-[#999999] leading-relaxed">{item.desc}</p>
                             </div>
                           </button>
                         ))}
@@ -643,58 +548,53 @@ export default function MemberMagicPage() {
 
                   {/* ⚙️ TAB 5: 設定 (Settings) */}
                   {activeTab === 'settings' && (
-                    <div className="max-w-md mx-auto space-y-4">
-                      <div className="flex justify-between items-center mb-4">
-                        <h2 className="text-sm font-bold flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-gray-400" /> アカウント情報</h2>
+                    <div className="max-w-md mx-auto space-y-6">
+                      <div className="flex justify-between items-center">
+                        <p className="text-xs text-[#666666] tracking-wider">アカウント情報</p>
                         {!isOwner && (
                           !isEditMode ? (
-                            <button onClick={() => setIsEditMode(true)} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-700 rounded-md text-[10px] font-bold flex items-center gap-1 hover:bg-gray-50 transition-all active:scale-95"><Edit2 className="w-3 h-3 text-gray-400" /> 編集する</button>
+                            <button onClick={() => setIsEditMode(true)} className="text-[10px] text-[#333333] border border-[#e6e2d3] px-3 py-1 hover:bg-[#f5f2e6]">編集</button>
                           ) : (
-                            <button onClick={handleCancelEdit} className="px-3 py-1.5 bg-gray-100 text-gray-500 rounded-md text-[10px] font-bold hover:bg-gray-200 transition-all">キャンセル</button>
+                            <button onClick={handleCancelEdit} className="text-[10px] text-[#999999] px-3 py-1">キャンセル</button>
                           )
                         )}
                       </div>
 
-                      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-8">
-                        <div className="p-5 border-b border-gray-50 flex items-center gap-4 bg-gray-50/50">
-                          <div className={`w-12 h-12 rounded-full bg-gradient-to-tr ${getGradient(staff.name)} flex items-center justify-center text-white font-bold text-xl shadow-inner border-2 border-white`}>{staff.name.charAt(0).toUpperCase()}</div>
-                          <div>
-                            <p className="text-sm font-bold text-gray-900">{staff.name}</p>
-                            <p className="text-[10px] text-gray-400 font-medium mt-0.5">ID: {staff.referral_code}</p>
-                          </div>
+                      <div className="bg-[#fffef2] border border-[#e6e2d3] shadow-[0_0_20px_rgba(0,0,0,0.02)] p-6 space-y-6">
+                        <div>
+                          <label className="block text-[10px] text-[#999999] mb-1 tracking-wider uppercase">Name</label>
+                          {!isEditMode ? <p className="text-sm text-[#1a1a1a]">{staff.name}</p> : <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full bg-[#f5f2e6] border-none px-3 py-2 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333]" />}
+                        </div>
+                        
+                        <div>
+                          <label className="block text-[10px] text-[#999999] mb-1 tracking-wider uppercase">ID</label>
+                          <p className="text-sm text-[#666666]">{staff.referral_code}</p>
                         </div>
 
-                        <div className="p-5 space-y-4">
-                          <div>
-                            <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-wider"><User className="w-3 h-3" /> 表示名</label>
-                            {!isEditMode ? <p className="text-sm font-bold text-gray-800 px-1">{staff.name}</p> : <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-bold text-gray-900 focus:border-gray-400 outline-none transition-all" />}
-                          </div>
-                          <div className="h-px bg-gray-100" />
-                          <div>
-                            <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-wider"><Mail className="w-3 h-3" /> メールアドレス</label>
-                            {!isEditMode ? <p className="text-xs font-medium text-gray-600 px-1">{staff.email}</p> : <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-medium text-gray-900 focus:border-gray-400 outline-none transition-all" />}
-                          </div>
-                          <div className="h-px bg-gray-100" />
-                          <div>
-                            <label className="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-wider"><Lock className="w-3 h-3" /> 暗証番号（PIN）の変更</label>
-                            {!isEditMode ? (
-                              <p className="text-sm font-bold text-gray-600 px-1 tracking-widest">••••</p>
-                            ) : (
-                              <div className="space-y-2">
-                                <input type="password" inputMode="numeric" maxLength={4} placeholder="現在のPIN (4桁)" value={currentPinInput} onChange={e => setCurrentPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono tracking-[0.5em] focus:border-gray-400 outline-none transition-all" />
-                                <input type="password" inputMode="numeric" maxLength={4} placeholder="新しいPIN (4桁)" value={newPinInput} onChange={e => setNewPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono tracking-[0.5em] focus:border-gray-400 outline-none transition-all" />
-                                <p className="text-[9px] text-gray-400 font-bold px-1">※変更しない場合は空欄のままにしてください</p>
-                              </div>
-                            )}
-                          </div>
+                        <div>
+                          <label className="block text-[10px] text-[#999999] mb-1 tracking-wider uppercase">Email</label>
+                          {!isEditMode ? <p className="text-sm text-[#666666]">{staff.email}</p> : <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full bg-[#f5f2e6] border-none px-3 py-2 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333]" />}
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] text-[#999999] mb-1 tracking-wider uppercase">PIN</label>
+                          {!isEditMode ? (
+                            <p className="text-sm text-[#666666] tracking-[0.3em]">••••</p>
+                          ) : (
+                            <div className="space-y-3">
+                              <input type="password" inputMode="numeric" maxLength={4} placeholder="現在のPIN" value={currentPinInput} onChange={e => setCurrentPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-[#f5f2e6] border-none px-3 py-2 text-sm tracking-widest outline-none focus:ring-1 focus:ring-[#333333]" />
+                              <input type="password" inputMode="numeric" maxLength={4} placeholder="新しいPIN" value={newPinInput} onChange={e => setNewPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-[#f5f2e6] border-none px-3 py-2 text-sm tracking-widest outline-none focus:ring-1 focus:ring-[#333333]" />
+                              <p className="text-[10px] text-[#999999]">※変更しない場合は空欄</p>
+                            </div>
+                          )}
                         </div>
 
                         <AnimatePresence>
                           {isEditMode && (
-                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="p-5 pt-0">
-                              {profileError && (<div className="p-2 mb-3 bg-red-50 text-red-600 border border-red-100 rounded-lg text-[10px] font-bold flex items-start gap-1.5"><X className="w-3 h-3 shrink-0" /> {profileError}</div>)}
-                              <button onClick={handleSaveProfile} disabled={isSaving || (editName === staff.name && editEmail === staff.email && !newPinInput)} className="w-full py-3 bg-gray-900 text-white rounded-lg text-xs font-bold disabled:opacity-50 transition-all active:scale-95 flex justify-center items-center gap-2">
-                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : '変更を保存する'}
+                            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="pt-4 border-t border-[#e6e2d3]">
+                              {profileError && (<div className="mb-4 text-[10px] text-[#8a3c3c]">{profileError}</div>)}
+                              <button onClick={handleSaveProfile} disabled={isSaving} className="w-full py-3 bg-[#333333] text-[#fffef2] text-xs tracking-widest disabled:opacity-50 transition-all active:scale-95">
+                                {isSaving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'SAVE CHANGES'}
                               </button>
                             </motion.div>
                           )}
@@ -702,13 +602,12 @@ export default function MemberMagicPage() {
                       </div>
                       
                       {isOwner && (
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="bg-gray-50 border border-gray-200 rounded-2xl p-5 shadow-sm">
-                          <h3 className="text-xs font-bold text-gray-900 mb-1 flex items-center gap-1.5"><Crown className="w-4 h-4 text-amber-500" /> オーナー専用メニュー</h3>
-                          <p className="text-[10px] text-gray-500 mb-4 leading-relaxed">お名前やメールアドレスなどの店舗情報は、管理ダッシュボードから行ってください。</p>
-                          <button onClick={() => router.push('/dashboard')} className="w-full py-3 bg-white border border-gray-300 text-gray-900 text-xs font-bold rounded-xl shadow-sm hover:bg-gray-50 transition active:scale-95 flex items-center justify-center gap-2">
-                            <LayoutDashboard className="w-4 h-4" /> 管理ダッシュボードを開く
+                        <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_15px_rgba(0,0,0,0.02)]">
+                          <p className="text-xs text-[#333333] mb-4">オーナー専用メニュー</p>
+                          <button onClick={() => router.push('/dashboard')} className="w-full py-3 bg-[#fffef2] border border-[#e6e2d3] text-[#333333] text-xs transition active:scale-95 flex items-center justify-center gap-2">
+                            <LayoutDashboard className="w-4 h-4" strokeWidth={1.5} /> 管理ダッシュボードを開く
                           </button>
-                        </motion.div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -717,76 +616,79 @@ export default function MemberMagicPage() {
               </AnimatePresence>
             </main>
 
-            {/* ★ ダークテーマのボトムナビ (QRボタン特大化) */}
-            <nav className="bg-gray-900 border-t border-gray-800 px-2 py-2 flex justify-between items-center z-50 pb-safe relative shadow-[0_-10px_40px_rgba(0,0,0,0.2)] shrink-0">
-              <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'stats' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                <Wallet className={`w-5 h-5 transition-transform ${activeTab === 'stats' ? 'scale-110' : ''}`} />
-                <span className="text-[8px] font-semibold tracking-wide">実績</span>
+            {/* ==========================================
+                BOTTOM NAVIGATION
+            ========================================== */}
+            <nav className="bg-[#fffef2] border-t border-[#e6e2d3] px-2 py-3 flex justify-between items-center z-50 pb-safe relative shrink-0">
+              <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'stats' ? 'text-[#333333]' : 'text-[#999999] hover:text-[#666666]'}`}>
+                <Wallet className="w-5 h-5" strokeWidth={1.5} />
+                <span className="text-[9px] tracking-wider">STATS</span>
               </button>
               
-              <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'shop' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                <Store className={`w-5 h-5 transition-transform ${activeTab === 'shop' ? 'scale-110' : ''}`} />
-                <span className="text-[8px] font-semibold tracking-wide">仕入れ</span>
+              <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'shop' ? 'text-[#333333]' : 'text-[#999999] hover:text-[#666666]'}`}>
+                <Store className="w-5 h-5" strokeWidth={1.5} />
+                <span className="text-[9px] tracking-wider">SHOP</span>
               </button>
 
-              <div className="relative -mt-8 px-2 flex-shrink-0 z-50">
-                <button onClick={() => setActiveTab('qr')} className={`p-4 rounded-full shadow-2xl border-4 border-gray-900 transition-all active:scale-95 ${activeTab === 'qr' ? 'bg-indigo-500 text-white shadow-indigo-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}>
-                  <QrCode className="w-7 h-7" />
+              <div className="px-3 flex-shrink-0 z-50">
+                <button onClick={() => setActiveTab('qr')} className={`p-4 rounded-full transition-all active:scale-95 ${activeTab === 'qr' ? 'bg-[#333333] text-[#fffef2] shadow-[0_5px_15px_rgba(51,51,51,0.2)]' : 'bg-[#fffef2] border border-[#e6e2d3] text-[#333333]'}`}>
+                  <QrCode className="w-6 h-6" strokeWidth={1.5} />
                 </button>
               </div>
 
-              <button onClick={() => setActiveTab('info')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'info' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                <BookOpen className={`w-5 h-5 transition-transform ${activeTab === 'info' ? 'scale-110' : ''}`} />
-                <span className="text-[8px] font-semibold tracking-wide">情報</span>
+              <button onClick={() => setActiveTab('info')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'info' ? 'text-[#333333]' : 'text-[#999999] hover:text-[#666666]'}`}>
+                <BookOpen className="w-5 h-5" strokeWidth={1.5} />
+                <span className="text-[9px] tracking-wider">INFO</span>
               </button>
 
-              <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center justify-center gap-1 flex-1 py-2 transition-colors ${activeTab === 'settings' ? 'text-white' : 'text-gray-400 hover:text-gray-200'}`}>
-                <Settings className={`w-5 h-5 transition-transform ${activeTab === 'settings' ? 'scale-110' : ''}`} />
-                <span className="text-[8px] font-semibold tracking-wide">設定</span>
+              <button onClick={() => setActiveTab('settings')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'settings' ? 'text-[#333333]' : 'text-[#999999] hover:text-[#666666]'}`}>
+                <Settings className="w-5 h-5" strokeWidth={1.5} />
+                <span className="text-[9px] tracking-wider">SETTING</span>
               </button>
             </nav>
 
-            {/* ★ えらべるPay 交換モーダル */}
+            {/* ==========================================
+                EXCHANGE MODAL
+            ========================================== */}
             <AnimatePresence>
               {isExchangeModalOpen && (
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-gray-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-                  <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl relative max-h-[90vh] overflow-y-auto">
-                    <button onClick={() => setIsExchangeModalOpen(false)} className="absolute top-4 right-4 p-2 text-gray-400 hover:bg-gray-100 rounded-full"><X className="w-4 h-4" /></button>
-                    <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mb-4"><JapaneseYen className="w-5 h-5" /></div>
-                    <h3 className="text-base font-bold text-gray-900 mb-2">えらべるPayに交換</h3>
-                    <p className="text-[10px] text-gray-500 mb-6 leading-relaxed">ポイントをPayPayやAmazonギフト券などの電子マネーに交換します。</p>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/40 backdrop-blur-sm flex items-center justify-center p-4">
+                  <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-[#fffef2] rounded-none p-6 w-full max-w-sm shadow-[0_0_40px_rgba(0,0,0,0.1)] relative">
+                    <button onClick={() => setIsExchangeModalOpen(false)} className="absolute top-4 right-4 p-2 text-[#999999] hover:text-[#333333]"><X className="w-5 h-5" strokeWidth={1.5} /></button>
                     
-                    <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
-                      <p className="text-[10px] font-bold text-gray-400 mb-0.5">現在の確定ポイント</p>
-                      <p className="text-xl font-mono font-black text-gray-900">{summary.confirmed.toLocaleString()}<span className="text-[10px] font-sans text-gray-500 ml-1">pt</span></p>
+                    <h3 className="text-sm font-medium text-[#1a1a1a] mb-2">えらべるPayに交換</h3>
+                    <p className="text-[10px] text-[#666666] mb-6 leading-relaxed">ポイントを各種電子マネーに交換します。</p>
+                    
+                    <div className="mb-6 p-4 bg-[#f5f2e6] border border-[#e6e2d3]">
+                      <p className="text-[10px] text-[#666666] mb-1 tracking-wider">交換可能なポイント</p>
+                      <p className="text-xl font-sans tabular-nums text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-[10px] text-[#999999] ml-1">pt</span></p>
                     </div>
 
-                    <div className="space-y-4 mb-8">
-                      <label className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${exchangeType === 'all' ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                        <input type="radio" checked={exchangeType === 'all'} onChange={() => { setExchangeType('all'); setExchangeAmount(''); }} className="w-4 h-4 text-gray-900 accent-gray-900" />
+                    <div className="space-y-3 mb-8">
+                      <label className={`flex items-center gap-3 p-4 border transition-all cursor-pointer ${exchangeType === 'all' ? 'border-[#333333] bg-[#f5f2e6]' : 'border-[#e6e2d3]'}`}>
+                        <input type="radio" checked={exchangeType === 'all'} onChange={() => { setExchangeType('all'); setExchangeAmount(''); }} className="w-4 h-4 accent-[#333333]" />
                         <div>
-                          <p className="text-xs font-bold text-gray-900">すべてのポイントを交換</p>
-                          <p className="text-[9px] text-gray-500 mt-0.5">{summary.confirmed.toLocaleString()} pt</p>
+                          <p className="text-xs text-[#333333]">すべて交換する</p>
                         </div>
                       </label>
                       
-                      <label className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${exchangeType === 'custom' ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                        <input type="radio" checked={exchangeType === 'custom'} onChange={() => setExchangeType('custom')} className="w-4 h-4 text-gray-900 accent-gray-900 mt-1" />
+                      <label className={`flex items-start gap-3 p-4 border transition-all cursor-pointer ${exchangeType === 'custom' ? 'border-[#333333] bg-[#f5f2e6]' : 'border-[#e6e2d3]'}`}>
+                        <input type="radio" checked={exchangeType === 'custom'} onChange={() => setExchangeType('custom')} className="w-4 h-4 accent-[#333333] mt-1" />
                         <div className="flex-1">
-                          <p className="text-xs font-bold text-gray-900 mb-2">ポイント数を指定する</p>
+                          <p className="text-xs text-[#333333] mb-2">ポイント数を指定</p>
                           <input 
                             type="number" 
                             placeholder="例: 1000" 
                             value={exchangeAmount} 
                             onChange={(e) => { setExchangeType('custom'); setExchangeAmount(e.target.value); }} 
                             disabled={exchangeType !== 'custom'}
-                            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm font-mono focus:border-gray-900 outline-none disabled:bg-gray-100 disabled:opacity-50"
+                            className="w-full px-3 py-2 bg-[#fffef2] border border-[#e6e2d3] text-sm tabular-nums focus:border-[#333333] outline-none disabled:opacity-50"
                           />
                         </div>
                       </label>
                     </div>
 
-                    <button onClick={handleExchangePay} disabled={isExchanging || summary.confirmed <= 0} className="w-full py-3.5 bg-gray-900 text-white text-xs font-bold rounded-xl active:scale-95 transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50">
+                    <button onClick={handleExchangePay} disabled={isExchanging || summary.confirmed <= 0} className="w-full py-4 bg-[#333333] text-[#fffef2] text-sm tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50">
                       {isExchanging ? <Loader2 className="w-4 h-4 animate-spin"/> : "申請する"}
                     </button>
                   </motion.div>
