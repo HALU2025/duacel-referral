@@ -71,6 +71,10 @@ export default function MemberMagicPage() {
   const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false)
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false)
 
+  // ★ 未読CV（ポップアップ）用ステート
+  const [unreadReferrals, setUnreadReferrals] = useState<any[]>([])
+  const [currentUnreadIndex, setCurrentUnreadIndex] = useState(0)
+
   // SHOP（仕入れ）用ダミーデータ
   const MOCK_PRODUCTS = [
     { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-6 h-6 text-[#999999]" />, desc: 'お客様への店販用に最適なスカルプセラムです。店内でのお試し用にもご利用いただけます。' },
@@ -178,8 +182,18 @@ export default function MemberMagicPage() {
     setEditName(staffData.name)
     setEditEmail(staffData.email)
     setShop(shopData)
-    setHistory(myReferrals.reverse())
+    
+    const finalHistory = myReferrals.reverse();
+    setHistory(finalHistory)
     setSummary({ total: sTotal + sConfirmed, pending: sPending, confirmed: sConfirmed, paid: sPaid })
+    
+    // ★ 未読CVのチェック
+    if (typeof window !== 'undefined') {
+      const localSeen = JSON.parse(localStorage.getItem(`seen_referrals_${magicToken}`) || '[]');
+      const newUnreads = finalHistory.filter(r => r.status === 'pending' && !localSeen.includes(r.id));
+      setUnreadReferrals(newUnreads);
+    }
+
     if(!silent) setLoading(false)
   }
 
@@ -281,6 +295,20 @@ export default function MemberMagicPage() {
       window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からのご案内')}&body=${encodeURIComponent(shareMessage)}`
     }
     setIsShareModalOpen(false)
+  }
+
+  // ★ 未読CVポップアップを閉じて次へ
+  const handleCloseUnread = () => {
+    const current = unreadReferrals[currentUnreadIndex];
+    const localSeen = JSON.parse(localStorage.getItem(`seen_referrals_${magicToken}`) || '[]');
+    localStorage.setItem(`seen_referrals_${magicToken}`, JSON.stringify([...localSeen, current.id]));
+
+    if (currentUnreadIndex < unreadReferrals.length - 1) {
+      setCurrentUnreadIndex(prev => prev + 1);
+    } else {
+      setUnreadReferrals([]);
+      setCurrentUnreadIndex(0);
+    }
   }
 
   const [now, setNow] = useState(Date.now())
@@ -406,17 +434,17 @@ export default function MemberMagicPage() {
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
-                    <div className="max-w-md mx-auto space-y-8">
+                    <div className="max-w-md mx-auto space-y-6">
                       
-                      {/* ★ オーナー専用 管理ダッシュボードボタン */}
+                      {/* ★ オーナー専用 管理ダッシュボードボタン (上部に配置) */}
                       {isOwner && (
-                        <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
-                          <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードを開く
+                        <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                          <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
                         </button>
                       )}
 
-                      {/* ★ メインウォレット */}
-                      <div className="bg-[#f5f2e6] border-y border-[#e6e2d3] py-6 px-6 -mx-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden -mt-6 mb-0">
+                      {/* ★ メインウォレット (通常の枠組みに戻す) */}
+                      <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
                           <p className="text-3xl font-sans tabular-nums tracking-tight text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
@@ -426,13 +454,13 @@ export default function MemberMagicPage() {
                         </div>
                       </div>
 
-                      {/* 確定待ち */}
-                      <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-4 flex flex-col justify-center">
-                        <p className="text-xs text-[#666666] mb-1 tracking-wider">確定待ち（仮計上）</p>
-                        <p className="text-2xl font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span></p>
+                      {/* 確定待ち (左寄せ、時計アイコン削除、上のスペース狭め) */}
+                      <div className="bg-transparent border-b border-[#e6e2d3] pb-3 pt-2 flex items-center justify-between">
+                        <p className="text-xs text-[#666666] tracking-wider">確定待ち（仮計上）</p>
+                        <p className="text-lg font-sans tabular-nums tracking-tight text-[#333333]">+{summary.pending.toLocaleString()}<span className="text-[10px] ml-1 text-[#999999]">pt</span></p>
                       </div>
 
-                      {/* 紹介履歴 (報酬未確定) */}
+                      {/* 紹介履歴 (報酬未確定) - フルワイド、一番上だけborder-t */}
                       {pendingReferrals.length > 0 && (
                         <div className="pt-2">
                           <h2 className="text-sm text-[#1a1a1a] mb-1">紹介履歴（報酬未確定）</h2>
@@ -462,7 +490,7 @@ export default function MemberMagicPage() {
                         </div>
                       )}
 
-                      {/* ポイント獲得履歴 */}
+                      {/* ポイント獲得履歴 - フルワイド、一番上だけborder-t */}
                       <div className="pt-2">
                         <h2 className="text-sm text-[#1a1a1a] mb-4">ポイント獲得履歴</h2>
                         <div className="space-y-0">
@@ -632,6 +660,16 @@ export default function MemberMagicPage() {
                   {/* ⚙️ TAB 5: 設定 (Settings) */}
                   {activeTab === 'settings' && (
                     <div className="max-w-md mx-auto space-y-8 pb-10">
+                      
+                      {/* ★ オーナー専用 管理ダッシュボードボタン */}
+                      {isOwner && (
+                        <div className="bg-transparent pb-2">
+                          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                            <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
+                          </button>
+                        </div>
+                      )}
+
                       <div className="flex justify-between items-center">
                         <p className="text-sm text-[#666666] tracking-wider">アカウント情報</p>
                         {!isOwner && (
@@ -684,7 +722,7 @@ export default function MemberMagicPage() {
                           )}
                         </AnimatePresence>
                       </div>
-                      
+
                       {/* アプリ仕様：ログアウトボタンを一番下に配置 */}
                       <div className="pt-4">
                         <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] bg-[#fffef2] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
@@ -972,6 +1010,51 @@ export default function MemberMagicPage() {
                         閉じる
                       </button>
                     )}
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* ==========================================
+                ★ UNREAD REFERRAL POPUP (未読CV通知)
+            ========================================== */}
+            <AnimatePresence>
+              {unreadReferrals.length > 0 && activeTab === 'stats' && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[120] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-center items-center p-6">
+                  <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-[#fffef2] p-8 w-full max-w-sm shadow-[0_0_40px_rgba(0,0,0,0.2)] relative border border-[#e6e2d3]">
+                    
+                    <div className="flex justify-center mb-6">
+                       <div className="w-12 h-12 bg-[#f5f2e6] rounded-full flex items-center justify-center">
+                         <Gift className="w-6 h-6 text-[#1a1a1a]" strokeWidth={1.5} />
+                       </div>
+                    </div>
+                    <h3 className="text-xl font-serif text-center text-[#1a1a1a] mb-2 tracking-widest">CONGRATULATIONS.</h3>
+                    <p className="text-sm text-center text-[#333333] mb-6 leading-relaxed">
+                      <span className="font-bold">{unreadReferrals[currentUnreadIndex].staffName}</span> さんのご紹介で<br/>商品が購入されました。
+                    </p>
+
+                    <div className="bg-[#f5f2e6] p-5 border border-[#e6e2d3] mb-6">
+                      <div className="flex justify-between text-xs text-[#666666] mb-3">
+                        <span>購入者</span>
+                        <span className="text-[#333333] font-bold">{unreadReferrals[currentUnreadIndex].customer_name || '匿名'} 様</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-[#666666] mb-3">
+                        <span>種別</span>
+                        <span className="text-[#333333]">{unreadReferrals[currentUnreadIndex].recurring_count > 1 ? `定期${unreadReferrals[currentUnreadIndex].recurring_count}回目` : '初回購入'}</span>
+                      </div>
+                      <div className="flex justify-between text-xs text-[#666666] pt-3 border-t border-[#e6e2d3]">
+                        <span>獲得予定</span>
+                        <span className="text-[#1a1a1a] font-sans font-bold text-sm tabular-nums">+{unreadReferrals[currentUnreadIndex].staffVisibleTotal?.toLocaleString()} pt</span>
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-[#666666] text-center mb-6 leading-relaxed">
+                      商品のお届け完了後にポイントが確定します。
+                    </p>
+
+                    <button onClick={handleCloseUnread} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest active:scale-[0.98] transition-all flex justify-center items-center">
+                      {currentUnreadIndex < unreadReferrals.length - 1 ? '次へ' : '確認しました'}
+                    </button>
                   </motion.div>
                 </motion.div>
               )}
