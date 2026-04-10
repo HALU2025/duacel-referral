@@ -12,7 +12,7 @@ import {
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
   Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList,
-  Edit3
+  Edit3, Award
 } from 'lucide-react'
 
 export default function MemberMagicPage() {
@@ -56,19 +56,20 @@ export default function MemberMagicPage() {
   const [profileError, setProfileError] = useState('')       
   const [isSaving, setIsSaving] = useState(false)
 
-  // えらべるPay交換用ステート
+  // モーダル制御用ステート
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false)
   const [exchangeType, setExchangeType] = useState<'all' | 'custom'>('all')
   const [exchangeAmount, setExchangeAmount] = useState('')
   const [isExchanging, setIsExchanging] = useState(false)
 
-  // 詳細表示用ステート
   const [selectedDetail, setSelectedDetail] = useState<{type: 'referral' | 'shop', data: any} | null>(null)
-
-  // LINE/Email シェア編集用ステート
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [shareTarget, setShareTarget] = useState<'line' | 'email'>('line')
   const [shareMessage, setShareMessage] = useState('')
+
+  // ★ バッジ説明用モーダル
+  const [isOwnerModalOpen, setIsOwnerModalOpen] = useState(false)
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false)
 
   // SHOP（仕入れ）用ダミーデータ
   const MOCK_PRODUCTS = [
@@ -360,29 +361,36 @@ export default function MemberMagicPage() {
                 MAIN APP HEADER
             ========================================== */}
             <header className="px-6 pt-safe-top pb-4 pt-6 flex items-start justify-between border-b border-[#e6e2d3] bg-[#fffef2]/90 backdrop-blur-md z-20 shrink-0">
-              {/* 左：ユーザー情報 */}
+              {/* 左：店舗情報 */}
               <div className="flex flex-col items-start gap-2">
-                <h1 className="text-base text-[#1a1a1a]">{staff.name}</h1>
-                <div className="flex items-center gap-2">
-                  {isOwner && (
-                    <span className="px-2 py-0.5 text-[10px] bg-[#1a1a1a] text-[#fffef2] tracking-widest uppercase">Owner</span>
-                  )}
-                  {staff.is_team_pool_eligible !== false && (
-                    <span className="px-2 py-0.5 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1">
-                      <Handshake className="w-3 h-3"/> Team
-                    </span>
-                  )}
-                </div>
-              </div>
-              
-              {/* 右：店舗情報 */}
-              <div className="flex flex-col items-end gap-2 text-right">
-                <p className="text-sm text-[#333333]">{shop?.name}</p>
+                <h1 className="text-base text-[#1a1a1a]">{shop?.name}</h1>
                 {shop?.shop_categories?.label && (
-                  <span className="px-2 py-0.5 text-[10px] border border-[#e6e2d3] bg-[#fffef2] text-[#999999] tracking-wider">
-                    {shop.shop_categories.label}
+                  <span className="px-2 py-1 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider flex items-center gap-1">
+                    <Award className="w-3 h-3" /> {shop.shop_categories.label}
                   </span>
                 )}
+              </div>
+              
+              {/* 右：ユーザー情報 */}
+              <div className="flex flex-col items-end gap-2 text-right">
+                <div className="flex items-center gap-2">
+                  <h1 className="text-base text-[#1a1a1a]">{staff.name} さん</h1>
+                  <button onClick={handleManualLock} className="p-1 text-[#999999] hover:text-[#333333] transition-colors active:scale-[0.98]">
+                    <Lock className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isOwner && (
+                    <button onClick={() => setIsOwnerModalOpen(true)} className="px-2 py-1 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1 active:scale-95 transition-transform">
+                      <Crown className="w-3 h-3"/> Owner
+                    </button>
+                  )}
+                  {staff.is_team_pool_eligible !== false && (
+                    <button onClick={() => setIsTeamModalOpen(true)} className="px-2 py-1 text-[10px] border border-[#e6e2d3] bg-[#f5f2e6] text-[#666666] tracking-wider uppercase flex items-center gap-1 active:scale-95 transition-transform">
+                      <Handshake className="w-3 h-3"/> Team
+                    </button>
+                  )}
+                </div>
               </div>
             </header>
 
@@ -393,7 +401,7 @@ export default function MemberMagicPage() {
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
                     <div className="max-w-md mx-auto space-y-8">
-                      {/* ★ メインウォレット (背景f5f2e6, 横並び配置) */}
+                      {/* ★ メインウォレット */}
                       <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
@@ -513,38 +521,39 @@ export default function MemberMagicPage() {
                   {/* 📱 TAB 3: QRコード (メイン) */}
                   {activeTab === 'qr' && (
                     <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2">
-                      <div className="w-full bg-[#fffef2] p-10 border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8">
-                        <div className="p-4 bg-[#ffffff] border border-[#f5f2e6] mb-8">
-                          <QRCodeCanvas value={referralUrl} size={200} level={"H"} fgColor="#1a1a1a" />
+                      {/* ★ 全体を背景色のあるカードにまとめる */}
+                      <div className="w-full bg-[#f5f2e6] p-8 border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8">
+                        <div className="p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6">
+                          <QRCodeCanvas value={referralUrl} size={180} level={"H"} fgColor="#1a1a1a" />
                         </div>
-                        <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed">お客様のスマートフォンで<br/>読み込んでください</p>
-                      </div>
-                      
-                      {/* ★ リスト形式のシェアアクション群 */}
-                      <div className="w-full space-y-3">
-                        <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-5 flex items-center justify-between hover:bg-[#f5f2e6] transition-colors active:scale-[0.98]">
-                          <div className="flex items-center gap-4">
-                            {copied ? <CheckCircle2 className="w-5 h-5 text-[#333333]" /> : <Copy className="w-5 h-5 text-[#333333]" />}
-                            <span className="text-sm text-[#333333]">{copied ? 'URLをコピーしました' : '紹介URLをコピー'}</span>
-                          </div>
-                          <ChevronRight className="w-5 h-5 text-[#999999]" />
-                        </button>
+                        <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-6">お客様のスマートフォンで<br/>読み込んでください</p>
                         
-                        <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-5 flex items-center justify-between hover:bg-[#f5f2e6] transition-colors active:scale-[0.98]">
-                          <div className="flex items-center gap-4">
-                            <MessageCircle className="w-5 h-5 text-[#333333]" />
-                            <span className="text-sm text-[#333333]">LINEで送信</span>
-                          </div>
-                          <ChevronRight className="w-5 h-5 text-[#999999]" />
-                        </button>
-                        
-                        <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-5 flex items-center justify-between hover:bg-[#f5f2e6] transition-colors active:scale-[0.98]">
-                          <div className="flex items-center gap-4">
-                            <Mail className="w-5 h-5 text-[#333333]" />
-                            <span className="text-sm text-[#333333]">メールで送信</span>
-                          </div>
-                          <ChevronRight className="w-5 h-5 text-[#999999]" />
-                        </button>
+                        {/* ★ QR枠内にアクションボタンを入れる（Chevron形式） */}
+                        <div className="w-full space-y-3">
+                          <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                            <div className="flex items-center gap-3">
+                              {copied ? <CheckCircle2 className="w-5 h-5 text-[#333333]" /> : <Copy className="w-5 h-5 text-[#333333]" />}
+                              <span className="text-sm text-[#333333]">{copied ? 'URLをコピーしました' : '紹介URLをコピー'}</span>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-[#999999]" />
+                          </button>
+                          
+                          <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                            <div className="flex items-center gap-3">
+                              <MessageCircle className="w-5 h-5 text-[#333333]" />
+                              <span className="text-sm text-[#333333]">LINEで送信</span>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-[#999999]" />
+                          </button>
+                          
+                          <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                            <div className="flex items-center gap-3">
+                              <Mail className="w-5 h-5 text-[#333333]" />
+                              <span className="text-sm text-[#333333]">メールで送信</span>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-[#999999]" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -631,19 +640,9 @@ export default function MemberMagicPage() {
                         </AnimatePresence>
                       </div>
                       
-                      {isOwner && (
-                        <div className="bg-[#fffef2] border-b border-[#e6e2d3] py-6">
-                          <p className="text-sm text-[#333333] mb-4">オーナー専用メニュー</p>
-                          <button onClick={() => router.push('/dashboard')} className="w-full py-4 bg-[#f5f2e6] text-[#333333] text-sm transition active:scale-[0.98] flex items-center justify-between px-6">
-                            <span className="flex items-center gap-3"><LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボード</span>
-                            <ChevronRight className="w-5 h-5 text-[#999999]" />
-                          </button>
-                        </div>
-                      )}
-
                       {/* ★ アプリ仕様：ログアウトボタンを一番下に配置 */}
-                      <div className="pt-8">
-                        <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
+                      <div className="pt-4">
+                        <button onClick={handleManualLock} className="w-full py-4 border border-[#e6e2d3] bg-[#fffef2] text-[#666666] text-sm hover:bg-[#fcf0f0] hover:text-[#8a3c3c] hover:border-[#fcf0f0] transition-colors flex items-center justify-center gap-2">
                           <LogOut className="w-4 h-4" /> ログアウトする
                         </button>
                       </div>
@@ -756,7 +755,6 @@ export default function MemberMagicPage() {
                       </label>
                     </div>
 
-                    {/* ★ Primary Action (スミベタ) */}
                     <button onClick={handleExchangePay} disabled={isExchanging || summary.confirmed <= 0} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50">
                       {isExchanging ? <Loader2 className="w-5 h-5 animate-spin"/> : "申請する"}
                     </button>
@@ -863,6 +861,71 @@ export default function MemberMagicPage() {
                           {summary.confirmed >= selectedDetail.data.ptPrice ? '交換手続きへ進む' : 'ポイント不足（購入へ進む）'}
                         </button>
                       </>
+                    )}
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* ==========================================
+                ★ BADGE INFO MODAL (オーナー/チーム)
+            ========================================== */}
+            <AnimatePresence>
+              {isOwnerModalOpen && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+                  <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
+                    <button onClick={() => setIsOwnerModalOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
+                    
+                    <div className="w-12 h-12 bg-[#f5f2e6] rounded-full flex items-center justify-center mb-6">
+                      <Crown className="w-6 h-6 text-[#1a1a1a]" strokeWidth={1.5} />
+                    </div>
+                    <h3 className="text-lg text-[#1a1a1a] mb-4">オーナー権限について</h3>
+                    <div className="text-sm text-[#666666] leading-relaxed mb-8 space-y-3">
+                      <p>あなたはこの店舗のオーナーです。</p>
+                      <p>管理ダッシュボードにアクセスすることで、以下の機能をご利用いただけます。</p>
+                      <ul className="list-disc pl-5 space-y-1 mt-2 text-[#333333]">
+                        <li>店舗情報の編集</li>
+                        <li>スタッフの招待・管理</li>
+                        <li>還元・分配率の変更</li>
+                        <li>店舗全体の売上・実績確認</li>
+                      </ul>
+                    </div>
+                    
+                    <button onClick={() => { setIsOwnerModalOpen(false); router.push('/dashboard'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                      <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ
+                    </button>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {isTeamModalOpen && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+                  <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
+                    <button onClick={() => setIsTeamModalOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
+                    
+                    <div className="w-12 h-12 bg-[#f5f2e6] rounded-full flex items-center justify-center mb-6">
+                      <Handshake className="w-6 h-6 text-[#1a1a1a]" strokeWidth={1.5} />
+                    </div>
+                    <h3 className="text-lg text-[#1a1a1a] mb-4">チーム還元について</h3>
+                    <div className="text-sm text-[#666666] leading-relaxed mb-8 space-y-3">
+                      <p>あなたはこの店舗の「チーム還元」対象スタッフです。</p>
+                      <p>
+                        店舗全体で発生したポイントの一部が、チームメンバー全員に平等に分配（還元）されます。
+                        <br/>
+                        （自分が紹介したお客様でなくても、店舗の売上が上がることでポイントを獲得できます）
+                      </p>
+                    </div>
+                    
+                    {isOwner ? (
+                      <button onClick={() => { setIsTeamModalOpen(false); router.push('/dashboard'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                        分配率を設定する（管理画面）
+                      </button>
+                    ) : (
+                      <button onClick={() => setIsTeamModalOpen(false)} className="w-full py-5 bg-[#f5f2e6] border border-[#e6e2d3] text-[#333333] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
+                        閉じる
+                      </button>
                     )}
                   </motion.div>
                 </motion.div>
