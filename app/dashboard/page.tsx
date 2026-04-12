@@ -11,7 +11,7 @@ import {
   Link as LinkIcon, QrCode, Trash2, Sparkles, BookOpen, PlayCircle, 
   MessageCircle, ShoppingBag, ThumbsUp, Handshake, Percent,
   ToggleRight, ToggleLeft, User, UserPlus, ChevronRight, ShieldAlert, 
-  ExternalLink, Edit2, Loader2, Store, Save, X
+  ExternalLink, Edit2, Loader2, Store, Save, X, LayoutDashboard
 } from 'lucide-react'
 
 // 分配ポリシーのプリセット
