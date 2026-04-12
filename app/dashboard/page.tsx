@@ -11,7 +11,7 @@ import {
   Link as LinkIcon, QrCode, Trash2, Sparkles, BookOpen, PlayCircle, 
   MessageCircle, ShoppingBag, ThumbsUp, Handshake, Percent,
   ToggleRight, ToggleLeft, User, UserPlus, ChevronRight, ShieldAlert, 
-  ExternalLink, Edit2, Loader2, Store, Save, X, LayoutDashboard
+  ExternalLink, Edit2, Loader2, Store, Save, X, LayoutDashboard, Receipt
 } from 'lucide-react'
 
 // 分配ポリシーのプリセット
@@ -43,8 +43,8 @@ export default function OwnerDashboard() {
   const [shop, setShop] = useState<any>(null)
   const [category, setCategory] = useState<any>(null)
   const [staffs, setStaffs] = useState<any[]>([])
-  const [referralHistory, setReferralHistory] = useState<any[]>([])
-  const [pointHistory, setPointHistory] = useState<any[]>([])
+  const [referralHistory, setReferralHistory] = useState<any[]>([]) // 承認待ち
+  const [pointHistory, setPointHistory] = useState<any[]>([])       // 確定済み
   const [summary, setSummary] = useState({ 
     totalGenerated: 0, totalIndividual: 0, totalTeam: 0, totalOwner: 0, pendingPoints: 0, pendingCount: 0 
   })
@@ -59,6 +59,7 @@ export default function OwnerDashboard() {
   const [isPolicyModalOpen, setIsPolicyModalOpen] = useState(false)
   const [isQRModalOpen, setIsQRModalOpen] = useState(false)
   const [detailStaff, setDetailStaff] = useState<any>(null)
+  const [selectedHistory, setSelectedHistory] = useState<any>(null) // ★ 履歴詳細モーダル用
   const [isSavingPolicy, setIsSavingPolicy] = useState(false)
 
   const MOCK_PRODUCTS = [
@@ -90,49 +91,56 @@ export default function OwnerDashboard() {
     setRatios(currentRatios)
     setSelectedPattern(getPatternFromRatios(currentRatios.individual, currentRatios.team, currentRatios.owner))
     
-    const [staffRes, refRes, txRes] = await Promise.all([
+    const [staffRes, refRes] = await Promise.all([
       supabase.from('staffs').select('*').eq('shop_id', shopData.id).eq('is_deleted', false),
-      supabase.from('referrals').select('*').eq('shop_id', shopData.id).order('created_at', { ascending: false }),
-      supabase.from('point_transactions').select('*').eq('shop_id', shopData.id).order('created_at', { ascending: false })
+      supabase.from('referrals').select('*').eq('shop_id', shopData.id).order('created_at', { ascending: false })
     ])
 
     const staffList = staffRes.data || []
     const referralLogs = refRes.data || []
-    const pointLogs = txRes.data || []
 
     // 統計計算
     const rewardPoints = shopData.shop_categories?.reward_points || 0
     let storeGen = 0, storeInd = 0, storeTeam = 0, storeOwn = 0, pendPts = 0, pendCount = 0
     
+    // 履歴データをリッチ化（分配内訳を計算）
     const enrichedReferrals = referralLogs.map((log) => {
       const isCanceled = log.status === 'cancel'
       const isPending = log.status === 'pending'
-      const basePoints = rewardPoints // 簡易化
+      const basePoints = rewardPoints 
       const rInd = log.snapshot_ratio_individual ?? currentRatios.individual
       const rTeam = log.snapshot_ratio_team ?? currentRatios.team
       const rOwn = log.snapshot_ratio_owner ?? currentRatios.owner
+
+      const indPart = Math.floor(basePoints * (rInd / 100))
+      const teamPart = Math.floor(basePoints * (rTeam / 100))
+      const ownPart = Math.floor(basePoints * (rOwn / 100))
 
       if (!isCanceled) {
         if (isPending) { pendPts += basePoints; pendCount++; }
         else { 
           storeGen += basePoints; 
-          storeInd += Math.floor(basePoints * (rInd / 100));
-          storeTeam += Math.floor(basePoints * (rTeam / 100));
-          storeOwn += Math.floor(basePoints * (rOwn / 100));
+          storeInd += indPart;
+          storeTeam += teamPart;
+          storeOwn += ownPart;
         }
       }
 
       return {
         ...log,
         staffName: staffList.find(s => s.id === log.staff_id)?.name || '不明',
-        totalGenerated: basePoints
+        totalGenerated: basePoints,
+        indPart, teamPart, ownPart, rInd, rTeam, rOwn
       }
     })
 
     setSummary({ totalGenerated: storeGen, totalIndividual: storeInd, totalTeam: storeTeam, totalOwner: storeOwn, pendingPoints: pendPts, pendingCount: pendCount })
-    setReferralHistory(enrichedReferrals)
-    setPointHistory(pointLogs.filter(tx => tx.status === 'confirmed'))
+    
+    // ステータスでリストを分割
+    setReferralHistory(enrichedReferrals.filter(r => r.status === 'pending'))
+    setPointHistory(enrichedReferrals.filter(r => r.status === 'confirmed' || r.status === 'paid'))
     setStaffs(staffList.map(s => ({ ...s, count: enrichedReferrals.filter(r => r.staff_id === s.id && r.status !== 'cancel').length })))
+    
     if (!silent) setLoading(false)
   }
 
@@ -203,7 +211,7 @@ export default function OwnerDashboard() {
         {POLICY_PATTERNS.map(pattern => (
           <button 
             key={pattern.id} onClick={() => handlePatternSelect(pattern.id)}
-            className={`flex items-center gap-3 p-4 border transition-all duration-200 outline-none ${selectedPattern === pattern.id ? 'bg-[#f5f2e6] border-[#1a1a1a]' : 'bg-white border-[#e6e2d3]'}`}
+            className={`flex items-center gap-3 p-4 border transition-all duration-200 outline-none ${selectedPattern === pattern.id ? 'bg-[#faf9f6] border-[#1a1a1a]' : 'bg-white border-[#e6e2d3]'}`}
           >
             <div className={`flex-1 flex flex-col justify-center text-left ${selectedPattern === pattern.id ? 'text-[#1a1a1a]' : 'text-[#666666]'}`}>
               <div className="flex items-center gap-2 mb-1">
@@ -219,7 +227,7 @@ export default function OwnerDashboard() {
 
       <AnimatePresence>
         {selectedPattern === 'custom' && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="p-5 bg-[#f5f2e6] border border-[#e6e2d3] space-y-6 overflow-hidden">
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="p-5 bg-[#faf9f6] border border-[#e6e2d3] space-y-6 overflow-hidden">
             <div>
               <div className="flex justify-between items-end mb-2">
                 <label className="text-[11px] text-[#666666]">本人へ還元</label>
@@ -292,7 +300,7 @@ export default function OwnerDashboard() {
               
               {activeTab === 'stats' && (
                 <>
-                  <button onClick={() => window.open(`/m/${staffs.find(s => s.email === shop?.owner_email)?.secret_token}`, '_blank')} className="w-full py-4 bg-[#1a1a1a] text-white text-xs tracking-widest active:scale-[0.98] flex items-center justify-center gap-2 rounded-sm shadow-sm">
+                  <button onClick={() => window.open(`/m/${staffs.find(s => s.email === shop?.owner_email)?.secret_token}`, '_blank')} className="w-full py-4 bg-[#1a1a1a] text-white text-xs tracking-widest active:scale-[0.98] flex items-center justify-center gap-2 rounded-sm shadow-sm transition-transform">
                     <QrCode className="w-4 h-4"/> マイページを表示 <ExternalLink className="w-3.5 h-3.5 opacity-50" />
                   </button>
 
@@ -335,19 +343,20 @@ export default function OwnerDashboard() {
                   {/* 報酬確定履歴（ポイント獲得履歴） */}
                   <div>
                     <h2 className="text-xs font-bold text-[#1a1a1a] mb-4 flex items-center gap-2">
-                      <Clock className="w-3.5 h-3.5 text-[#999999]" /> ポイント獲得履歴（確定済み）
+                      <Clock className="w-3.5 h-3.5 text-[#999999]" /> 獲得履歴（確定済み）
                     </h2>
-                    <div className="space-y-3">
+                    <div className="space-y-2">
                       {pointHistory.length > 0 ? pointHistory.slice(0, 5).map(item => (
-                        <div key={item.id} className="bg-white border border-[#e6e2d3] p-4 flex justify-between items-center rounded-sm">
+                        <button key={item.id} onClick={() => setSelectedHistory(item)} className="w-full text-left bg-white border border-[#e6e2d3] p-4 flex justify-between items-center rounded-sm active:scale-[0.99] hover:bg-[#faf9f6] transition-all cursor-pointer">
                           <div className="flex flex-col gap-1">
                             <span className="text-[10px] text-[#999999]">{formatDateYMD(item.created_at)}</span>
-                            <span className="text-xs font-bold text-[#1a1a1a]">{item.description || '報酬確定'}</span>
+                            <span className="text-xs font-bold text-[#1a1a1a]">{item.customer_name || '匿名のお客様'}</span>
                           </div>
-                          <div className="text-right">
-                            <p className="text-sm font-bold text-[#a3b18a]">+{item.amount.toLocaleString()}<span className="text-[10px] ml-0.5">pt</span></p>
+                          <div className="text-right flex items-center gap-3">
+                            <p className="text-sm font-bold" style={{color: COLORS.individual}}>+{item.totalGenerated.toLocaleString()}<span className="text-[10px] ml-0.5">pt</span></p>
+                            <ChevronRight className="w-4 h-4 text-[#e6e2d3]" />
                           </div>
-                        </div>
+                        </button>
                       )) : (
                         <p className="text-[11px] text-[#999999] text-center py-8 border border-dashed border-[#e6e2d3]">確定済みの履歴はありません</p>
                       )}
@@ -360,18 +369,23 @@ export default function OwnerDashboard() {
                       <h2 className="text-xs font-bold text-[#1a1a1a]">紹介承認待ち（未確定）</h2>
                       <p className="text-base font-bold text-[#1a1a1a]">{summary.pendingPoints.toLocaleString()}<span className="text-[10px] ml-1 font-normal text-[#999999]">pt</span></p>
                     </div>
-                    {referralHistory.filter(r => r.status === 'pending').map(item => (
-                      <div key={item.id} className="bg-white border border-[#e6e2d3] p-4 mb-2 flex justify-between items-center rounded-sm">
-                        <div className="flex items-start gap-3">
-                          <div className="w-1.5 h-1.5 rounded-full bg-[#b5838d] mt-1.5" />
-                          <div>
-                            <p className="text-xs font-bold text-[#1a1a1a]">{item.customer_name || '匿名のお客様'}</p>
-                            <p className="text-[10px] text-[#999999]">{formatDateYMD(item.created_at)} · 担当: {item.staffName}</p>
+                    <div className="space-y-2">
+                      {referralHistory.map(item => (
+                        <button key={item.id} onClick={() => setSelectedHistory(item)} className="w-full text-left bg-white border border-[#e6e2d3] p-4 flex justify-between items-center rounded-sm active:scale-[0.99] hover:bg-[#faf9f6] transition-all cursor-pointer">
+                          <div className="flex items-start gap-3">
+                            <div className="w-1.5 h-1.5 rounded-full mt-1.5" style={{backgroundColor: COLORS.team}} />
+                            <div>
+                              <p className="text-xs font-bold text-[#1a1a1a]">{item.customer_name || '匿名のお客様'}</p>
+                              <p className="text-[10px] text-[#999999]">{formatDateYMD(item.created_at)} · 担当: {item.staffName}</p>
+                            </div>
                           </div>
-                        </div>
-                        <p className="text-sm font-bold text-[#1a1a1a]">+{item.totalGenerated.toLocaleString()}pt</p>
-                      </div>
-                    ))}
+                          <div className="text-right flex items-center gap-3">
+                            <p className="text-sm font-bold text-[#1a1a1a]">+{item.totalGenerated.toLocaleString()}pt</p>
+                            <ChevronRight className="w-4 h-4 text-[#e6e2d3]" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </>
               )}
@@ -381,11 +395,11 @@ export default function OwnerDashboard() {
                   <div>
                     <h2 className="text-xs font-bold mb-4 flex items-center gap-1.5">MEMBER INVITATION</h2>
                     <div className="grid grid-cols-2 gap-3">
-                      <button onClick={() => setIsQRModalOpen(true)} className="bg-white border border-[#e6e2d3] p-5 flex flex-col items-center gap-2 rounded-sm active:bg-[#f5f2e6] transition">
+                      <button onClick={() => setIsQRModalOpen(true)} className="bg-white border border-[#e6e2d3] p-5 flex flex-col items-center gap-2 rounded-sm active:bg-[#faf9f6] transition">
                         <QrCode className="w-5 h-5 text-[#666666]" />
                         <span className="text-[10px] text-[#666666] font-bold">QRコード</span>
                       </button>
-                      <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(inviteUrl)}`, '_blank')} className="bg-white border border-[#e6e2d3] p-5 flex flex-col items-center gap-2 rounded-sm active:bg-[#f5f2e6] transition">
+                      <button onClick={() => window.open(`https://line.me/R/msg/text/?${encodeURIComponent(inviteUrl)}`, '_blank')} className="bg-white border border-[#e6e2d3] p-5 flex flex-col items-center gap-2 rounded-sm active:bg-[#faf9f6] transition">
                         <MessageCircle className="w-5 h-5 text-[#666666]" />
                         <span className="text-[10px] text-[#666666] font-bold">LINEで招待</span>
                       </button>
@@ -401,7 +415,7 @@ export default function OwnerDashboard() {
                           <div>
                             <div className="flex items-center gap-1.5">
                               <h3 className="text-xs font-bold text-[#1a1a1a]">{s.name}</h3>
-                              {s.is_team_pool_eligible !== false && <span className="text-[9px] bg-[#f5f2e6] px-1.5 py-0.5 text-[#8a9a5b] font-bold rounded-full">TEAM</span>}
+                              {s.is_team_pool_eligible !== false && <span className="text-[9px] bg-[#faf9f6] px-1.5 py-0.5 text-[#8a9a5b] font-bold rounded-full">TEAM</span>}
                             </div>
                             <p className="text-[10px] text-[#999999]">累計紹介: {s.count}件</p>
                           </div>
@@ -415,7 +429,7 @@ export default function OwnerDashboard() {
 
               {activeTab === 'shop' && (
                 <div className="space-y-6">
-                  <div className="bg-[#6d6875] p-6 rounded-sm text-white flex justify-between items-center shadow-md">
+                  <div className="p-6 rounded-sm text-white flex justify-between items-center shadow-md" style={{backgroundColor: COLORS.owner}}>
                     <div>
                       <p className="text-[10px] opacity-70 tracking-widest font-bold">SHOP RESERVED POINTS</p>
                       <p className="text-[11px] opacity-90">店舗留保分（備品・仕入れ）</p>
@@ -516,6 +530,65 @@ export default function OwnerDashboard() {
 
         {/* モーダル群 */}
         <AnimatePresence>
+
+          {/* ★ 履歴詳細モーダル */}
+          {selectedHistory && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#faf9f6] p-6 w-full max-w-md mx-auto relative rounded-sm shadow-2xl">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xs font-bold text-[#1a1a1a] flex items-center gap-2 uppercase tracking-widest"><Receipt className="w-4 h-4 text-[#999999]"/> Transaction Detail</h3>
+                  <button onClick={() => setSelectedHistory(null)} className="p-2 text-[#999999] hover:text-[#1a1a1a] -mr-2"><X className="w-5 h-5" /></button>
+                </div>
+
+                <div className="text-center mb-8">
+                  <span className={`inline-block text-[10px] px-3 py-1 rounded-full font-bold mb-3 border ${selectedHistory.status === 'pending' ? 'bg-white border-[#e6e2d3] text-[#b5838d]' : 'bg-white border-[#e6e2d3] text-[#a3b18a]'}`}>
+                    {selectedHistory.status === 'pending' ? '獲得予定（未確定）' : '獲得済み'}
+                  </span>
+                  <p className="text-4xl font-bold text-[#1a1a1a] tracking-tight">+{selectedHistory.totalGenerated?.toLocaleString()} <span className="text-sm text-[#999999] font-medium">pt</span></p>
+                  <p className="text-[11px] text-[#999999] mt-2">{formatDateYMD(selectedHistory.created_at)}</p>
+                </div>
+
+                <div className="bg-white border border-[#e6e2d3] p-4 rounded-sm mb-6 space-y-3">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#999999]">お客様</span>
+                    <span className="font-bold text-[#1a1a1a]">{selectedHistory.customer_name || '匿名のお客様'}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#999999]">担当スタッフ</span>
+                    <span className="font-bold text-[#1a1a1a]">{selectedHistory.staffName || '不明'}</span>
+                  </div>
+                </div>
+
+                <h4 className="text-[10px] font-bold text-[#999999] mb-3 uppercase tracking-widest">Points Breakdown (分配内訳)</h4>
+                <div className="space-y-2 mb-4">
+                  <div className="flex justify-between items-center text-xs p-4 border border-[#e6e2d3] rounded-sm bg-white">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: COLORS.individual}}></div>
+                      <span className="font-bold text-[#333333]">本人還元 ({selectedHistory.rInd}%)</span>
+                    </div>
+                    <span className="font-bold text-[#1a1a1a]">{selectedHistory.indPart?.toLocaleString()} pt</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs p-4 border border-[#e6e2d3] rounded-sm bg-white">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: COLORS.team}}></div>
+                      <span className="font-bold text-[#333333]">チーム分配 ({selectedHistory.rTeam}%)</span>
+                    </div>
+                    <span className="font-bold text-[#1a1a1a]">{selectedHistory.teamPart?.toLocaleString()} pt</span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs p-4 border border-[#e6e2d3] rounded-sm bg-white">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{backgroundColor: COLORS.owner}}></div>
+                      <span className="font-bold text-[#333333]">店舗留保 ({selectedHistory.rOwn}%)</span>
+                    </div>
+                    <span className="font-bold text-[#1a1a1a]">{selectedHistory.ownPart?.toLocaleString()} pt</span>
+                  </div>
+                </div>
+                
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* 分配ポリシーモーダル */}
           {isPolicyModalOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex items-center justify-center p-4">
               <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-[#faf9f6] p-8 w-full max-w-md mx-auto relative rounded-sm shadow-2xl">
@@ -528,7 +601,58 @@ export default function OwnerDashboard() {
               </motion.div>
             </motion.div>
           )}
-          {/* 他のモーダルは同様のスタイル修正を適用（省略） */}
+
+          {/* QR招待モーダル */}
+          {isQRModalOpen && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#faf9f6] p-8 w-full max-w-md mx-auto relative rounded-sm shadow-2xl flex flex-col items-center">
+                <div className="w-full flex justify-between items-center mb-8">
+                  <h3 className="text-sm text-[#1a1a1a] font-bold uppercase tracking-widest">Invite by QR</h3>
+                  <button onClick={() => setIsQRModalOpen(false)} className="p-2 text-[#999999] hover:text-[#333333] -mr-2"><X className="w-5 h-5" /></button>
+                </div>
+                <div className="p-6 bg-white border border-[#e6e2d3] mb-6">
+                  <QRCodeCanvas value={inviteUrl} size={200} level="H" fgColor="#1a1a1a" />
+                </div>
+                <p className="text-[11px] text-[#666666] text-center leading-relaxed mb-8">
+                  スタッフのカメラで読み取ると、<br/>紹介パートナー登録画面が開きます。
+                </p>
+                <button onClick={() => setIsQRModalOpen(false)} className="w-full py-4 bg-[#e6e2d3] text-[#333333] text-xs font-bold transition-all active:scale-[0.98]">閉じる</button>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* スタッフ詳細モーダル */}
+          {detailStaff && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
+              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#faf9f6] p-8 w-full max-w-md mx-auto relative rounded-sm shadow-2xl">
+                <div className="flex justify-between items-center mb-8">
+                  <h3 className="text-lg text-[#1a1a1a] font-bold">{detailStaff.name}</h3>
+                  <button onClick={() => setDetailStaff(null)} className="p-2 text-[#999999] hover:text-[#333333] -mr-2"><X className="w-5 h-5" /></button>
+                </div>
+                
+                <div className="mb-8 bg-white p-5 border border-[#e6e2d3] flex items-center justify-between rounded-sm">
+                  <div>
+                    <h4 className="text-xs font-bold text-[#1a1a1a] mb-1">チーム分配の対象にする</h4>
+                    <p className="text-[10px] text-[#999999]">店舗のチーム売上から分配を受け取る</p>
+                  </div>
+                  <button onClick={handleToggleTeam} className="transition-transform active:scale-90 ml-4">
+                    {detailStaff.is_team_pool_eligible !== false ? (
+                      <ToggleRight className="w-10 h-10 text-[#8a9a5b]" strokeWidth={1.5} />
+                    ) : (
+                      <ToggleLeft className="w-10 h-10 text-[#e6e2d3]" strokeWidth={1.5} />
+                    )}
+                  </button>
+                </div>
+
+                {!detailStaff.isOwner && (
+                  <button className="w-full py-4 border border-[#fcf0f0] text-[#8a3c3c] text-xs font-bold tracking-widest flex items-center justify-center gap-2 bg-white hover:bg-[#fcf0f0] transition rounded-sm">
+                    <Trash2 className="w-4 h-4" /> アカウントを削除
+                  </button>
+                )}
+              </motion.div>
+            </motion.div>
+          )}
+
         </AnimatePresence>
       </div>
     </div>
