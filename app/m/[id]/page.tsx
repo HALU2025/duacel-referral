@@ -5,7 +5,6 @@ import { supabase } from '@/lib/supabase'
 import { useParams, useRouter } from 'next/navigation'
 import { QRCodeCanvas } from 'qrcode.react'
 import { motion, AnimatePresence } from 'framer-motion' 
-// ★ 画像トリミングライブラリをインポート
 import Cropper from 'react-easy-crop'
 
 import { 
@@ -14,19 +13,19 @@ import {
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
   Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList,
-  Edit3, Award, ExternalLink, Camera, ImagePlus, ZoomIn, ZoomOut
+  Edit3, Award, ExternalLink, Camera, ImagePlus, ZoomIn, ZoomOut, MapPin
 } from 'lucide-react'
 
 // デフォルトアバター
 const DEFAULT_AVATAR = '/avatars/default.png'
 
-// ★ Canvasを使って画像をトリミングするユーティリティ関数
+// Canvasを使って画像をトリミングするユーティリティ関数
 const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | null> => {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
     img.addEventListener('load', () => resolve(img));
     img.addEventListener('error', (error) => reject(error));
-    img.setAttribute('crossOrigin', 'anonymous'); // SSレスポンスのCORSエラー回避
+    img.setAttribute('crossOrigin', 'anonymous'); 
     img.src = imageSrc;
   });
 
@@ -35,29 +34,24 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | n
 
   if (!ctx) return null;
 
-  // 出力サイズ (Retina対応で少し大きめに)
   const safeSize = 512;
   canvas.width = safeSize;
   canvas.height = safeSize;
 
-  // Canvasを丸くマスクする
   ctx.beginPath();
   ctx.arc(safeSize / 2, safeSize / 2, safeSize / 2, 0, Math.PI * 2, true);
   ctx.closePath();
   ctx.clip();
 
-  // 背景を白で塗りつぶす (透過画像対策)
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, safeSize, safeSize);
 
-  // トリミング実行
   ctx.drawImage(
     image,
-    pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, // 元画像のソースエリア
-    0, 0, safeSize, safeSize // Canvas上の描画エリア
+    pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, 
+    0, 0, safeSize, safeSize 
   );
 
-  // Canvasの内容をFileオブジェクトに変換
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {
       if (!blob) { resolve(null); return; }
@@ -66,7 +60,6 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | n
     }, 'image/png');
   });
 };
-
 
 export default function MemberMagicPage() {
   const params = useParams()
@@ -97,24 +90,29 @@ export default function MemberMagicPage() {
   const [summary, setSummary] = useState({ total: 0, pending: 0, confirmed: 0, paid: 0 })
   const [copied, setCopied] = useState(false)
   
+  // ★ 編集用ステート
   const [isEditMode, setIsEditMode] = useState(false) 
   const [editName, setEditName] = useState('')
-  const [editEmail, setEditEmail] = useState('')
-  const [editAvatar, setEditAvatar] = useState('') // プレビューURL用
+  const [editAvatar, setEditAvatar] = useState('') 
+  const [avatarFile, setAvatarFile] = useState<File | null>(null) 
   const [currentPinInput, setCurrentPinInput] = useState('') 
-  const [newPinInput, setNewPinInput] = useState('')         
+  const [newPinInput, setNewPinInput] = useState('')
+  
+  // ★ 店舗情報編集用ステート (オーナーのみ使用)
+  const [editShopName, setEditShopName] = useState('')
+  const [editShopAddress, setEditShopAddress] = useState('')
+
   const [profileError, setProfileError] = useState('')       
   const [isSaving, setIsSaving] = useState(false)
 
-  // ★ 画像トリミング用ステート
+  // 画像トリミング用ステート
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [isCropperModalOpen, setIsCropperModalOpen] = useState(false);
-  const [rawImageSrc, setRawImageSrc] = useState<string>(''); // 選択された未加工画像のBase64
+  const [rawImageSrc, setRawImageSrc] = useState<string>(''); 
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null); // アップロードする実ファイル
 
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false)
   const [exchangeType, setExchangeType] = useState<'all' | 'custom'>('all')
@@ -236,10 +234,13 @@ export default function MemberMagicPage() {
 
     setStaff(staffData)
     setEditName(staffData.name)
-    setEditEmail(staffData.email)
     setEditAvatar(staffData.avatar_url || '') 
     setAvatarFile(null)
+    
     setShop(shopData)
+    // 店舗情報の初期値セット
+    setEditShopName(shopData.name || '')
+    setEditShopAddress(shopData.address || '')
     
     const finalHistory = myReferrals.reverse();
     setHistory(finalHistory)
@@ -272,37 +273,33 @@ export default function MemberMagicPage() {
     setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
-  // ★ 画像選択ハンドラー（トリミングモーダルを開くフローに変更）
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = () => {
-        setRawImageSrc(reader.result as string); // 未加工画像をセット
-        setIsCropperModalOpen(true); // トリミングモーダルを開く
-        setZoom(1); setCrop({ x: 0, y: 0 }); // 設定をリセット
+        setRawImageSrc(reader.result as string); 
+        setIsCropperModalOpen(true); 
+        setZoom(1); setCrop({ x: 0, y: 0 }); 
       };
       reader.readAsDataURL(file);
     }
-    // 同じファイルを連続で選択できるように入力をクリア
     e.target.value = '';
   }
 
-  // ★ トリミング完了時のコールバック
   const onCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
     setCroppedAreaPixels(croppedAreaPixels)
   }, [])
 
-  // ★ トリミングを決定し、Fileオブジェクトを生成する
   const handleSaveCroppedImage = async () => {
     if (!rawImageSrc || !croppedAreaPixels) return;
     setIsSaving(true);
     try {
       const file = await getCroppedImg(rawImageSrc, croppedAreaPixels);
       if (file) {
-        setAvatarFile(file); // アップロード用
-        setEditAvatar(URL.createObjectURL(file)); // プレビュー用
-        setIsCropperModalOpen(false); // モーダルを閉じる
+        setAvatarFile(file); 
+        setEditAvatar(URL.createObjectURL(file)); 
+        setIsCropperModalOpen(false); 
       }
     } catch (e) {
       console.error(e);
@@ -312,14 +309,13 @@ export default function MemberMagicPage() {
     }
   }
 
-  // ★ トリミングをキャンセルして画像を選び直す
   const handleReselectImage = (type: 'album' | 'camera') => {
     setIsCropperModalOpen(false);
     setRawImageSrc('');
     setTimeout(() => {
       if (type === 'album') fileInputRef.current?.click();
       else cameraInputRef.current?.click();
-    }, 100); // モーダルが閉じるのを少し待ってからクリック
+    }, 100); 
   }
 
 
@@ -369,12 +365,14 @@ export default function MemberMagicPage() {
 
   const handleSaveProfile = async () => {
     setIsSaving(true); setProfileError('')
-    let updateData: any = { name: editName, email: editEmail }
+    
+    // 1. スタッフ情報の更新
+    let updateStaffData: any = { name: editName }
     
     if (newPinInput) {
       if (newPinInput.length !== 4) { setProfileError('新しいPINは4桁で入力してください。'); setIsSaving(false); return }
       if (staff.security_pin && currentPinInput !== staff.security_pin) { setProfileError('現在の暗証番号が間違っています。'); setIsSaving(false); return }
-      updateData.security_pin = newPinInput
+      updateStaffData.security_pin = newPinInput
     }
 
     if (avatarFile) {
@@ -388,23 +386,40 @@ export default function MemberMagicPage() {
       }
       
       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      updateData.avatar_url = publicUrl;
+      updateStaffData.avatar_url = publicUrl;
     } else if (editAvatar === '') {
-      updateData.avatar_url = null;
+      updateStaffData.avatar_url = null;
     }
 
-    const { error } = await supabase.from('staffs').update(updateData).eq('id', staff.id)
-    if (error) { setProfileError('情報の更新に失敗しました。'); setIsSaving(false); return; }
+    const { error: staffError } = await supabase.from('staffs').update(updateStaffData).eq('id', staff.id)
+    if (staffError) { setProfileError('スタッフ情報の更新に失敗しました。'); setIsSaving(false); return; }
     
-    setStaff({ ...staff, ...updateData }); 
+    // 2. 店舗情報の更新（オーナーのみ）
+    let updateShopData: any = {}
+    if (isOwner) {
+      updateShopData = { name: editShopName, address: editShopAddress }
+      const { error: shopError } = await supabase.from('shops').update(updateShopData).eq('id', shop.id)
+      if (shopError) { setProfileError('店舗情報の更新に失敗しました。'); setIsSaving(false); return; }
+    }
+
+    setStaff({ ...staff, ...updateStaffData }); 
+    if (isOwner) setShop({ ...shop, ...updateShopData });
+    
     setCurrentPinInput(''); setNewPinInput(''); setAvatarFile(null); 
     setIsSaving(false); setIsEditMode(false);
   }
 
   const handleCancelEdit = () => {
-    setIsEditMode(false); setEditName(staff.name); setEditEmail(staff.email); 
-    setEditAvatar(staff.avatar_url || ''); setAvatarFile(null);
-    setCurrentPinInput(''); setNewPinInput(''); setProfileError('')
+    setIsEditMode(false); 
+    setEditName(staff.name); 
+    setEditAvatar(staff.avatar_url || ''); 
+    setAvatarFile(null);
+    setCurrentPinInput(''); setNewPinInput(''); 
+    setProfileError('');
+    if (isOwner) {
+      setEditShopName(shop.name || '');
+      setEditShopAddress(shop.address || '');
+    }
   }
 
   const handleExchangePay = async () => {
@@ -564,7 +579,7 @@ export default function MemberMagicPage() {
 
             <main className="flex-1 relative overflow-hidden bg-[#fffef2]">
               <AnimatePresence mode="wait">
-                <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-8 -webkit-overflow-scrolling-touch">
+                <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-6 -webkit-overflow-scrolling-touch">
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
@@ -707,16 +722,16 @@ export default function MemberMagicPage() {
                     </div>
                   )}
 
-                  {/* 📱 ★ TAB 3: QRコード (レイアウト・サイズ変更) */}
+                  {/* 📱 TAB 3: QRコード (レイアウト・サイズ変更版) */}
                   {activeTab === 'qr' && (
-                    <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2 space-y-8">
+                    <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2 space-y-8 px-2">
                       
                       {/* 1. Duacelロゴ (大きめ) */}
                       <div className="w-full text-center">
                         <h2 className="text-4xl font-black font-inter tracking-tight text-[#1a1a1a]">Duacel<sup className="text-xl font-medium -ml-0.5">®</sup></h2>
                       </div>
 
-                      {/* 2. アバター (追加・大きめセンター表示) */}
+                      {/* 2. アバター (大きめセンター表示) */}
                       <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-[#fffef2] shadow-lg bg-[#faf9f6] shrink-0">
                         {staff.avatar_url ? (
                           <img src={staff.avatar_url} alt="Staff Avatar" className="w-full h-full object-cover" />
@@ -734,17 +749,17 @@ export default function MemberMagicPage() {
                       {/* QRカードエリア */}
                       <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_40px_rgba(0,0,0,0.05)] flex flex-col items-center overflow-hidden rounded-sm">
                         
-                        {/* 4. 広告写真 (配置変更・サイズ調整) */}
+                        {/* 4. 広告写真 */}
                         <div className="w-full aspect-[3/2] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
                           <img src="/qr-hero.jpg" alt="Duacel Benefit" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                         </div>
 
                         {/* 5. QRコード (下部に配置・大きめ) */}
-                        <div className="w-full p-10 flex flex-col items-center">
-                          <div className="p-5 bg-[#ffffff] border border-[#e6e2d3] mb-8 shadow-inner">
-                            <QRCodeCanvas value={referralUrl} size={220} level={"H"} fgColor="#1a1a1a" />
+                        <div className="w-full p-8 flex flex-col items-center">
+                          <div className="p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6 shadow-inner">
+                            <QRCodeCanvas value={referralUrl} size={200} level={"H"} fgColor="#1a1a1a" />
                           </div>
-                          <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-8">お客様のスマートフォンで<br/>読み込んでください</p>
+                          <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-6">お客様のスマートフォンで<br/>読み込んでください</p>
                           
                           {/* 各種シェアボタン */}
                           <div className="w-full space-y-3">
@@ -808,18 +823,16 @@ export default function MemberMagicPage() {
                     <div className="max-w-md mx-auto space-y-8 pb-10">
                       <div className="flex justify-between items-center">
                         <p className="text-sm text-[#666666] tracking-wider">アカウント情報</p>
-                        {!isOwner && (
-                          !isEditMode ? (
-                            <button onClick={() => setIsEditMode(true)} className="text-xs text-[#333333] border border-[#e6e2d3] bg-[#f5f2e6] px-4 py-2 hover:bg-[#e6e2d3] active:scale-[0.98] transition-all">編集する</button>
-                          ) : (
-                            <button onClick={handleCancelEdit} className="text-xs text-[#666666] px-4 py-2">キャンセル</button>
-                          )
+                        {!isEditMode ? (
+                          <button onClick={() => setIsEditMode(true)} className="text-xs text-[#333333] border border-[#e6e2d3] bg-[#f5f2e6] px-4 py-2 hover:bg-[#e6e2d3] active:scale-[0.98] transition-all">編集する</button>
+                        ) : (
+                          <button onClick={handleCancelEdit} className="text-xs text-[#666666] px-4 py-2">キャンセル</button>
                         )}
                       </div>
 
                       <div className="bg-[#fffef2] border border-[#e6e2d3] shadow-[0_0_20px_rgba(0,0,0,0.03)] p-6 space-y-6">
                         
-                        {/* ★ アバター設定（撮影・選択ボタンに変更） */}
+                        {/* アバター設定 */}
                         <div className="pb-6 border-b border-[#e6e2d3]">
                           <label className="block text-xs text-[#999999] mb-4 tracking-wider uppercase">Profile Photo</label>
                           <div className="flex items-start gap-5">
@@ -833,21 +846,18 @@ export default function MemberMagicPage() {
                             
                             {isEditMode ? (
                               <div className="flex-1 flex gap-2">
-                                {/* アルバムから選択 */}
                                 <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer active:scale-95">
                                   <ImagePlus className="w-5 h-5 mb-1" />
                                   <span className="text-[10px] font-bold">アルバム</span>
                                   <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
                                 </label>
                                 
-                                {/* カメラを起動 */}
                                 <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer active:scale-95">
                                   <Camera className="w-5 h-5 mb-1" />
                                   <span className="text-[10px] font-bold">カメラ</span>
                                   <input ref={cameraInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleImageSelect} />
                                 </label>
                                 
-                                {/* 削除 */}
                                 <button onClick={() => { setEditAvatar(''); setAvatarFile(null); }} className="w-12 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#999999] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#fcf0f0] hover:text-[#8a3c3c]">
                                   <Trash2 className="w-5 h-5 mb-1" />
                                   <span className="text-[10px] font-bold">削除</span>
@@ -862,25 +872,26 @@ export default function MemberMagicPage() {
                           </div>
                         </div>
 
+                        {/* 個人の一般設定 (名前とPINのみ編集可、IDとEmailは表示のみ) */}
                         <div>
                           <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase">Name</label>
                           {!isEditMode ? <p className="text-base text-[#1a1a1a]">{staff.name}</p> : <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333]" />}
                         </div>
                         
                         <div>
-                          <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase">ID</label>
-                          <p className="text-base text-[#666666] tabular-nums">{staff.referral_code}</p>
+                          <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase flex items-center gap-1">ID <Lock className="w-3 h-3"/></label>
+                          <p className="text-base text-[#999999] tabular-nums">{staff.referral_code}</p>
                         </div>
 
                         <div>
-                          <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase">Email</label>
-                          {!isEditMode ? <p className="text-base text-[#666666]">{staff.email}</p> : <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333]" />}
+                          <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase flex items-center gap-1">Email <Lock className="w-3 h-3"/></label>
+                          <p className="text-base text-[#999999]">{staff.email}</p>
                         </div>
 
                         <div>
                           <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase">PIN</label>
                           {!isEditMode ? (
-                            <p className="text-base text-[#666666] tracking-[0.4em] tabular-nums">••••</p>
+                            <p className="text-base text-[#1a1a1a] tracking-[0.4em] tabular-nums">••••</p>
                           ) : (
                             <div className="space-y-3">
                               <input type="password" inputMode="numeric" maxLength={4} placeholder="現在のPIN" value={currentPinInput} onChange={e => setCurrentPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm tracking-widest tabular-nums outline-none focus:ring-1 focus:ring-[#333333]" />
@@ -888,6 +899,31 @@ export default function MemberMagicPage() {
                               <p className="text-xs text-[#999999]">※変更しない場合は空欄</p>
                             </div>
                           )}
+                        </div>
+
+                        {/* ★ 店舗情報設定 (オーナーのみ編集可) */}
+                        <div className="pt-6 border-t border-[#e6e2d3]">
+                           <label className="block text-xs text-[#999999] mb-4 tracking-wider uppercase flex items-center gap-1">Shop Info {isOwner ? <Edit2 className="w-3 h-3"/> : <Lock className="w-3 h-3"/>}</label>
+                           <div className="space-y-4">
+                             <div>
+                               <label className="block text-[10px] text-[#999999] mb-1">店舗名</label>
+                               {(!isEditMode || !isOwner) ? <p className="text-sm text-[#1a1a1a]">{shop?.name}</p> : <input type="text" value={editShopName} onChange={e => setEditShopName(e.target.value)} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333]" />}
+                             </div>
+                             <div>
+                               <label className="block text-[10px] text-[#999999] mb-1">店舗住所</label>
+                               {(!isEditMode || !isOwner) ? (
+                                 <p className="text-sm text-[#1a1a1a] flex items-start gap-1">
+                                   <MapPin className="w-4 h-4 text-[#999999] shrink-0 mt-0.5" />
+                                   {shop?.address || '未設定'}
+                                 </p>
+                               ) : (
+                                 <input type="text" placeholder="都道府県市区町村..." value={editShopAddress} onChange={e => setEditShopAddress(e.target.value)} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333]" />
+                               )}
+                             </div>
+                             {!isOwner && isEditMode && (
+                               <p className="text-xs text-[#8a3c3c] bg-[#fcf0f0] p-2">※店舗情報の変更はオーナー権限が必要です</p>
+                             )}
+                           </div>
                         </div>
 
                         <AnimatePresence>
@@ -951,12 +987,10 @@ export default function MemberMagicPage() {
               </button>
             </nav>
 
-            {/* ★ 画像トリミング用モーダル (よくある感じのUI) */}
+            {/* ★ 画像トリミング用モーダル */}
             <AnimatePresence>
               {isCropperModalOpen && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[200] bg-[#1a1a1a] flex flex-col overflow-hidden">
-                  
-                  {/* ヘッダー */}
                   <div className="p-5 flex justify-between items-center border-b border-[#333333]">
                     <button onClick={() => setIsCropperModalOpen(false)} className="text-sm text-[#999999] hover:text-white transition-colors">キャンセル</button>
                     <h3 className="text-base font-bold text-white tracking-wider">写真の調整</h3>
@@ -965,14 +999,13 @@ export default function MemberMagicPage() {
                     </button>
                   </div>
 
-                  {/* トリミングエリア (react-easy-crop) */}
                   <div className="flex-1 relative bg-black">
                     <Cropper
                       image={rawImageSrc}
                       crop={crop}
                       zoom={zoom}
-                      aspect={1} // 正方形
-                      cropShape="round" // 丸い枠
+                      aspect={1}
+                      cropShape="round"
                       showGrid={false}
                       onCropChange={setCrop}
                       onZoomChange={setZoom}
@@ -984,28 +1017,15 @@ export default function MemberMagicPage() {
                     />
                   </div>
 
-                  {/* フッターコントローラー */}
                   <div className="p-6 space-y-6 border-t border-[#333333]">
-                    {/* ズームスライダー */}
                     <div className="flex items-center gap-4">
                       <ZoomOut className="w-5 h-5 text-[#999999]" />
-                      <input
-                        type="range"
-                        value={zoom}
-                        min={1}
-                        max={3}
-                        step={0.1}
-                        aria-labelledby="Zoom"
-                        onChange={(e) => setZoom(parseFloat(e.target.value))}
-                        className="flex-1 h-1 bg-[#333333] appearance-none accent-white cursor-pointer"
-                      />
+                      <input type="range" value={zoom} min={1} max={3} step={0.1} onChange={(e) => setZoom(parseFloat(e.target.value))} className="flex-1 h-1 bg-[#333333] appearance-none accent-white cursor-pointer" />
                       <ZoomIn className="w-5 h-5 text-[#999999]" />
                     </div>
-
-                    {/* 選び直しボタン */}
                     <div className="flex gap-3">
                       <button onClick={() => handleReselectImage('album')} className="flex-1 py-4 bg-[#333333] text-white text-xs font-bold rounded-sm active:scale-95 transition flex items-center justify-center gap-2">
-                        <ImagePlus className="w-4 h-4" /> ライブラリから選び直す
+                        <ImagePlus className="w-4 h-4" /> 選び直す
                       </button>
                       <button onClick={() => handleReselectImage('camera')} className="flex-1 py-4 bg-[#333333] text-white text-xs font-bold rounded-sm active:scale-95 transition flex items-center justify-center gap-2">
                         <Camera className="w-4 h-4" /> 撮り直す
@@ -1016,7 +1036,7 @@ export default function MemberMagicPage() {
               )}
             </AnimatePresence>
 
-            {/* 各種モーダル群 */}
+            {/* 各種モーダル群 (Share, Exchange, Detail, Owner, Team, Unread) */}
             <AnimatePresence>
               {isShareModalOpen && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
