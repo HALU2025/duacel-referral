@@ -19,7 +19,7 @@ import {
 // デフォルトアバター
 const DEFAULT_AVATAR = '/avatars/default.png'
 
-// Canvasを使って画像をトリミングするユーティリティ関数
+// ★ 超軽量化・圧縮版のトリミング関数
 const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | null> => {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
@@ -34,7 +34,8 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | n
 
   if (!ctx) return null;
 
-  const safeSize = 512;
+  // ① サイズを512pxから256pxに変更（アバターならこれで十分綺麗です）
+  const safeSize = 256;
   canvas.width = safeSize;
   canvas.height = safeSize;
 
@@ -43,6 +44,7 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | n
   ctx.closePath();
   ctx.clip();
 
+  // ② JPEGは透過をサポートしないため、背景を白で塗りつぶす
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, safeSize, safeSize);
 
@@ -52,12 +54,14 @@ const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | n
     0, 0, safeSize, safeSize 
   );
 
+  // ③ PNGではなくJPEG形式にし、画質を80% (0.8) に圧縮して出力する
   return new Promise((resolve) => {
     canvas.toBlob((blob) => {
       if (!blob) { resolve(null); return; }
-      const file = new File([blob], 'avatar.png', { type: 'image/png' });
+      // 拡張子も .jpg に変更
+      const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
       resolve(file);
-    }, 'image/png');
+    }, 'image/jpeg', 0.8); // ← この 0.8 が魔法の圧縮パラメータです
   });
 };
 
