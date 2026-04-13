@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useParams, useRouter } from 'next/navigation'
 import { QRCodeCanvas } from 'qrcode.react'
 import { motion, AnimatePresence } from 'framer-motion' 
+// ★ 画像トリミングライブラリをインポート
+import Cropper from 'react-easy-crop'
 
 import { 
   QrCode, Copy, MessageCircle, Wallet, Gift, Clock, History, 
@@ -12,11 +14,59 @@ import {
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
   Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList,
-  Edit3, Award, ExternalLink, Camera, ImagePlus
+  Edit3, Award, ExternalLink, Camera, ImagePlus, ZoomIn, ZoomOut
 } from 'lucide-react'
 
 // デフォルトアバター
 const DEFAULT_AVATAR = '/avatars/default.png'
+
+// ★ Canvasを使って画像をトリミングするユーティリティ関数
+const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | null> => {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.addEventListener('load', () => resolve(img));
+    img.addEventListener('error', (error) => reject(error));
+    img.setAttribute('crossOrigin', 'anonymous'); // SSレスポンスのCORSエラー回避
+    img.src = imageSrc;
+  });
+
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) return null;
+
+  // 出力サイズ (Retina対応で少し大きめに)
+  const safeSize = 512;
+  canvas.width = safeSize;
+  canvas.height = safeSize;
+
+  // Canvasを丸くマスクする
+  ctx.beginPath();
+  ctx.arc(safeSize / 2, safeSize / 2, safeSize / 2, 0, Math.PI * 2, true);
+  ctx.closePath();
+  ctx.clip();
+
+  // 背景を白で塗りつぶす (透過画像対策)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, safeSize, safeSize);
+
+  // トリミング実行
+  ctx.drawImage(
+    image,
+    pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, // 元画像のソースエリア
+    0, 0, safeSize, safeSize // Canvas上の描画エリア
+  );
+
+  // Canvasの内容をFileオブジェクトに変換
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      if (!blob) { resolve(null); return; }
+      const file = new File([blob], 'avatar.png', { type: 'image/png' });
+      resolve(file);
+    }, 'image/png');
+  });
+};
+
 
 export default function MemberMagicPage() {
   const params = useParams()
@@ -50,12 +100,21 @@ export default function MemberMagicPage() {
   const [isEditMode, setIsEditMode] = useState(false) 
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
-  const [editAvatar, setEditAvatar] = useState('') 
-  const [avatarFile, setAvatarFile] = useState<File | null>(null) 
+  const [editAvatar, setEditAvatar] = useState('') // プレビューURL用
   const [currentPinInput, setCurrentPinInput] = useState('') 
   const [newPinInput, setNewPinInput] = useState('')         
   const [profileError, setProfileError] = useState('')       
   const [isSaving, setIsSaving] = useState(false)
+
+  // ★ 画像トリミング用ステート
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const [isCropperModalOpen, setIsCropperModalOpen] = useState(false);
+  const [rawImageSrc, setRawImageSrc] = useState<string>(''); // 選択された未加工画像のBase64
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null); // アップロードする実ファイル
 
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false)
   const [exchangeType, setExchangeType] = useState<'all' | 'custom'>('all')
@@ -213,13 +272,56 @@ export default function MemberMagicPage() {
     setCopied(true); setTimeout(() => setCopied(false), 2000)
   }
 
+  // ★ 画像選択ハンドラー（トリミングモーダルを開くフローに変更）
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setAvatarFile(file);
-      setEditAvatar(URL.createObjectURL(file));
+      const reader = new FileReader();
+      reader.onload = () => {
+        setRawImageSrc(reader.result as string); // 未加工画像をセット
+        setIsCropperModalOpen(true); // トリミングモーダルを開く
+        setZoom(1); setCrop({ x: 0, y: 0 }); // 設定をリセット
+      };
+      reader.readAsDataURL(file);
+    }
+    // 同じファイルを連続で選択できるように入力をクリア
+    e.target.value = '';
+  }
+
+  // ★ トリミング完了時のコールバック
+  const onCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels)
+  }, [])
+
+  // ★ トリミングを決定し、Fileオブジェクトを生成する
+  const handleSaveCroppedImage = async () => {
+    if (!rawImageSrc || !croppedAreaPixels) return;
+    setIsSaving(true);
+    try {
+      const file = await getCroppedImg(rawImageSrc, croppedAreaPixels);
+      if (file) {
+        setAvatarFile(file); // アップロード用
+        setEditAvatar(URL.createObjectURL(file)); // プレビュー用
+        setIsCropperModalOpen(false); // モーダルを閉じる
+      }
+    } catch (e) {
+      console.error(e);
+      alert('画像のトリミングに失敗しました。');
+    } finally {
+      setIsSaving(false);
     }
   }
+
+  // ★ トリミングをキャンセルして画像を選び直す
+  const handleReselectImage = (type: 'album' | 'camera') => {
+    setIsCropperModalOpen(false);
+    setRawImageSrc('');
+    setTimeout(() => {
+      if (type === 'album') fileInputRef.current?.click();
+      else cameraInputRef.current?.click();
+    }, 100); // モーダルが閉じるのを少し待ってからクリック
+  }
+
 
   const handlePinChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return; 
@@ -462,7 +564,7 @@ export default function MemberMagicPage() {
 
             <main className="flex-1 relative overflow-hidden bg-[#fffef2]">
               <AnimatePresence mode="wait">
-                <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-6 -webkit-overflow-scrolling-touch">
+                <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }} className="absolute inset-0 overflow-y-auto pb-32 pt-6 px-8 -webkit-overflow-scrolling-touch">
                   
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
@@ -605,52 +707,67 @@ export default function MemberMagicPage() {
                     </div>
                   )}
 
-                  {/* 📱 TAB 3: QRコード */}
+                  {/* 📱 ★ TAB 3: QRコード (レイアウト・サイズ変更) */}
                   {activeTab === 'qr' && (
-                    <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2">
-                      <div className="w-full text-center mb-6">
-                        <h2 className="text-3xl font-black font-inter tracking-normal text-[#1a1a1a] mb-2">Duacel<sup className="text-lg font-medium -ml-0.5">®</sup></h2>
-                        <p className="text-sm text-[#666666] tracking-widest font-bold">{shop?.name}</p>
-                        <p className="text-sm text-[#1a1a1a] tracking-widest mt-1">{staff.name} のご紹介</p>
+                    <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2 space-y-8">
+                      
+                      {/* 1. Duacelロゴ (大きめ) */}
+                      <div className="w-full text-center">
+                        <h2 className="text-4xl font-black font-inter tracking-tight text-[#1a1a1a]">Duacel<sup className="text-xl font-medium -ml-0.5">®</sup></h2>
                       </div>
 
-                      <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8 overflow-hidden">
-                        <div className="w-full aspect-[4/3] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
+                      {/* 2. アバター (追加・大きめセンター表示) */}
+                      <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-[#fffef2] shadow-lg bg-[#faf9f6] shrink-0">
+                        {staff.avatar_url ? (
+                          <img src={staff.avatar_url} alt="Staff Avatar" className="w-full h-full object-cover" />
+                        ) : (
+                          <img src={DEFAULT_AVATAR} alt="avatar" className="w-full h-full object-cover opacity-60" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                        )}
+                      </div>
+
+                      {/* 3. サロン名・名前紹介 */}
+                      <div className="w-full text-center space-y-1">
+                        <p className="text-base text-[#666666] tracking-widest font-bold">{shop?.name}</p>
+                        <p className="text-base text-[#1a1a1a] tracking-wider mt-1">{staff.name} のご紹介</p>
+                      </div>
+
+                      {/* QRカードエリア */}
+                      <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_40px_rgba(0,0,0,0.05)] flex flex-col items-center overflow-hidden rounded-sm">
+                        
+                        {/* 4. 広告写真 (配置変更・サイズ調整) */}
+                        <div className="w-full aspect-[3/2] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
                           <img src="/qr-hero.jpg" alt="Duacel Benefit" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                         </div>
 
-                        <div className="w-full px-8 pb-8 flex flex-col items-center relative">
-                          {staff.avatar_url && (
-                            <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-[#fffef2] shadow-md mb-6 -mt-10 z-10 bg-[#faf9f6]">
-                              <img src={staff.avatar_url} alt="Staff Avatar" className="w-full h-full object-cover" />
-                            </div>
-                          )}
-                          <div className={`p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6 ${!staff.avatar_url ? 'mt-8' : ''}`}>
-                            <QRCodeCanvas value={referralUrl} size={180} level={"H"} fgColor="#1a1a1a" />
+                        {/* 5. QRコード (下部に配置・大きめ) */}
+                        <div className="w-full p-10 flex flex-col items-center">
+                          <div className="p-5 bg-[#ffffff] border border-[#e6e2d3] mb-8 shadow-inner">
+                            <QRCodeCanvas value={referralUrl} size={220} level={"H"} fgColor="#1a1a1a" />
                           </div>
-                          <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-6">お客様のスマートフォンで<br/>読み込んでください</p>
+                          <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-8">お客様のスマートフォンで<br/>読み込んでください</p>
                           
+                          {/* 各種シェアボタン */}
                           <div className="w-full space-y-3">
-                            <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                            <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98] rounded-sm shadow-sm">
                               <div className="flex items-center gap-3">
                                 {copied ? <CheckCircle2 className="w-5 h-5 text-[#333333]" /> : <Copy className="w-5 h-5 text-[#333333]" />}
-                                <span className="text-sm text-[#333333]">{copied ? 'URLをコピーしました' : '紹介URLをコピー'}</span>
+                                <span className="text-sm text-[#333333] font-medium">{copied ? 'URLをコピーしました' : '紹介URLをコピー'}</span>
                               </div>
                               <ChevronRight className="w-5 h-5 text-[#999999]" />
                             </button>
                             
-                            <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                            <button onClick={() => { setShareTarget('line'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98] rounded-sm shadow-sm">
                               <div className="flex items-center gap-3">
                                 <MessageCircle className="w-5 h-5 text-[#333333]" />
-                                <span className="text-sm text-[#333333]">LINEで送信</span>
+                                <span className="text-sm text-[#333333] font-medium">LINEで送信</span>
                               </div>
                               <ChevronRight className="w-5 h-5 text-[#999999]" />
                             </button>
                             
-                            <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98]">
+                            <button onClick={() => { setShareTarget('email'); setIsShareModalOpen(true); }} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98] rounded-sm shadow-sm">
                               <div className="flex items-center gap-3">
                                 <Mail className="w-5 h-5 text-[#333333]" />
-                                <span className="text-sm text-[#333333]">メールで送信</span>
+                                <span className="text-sm text-[#333333] font-medium">メールで送信</span>
                               </div>
                               <ChevronRight className="w-5 h-5 text-[#999999]" />
                             </button>
@@ -702,6 +819,7 @@ export default function MemberMagicPage() {
 
                       <div className="bg-[#fffef2] border border-[#e6e2d3] shadow-[0_0_20px_rgba(0,0,0,0.03)] p-6 space-y-6">
                         
+                        {/* ★ アバター設定（撮影・選択ボタンに変更） */}
                         <div className="pb-6 border-b border-[#e6e2d3]">
                           <label className="block text-xs text-[#999999] mb-4 tracking-wider uppercase">Profile Photo</label>
                           <div className="flex items-start gap-5">
@@ -715,26 +833,30 @@ export default function MemberMagicPage() {
                             
                             {isEditMode ? (
                               <div className="flex-1 flex gap-2">
-                                <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer">
+                                {/* アルバムから選択 */}
+                                <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer active:scale-95">
                                   <ImagePlus className="w-5 h-5 mb-1" />
                                   <span className="text-[10px] font-bold">アルバム</span>
-                                  <input type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+                                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
                                 </label>
                                 
-                                <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer">
+                                {/* カメラを起動 */}
+                                <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer active:scale-95">
                                   <Camera className="w-5 h-5 mb-1" />
                                   <span className="text-[10px] font-bold">カメラ</span>
-                                  <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleImageSelect} />
+                                  <input ref={cameraInputRef} type="file" accept="image/*" capture="user" className="hidden" onChange={handleImageSelect} />
                                 </label>
                                 
+                                {/* 削除 */}
                                 <button onClick={() => { setEditAvatar(''); setAvatarFile(null); }} className="w-12 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#999999] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#fcf0f0] hover:text-[#8a3c3c]">
                                   <Trash2 className="w-5 h-5 mb-1" />
                                   <span className="text-[10px] font-bold">削除</span>
                                 </button>
                               </div>
                             ) : (
-                              <div className="text-xs text-[#999999] pt-1">
-                                {staff.avatar_url ? '設定済み' : '未設定（デフォルト画像）'}
+                              <div className="text-xs text-[#999999] pt-1 leading-relaxed">
+                                {staff.avatar_url ? '設定済み' : '未設定（デフォルト画像）'}<br/>
+                                <span className="text-[10px] opacity-70">編集モードで変更できます</span>
                               </div>
                             )}
                           </div>
@@ -747,7 +869,7 @@ export default function MemberMagicPage() {
                         
                         <div>
                           <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase">ID</label>
-                          <p className="text-base text-[#666666]">{staff.referral_code}</p>
+                          <p className="text-base text-[#666666] tabular-nums">{staff.referral_code}</p>
                         </div>
 
                         <div>
@@ -758,11 +880,11 @@ export default function MemberMagicPage() {
                         <div>
                           <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase">PIN</label>
                           {!isEditMode ? (
-                            <p className="text-base text-[#666666] tracking-[0.4em]">••••</p>
+                            <p className="text-base text-[#666666] tracking-[0.4em] tabular-nums">••••</p>
                           ) : (
                             <div className="space-y-3">
-                              <input type="password" inputMode="numeric" maxLength={4} placeholder="現在のPIN" value={currentPinInput} onChange={e => setCurrentPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm tracking-widest outline-none focus:ring-1 focus:ring-[#333333]" />
-                              <input type="password" inputMode="numeric" maxLength={4} placeholder="新しいPIN" value={newPinInput} onChange={e => setNewPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm tracking-widest outline-none focus:ring-1 focus:ring-[#333333]" />
+                              <input type="password" inputMode="numeric" maxLength={4} placeholder="現在のPIN" value={currentPinInput} onChange={e => setCurrentPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm tracking-widest tabular-nums outline-none focus:ring-1 focus:ring-[#333333]" />
+                              <input type="password" inputMode="numeric" maxLength={4} placeholder="新しいPIN" value={newPinInput} onChange={e => setNewPinInput(e.target.value.replace(/[^0-9]/g, ''))} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm tracking-widest tabular-nums outline-none focus:ring-1 focus:ring-[#333333]" />
                               <p className="text-xs text-[#999999]">※変更しない場合は空欄</p>
                             </div>
                           )}
@@ -828,6 +950,71 @@ export default function MemberMagicPage() {
                 <span className="text-[11px] tracking-wider">SETTING</span>
               </button>
             </nav>
+
+            {/* ★ 画像トリミング用モーダル (よくある感じのUI) */}
+            <AnimatePresence>
+              {isCropperModalOpen && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[200] bg-[#1a1a1a] flex flex-col overflow-hidden">
+                  
+                  {/* ヘッダー */}
+                  <div className="p-5 flex justify-between items-center border-b border-[#333333]">
+                    <button onClick={() => setIsCropperModalOpen(false)} className="text-sm text-[#999999] hover:text-white transition-colors">キャンセル</button>
+                    <h3 className="text-base font-bold text-white tracking-wider">写真の調整</h3>
+                    <button onClick={handleSaveCroppedImage} disabled={isSaving} className="text-sm font-bold text-[#a3b18a] hover:text-white transition-colors flex items-center gap-1.5">
+                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : '決定'}
+                    </button>
+                  </div>
+
+                  {/* トリミングエリア (react-easy-crop) */}
+                  <div className="flex-1 relative bg-black">
+                    <Cropper
+                      image={rawImageSrc}
+                      crop={crop}
+                      zoom={zoom}
+                      aspect={1} // 正方形
+                      cropShape="round" // 丸い枠
+                      showGrid={false}
+                      onCropChange={setCrop}
+                      onZoomChange={setZoom}
+                      onCropComplete={onCropComplete}
+                      style={{
+                        containerStyle: { background: 'black' },
+                        cropAreaStyle: { border: '2px solid white' }
+                      }}
+                    />
+                  </div>
+
+                  {/* フッターコントローラー */}
+                  <div className="p-6 space-y-6 border-t border-[#333333]">
+                    {/* ズームスライダー */}
+                    <div className="flex items-center gap-4">
+                      <ZoomOut className="w-5 h-5 text-[#999999]" />
+                      <input
+                        type="range"
+                        value={zoom}
+                        min={1}
+                        max={3}
+                        step={0.1}
+                        aria-labelledby="Zoom"
+                        onChange={(e) => setZoom(parseFloat(e.target.value))}
+                        className="flex-1 h-1 bg-[#333333] appearance-none accent-white cursor-pointer"
+                      />
+                      <ZoomIn className="w-5 h-5 text-[#999999]" />
+                    </div>
+
+                    {/* 選び直しボタン */}
+                    <div className="flex gap-3">
+                      <button onClick={() => handleReselectImage('album')} className="flex-1 py-4 bg-[#333333] text-white text-xs font-bold rounded-sm active:scale-95 transition flex items-center justify-center gap-2">
+                        <ImagePlus className="w-4 h-4" /> ライブラリから選び直す
+                      </button>
+                      <button onClick={() => handleReselectImage('camera')} className="flex-1 py-4 bg-[#333333] text-white text-xs font-bold rounded-sm active:scale-95 transition flex items-center justify-center gap-2">
+                        <Camera className="w-4 h-4" /> 撮り直す
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* 各種モーダル群 */}
             <AnimatePresence>
