@@ -12,8 +12,11 @@ import {
   Share, UserPlus, LayoutDashboard, Crown, Edit2, Loader2, Link as LinkIcon, 
   Trash2, Store, CreditCard, Send, LogOut, Info, ShoppingBag, BookOpen, 
   Sparkles, PlayCircle, ShieldCheck, X, Lock, JapaneseYen, Handshake, ClipboardList,
-  Edit3, Award, ExternalLink // ★ ExternalLinkを追加
+  Edit3, Award, ExternalLink, Camera, ImagePlus
 } from 'lucide-react'
+
+// デフォルトアバター
+const DEFAULT_AVATAR = '/avatars/default.png'
 
 export default function MemberMagicPage() {
   const params = useParams()
@@ -47,6 +50,8 @@ export default function MemberMagicPage() {
   const [isEditMode, setIsEditMode] = useState(false) 
   const [editName, setEditName] = useState('')
   const [editEmail, setEditEmail] = useState('')
+  const [editAvatar, setEditAvatar] = useState('') 
+  const [avatarFile, setAvatarFile] = useState<File | null>(null) 
   const [currentPinInput, setCurrentPinInput] = useState('') 
   const [newPinInput, setNewPinInput] = useState('')         
   const [profileError, setProfileError] = useState('')       
@@ -173,6 +178,8 @@ export default function MemberMagicPage() {
     setStaff(staffData)
     setEditName(staffData.name)
     setEditEmail(staffData.email)
+    setEditAvatar(staffData.avatar_url || '') 
+    setAvatarFile(null)
     setShop(shopData)
     
     const finalHistory = myReferrals.reverse();
@@ -189,7 +196,6 @@ export default function MemberMagicPage() {
   }
 
   useEffect(() => { if (magicToken) loadData() }, [magicToken])
-  
   useEffect(() => { if (staff && shop) setShareMessage(defaultShareText) }, [staff, shop, defaultShareText])
 
   useEffect(() => {
@@ -205,6 +211,14 @@ export default function MemberMagicPage() {
   const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url)
     setCopied(true); setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setAvatarFile(file);
+      setEditAvatar(URL.createObjectURL(file));
+    }
   }
 
   const handlePinChange = (index: number, value: string) => {
@@ -254,18 +268,41 @@ export default function MemberMagicPage() {
   const handleSaveProfile = async () => {
     setIsSaving(true); setProfileError('')
     let updateData: any = { name: editName, email: editEmail }
+    
     if (newPinInput) {
       if (newPinInput.length !== 4) { setProfileError('新しいPINは4桁で入力してください。'); setIsSaving(false); return }
       if (staff.security_pin && currentPinInput !== staff.security_pin) { setProfileError('現在の暗証番号が間違っています。'); setIsSaving(false); return }
       updateData.security_pin = newPinInput
     }
+
+    if (avatarFile) {
+      const fileExt = avatarFile.name.split('.').pop() || 'png';
+      const filePath = `${staff.shop_id}/${staff.id}_${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, avatarFile);
+      if (uploadError) {
+        setProfileError('画像のアップロードに失敗しました。');
+        setIsSaving(false); return;
+      }
+      
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      updateData.avatar_url = publicUrl;
+    } else if (editAvatar === '') {
+      updateData.avatar_url = null;
+    }
+
     const { error } = await supabase.from('staffs').update(updateData).eq('id', staff.id)
     if (error) { setProfileError('情報の更新に失敗しました。'); setIsSaving(false); return; }
-    setStaff({ ...staff, ...updateData }); setCurrentPinInput(''); setNewPinInput(''); setIsSaving(false); setIsEditMode(false) 
+    
+    setStaff({ ...staff, ...updateData }); 
+    setCurrentPinInput(''); setNewPinInput(''); setAvatarFile(null); 
+    setIsSaving(false); setIsEditMode(false);
   }
 
   const handleCancelEdit = () => {
-    setIsEditMode(false); setEditName(staff.name); setEditEmail(staff.email); setCurrentPinInput(''); setNewPinInput(''); setProfileError('')
+    setIsEditMode(false); setEditName(staff.name); setEditEmail(staff.email); 
+    setEditAvatar(staff.avatar_url || ''); setAvatarFile(null);
+    setCurrentPinInput(''); setNewPinInput(''); setProfileError('')
   }
 
   const handleExchangePay = async () => {
@@ -329,13 +366,20 @@ export default function MemberMagicPage() {
   return (
     <div className="fixed inset-0 bg-[#fffef2] flex justify-center font-sans text-[#333333] overflow-hidden selection:bg-[#e6e2d3] selection:text-[#333333]">
       <div className="w-full max-w-md bg-[#fffef2] h-full relative shadow-sm border-x border-[#e6e2d3] flex flex-col overflow-hidden">
-      
+       
         {!isUnlocked ? (
           <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center p-6 bg-[#fffef2]">
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
               <div className="text-center mb-12">
                 <h1 className="text-2xl font-serif tracking-[0.2em] text-[#1a1a1a] mb-8">Duacel.</h1>
-                <p className="text-sm font-bold text-[#666666] mb-2">{shop?.name}</p>
+                <div className="w-20 h-20 mx-auto bg-[#faf9f6] rounded-full overflow-hidden mb-4 border-2 border-[#e6e2d3] flex items-center justify-center">
+                  {staff.avatar_url ? (
+                    <img src={staff.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <img src={DEFAULT_AVATAR} alt="avatar" className="w-full h-full object-cover opacity-60" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                  )}
+                </div>
+                <p className="text-sm font-bold text-[#666666] mb-1">{shop?.name}</p>
                 <h2 className="text-xl text-[#1a1a1a] mb-6">{staff.name}</h2>
                 <p className="text-sm text-[#999999] leading-relaxed">アクセスするには4桁の暗証番号を<br/>入力してください。</p>
               </div>
@@ -388,9 +432,18 @@ export default function MemberMagicPage() {
               </div>
               
               <div className="flex flex-col items-end gap-2 text-right">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-[11px] text-[#999999] tracking-wider font-inter">NAME:</span>
-                  <h1 className="text-base text-[#1a1a1a]">{staff.name}</h1>
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col items-end justify-center">
+                     <span className="text-[10px] text-[#999999] tracking-wider font-inter">NAME</span>
+                     <h1 className="text-sm font-bold text-[#1a1a1a]">{staff.name}</h1>
+                  </div>
+                  <div className="w-9 h-9 bg-[#faf9f6] rounded-full overflow-hidden border border-[#e6e2d3] flex items-center justify-center ml-1">
+                    {staff.avatar_url ? (
+                      <img src={staff.avatar_url} alt="avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <img src={DEFAULT_AVATAR} alt="avatar" className="w-full h-full object-cover opacity-60" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {isOwner && (
@@ -414,15 +467,12 @@ export default function MemberMagicPage() {
                   {/* 📊 TAB 1: ウォレット (Stats) */}
                   {activeTab === 'stats' && (
                     <div className="max-w-md mx-auto space-y-8">
-                      
-                      {/* ★ オーナー専用 管理ダッシュボードボタン */}
                       {isOwner && (
                         <button onClick={() => window.open('/dashboard', '_blank')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-2">
                           <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
                         </button>
                       )}
 
-                      {/* メインウォレット */}
                       <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-6 shadow-[0_0_20px_rgba(0,0,0,0.03)] relative overflow-hidden">
                         <p className="text-sm text-[#666666] mb-3 tracking-wider">交換可能な確定ポイント</p>
                         <div className="flex items-center justify-between">
@@ -433,13 +483,11 @@ export default function MemberMagicPage() {
                         </div>
                       </div>
 
-                      {/* 確定待ち */}
                       <div className="bg-transparent border-b border-[#e6e2d3] pb-3 pt-2 flex items-center justify-between">
                         <p className="text-xs text-[#666666] tracking-wider">確定待ち（仮計上）</p>
                         <p className="text-lg font-sans tabular-nums tracking-tight text-[#333333]">{summary.pending.toLocaleString()}<span className="text-[11px] ml-1 text-[#999999]">pt</span></p>
                       </div>
 
-                      {/* 紹介履歴 (報酬未確定) */}
                       {pendingReferrals.length > 0 && (
                         <div className="pt-2">
                           <h2 className="text-sm text-[#1a1a1a] mb-1">紹介履歴（報酬未確定）</h2>
@@ -472,7 +520,6 @@ export default function MemberMagicPage() {
                         </div>
                       )}
 
-                      {/* ポイント獲得履歴 */}
                       <div className="pt-2">
                         <h2 className="text-sm text-[#1a1a1a] mb-4">ポイント獲得履歴</h2>
                         <div className="space-y-0">
@@ -570,13 +617,15 @@ export default function MemberMagicPage() {
                       <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_30px_rgba(0,0,0,0.04)] flex flex-col items-center mb-8 overflow-hidden">
                         <div className="w-full aspect-[4/3] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
                           <img src="/qr-hero.jpg" alt="Duacel Benefit" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                          <div className="absolute inset-0 flex items-center justify-center text-[#999999] text-xs -z-10">
-                            [ Image: /qr-hero.jpg ]
-                          </div>
                         </div>
 
-                        <div className="w-full p-8 flex flex-col items-center">
-                          <div className="p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6">
+                        <div className="w-full px-8 pb-8 flex flex-col items-center relative">
+                          {staff.avatar_url && (
+                            <div className="w-20 h-20 rounded-full overflow-hidden border-4 border-[#fffef2] shadow-md mb-6 -mt-10 z-10 bg-[#faf9f6]">
+                              <img src={staff.avatar_url} alt="Staff Avatar" className="w-full h-full object-cover" />
+                            </div>
+                          )}
+                          <div className={`p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6 ${!staff.avatar_url ? 'mt-8' : ''}`}>
                             <QRCodeCanvas value={referralUrl} size={180} level={"H"} fgColor="#1a1a1a" />
                           </div>
                           <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-6">お客様のスマートフォンで<br/>読み込んでください</p>
@@ -652,6 +701,45 @@ export default function MemberMagicPage() {
                       </div>
 
                       <div className="bg-[#fffef2] border border-[#e6e2d3] shadow-[0_0_20px_rgba(0,0,0,0.03)] p-6 space-y-6">
+                        
+                        <div className="pb-6 border-b border-[#e6e2d3]">
+                          <label className="block text-xs text-[#999999] mb-4 tracking-wider uppercase">Profile Photo</label>
+                          <div className="flex items-start gap-5">
+                            <div className="w-16 h-16 bg-[#faf9f6] border border-[#e6e2d3] rounded-full overflow-hidden flex items-center justify-center shrink-0">
+                              {(!isEditMode ? staff.avatar_url : editAvatar) ? (
+                                <img src={!isEditMode ? staff.avatar_url : editAvatar} alt="avatar" className="w-full h-full object-cover" />
+                              ) : (
+                                <img src={DEFAULT_AVATAR} alt="avatar" className="w-full h-full object-cover opacity-60" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                              )}
+                            </div>
+                            
+                            {isEditMode ? (
+                              <div className="flex-1 flex gap-2">
+                                <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer">
+                                  <ImagePlus className="w-5 h-5 mb-1" />
+                                  <span className="text-[10px] font-bold">アルバム</span>
+                                  <input type="file" accept="image/*" className="hidden" onChange={handleImageSelect} />
+                                </label>
+                                
+                                <label className="flex-1 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#666666] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#e6e2d3] cursor-pointer">
+                                  <Camera className="w-5 h-5 mb-1" />
+                                  <span className="text-[10px] font-bold">カメラ</span>
+                                  <input type="file" accept="image/*" capture="user" className="hidden" onChange={handleImageSelect} />
+                                </label>
+                                
+                                <button onClick={() => { setEditAvatar(''); setAvatarFile(null); }} className="w-12 py-3 border border-[#e6e2d3] bg-[#faf9f6] text-[#999999] flex flex-col items-center justify-center rounded-sm transition-colors hover:bg-[#fcf0f0] hover:text-[#8a3c3c]">
+                                  <Trash2 className="w-5 h-5 mb-1" />
+                                  <span className="text-[10px] font-bold">削除</span>
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="text-xs text-[#999999] pt-1">
+                                {staff.avatar_url ? '設定済み' : '未設定（デフォルト画像）'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
                         <div>
                           <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase">Name</label>
                           {!isEditMode ? <p className="text-base text-[#1a1a1a]">{staff.name}</p> : <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full bg-[#f5f2e6] border-none px-4 py-3 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#333333]" />}
@@ -692,7 +780,6 @@ export default function MemberMagicPage() {
                         </AnimatePresence>
                       </div>
                       
-                      {/* ★ オーナー専用ボタン (スミベタ) */}
                       {isOwner && (
                         <div className="bg-transparent pb-2">
                           <button onClick={() => window.open('/dashboard', '_blank')} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
@@ -713,9 +800,7 @@ export default function MemberMagicPage() {
               </AnimatePresence>
             </main>
 
-            {/* ==========================================
-                BOTTOM NAVIGATION
-            ========================================== */}
+            {/* ボトムナビゲーション */}
             <nav className="bg-[#1a1a1a] px-2 py-4 flex justify-between items-center z-50 pb-safe relative shrink-0">
               <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center justify-center gap-1.5 flex-1 transition-colors ${activeTab === 'stats' ? 'text-[#fffef2]' : 'text-[#666666] hover:text-[#999999]'}`}>
                 <Wallet className="w-6 h-6" strokeWidth={1.5} />
@@ -744,18 +829,14 @@ export default function MemberMagicPage() {
               </button>
             </nav>
 
-            {/* ==========================================
-                ★ SHARE PREVIEW & EDIT MODAL
-            ========================================== */}
+            {/* 各種モーダル群 */}
             <AnimatePresence>
               {isShareModalOpen && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
                   <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
                     <button onClick={() => setIsShareModalOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
-                    
                     <h3 className="text-base font-medium text-[#1a1a1a] mb-2">{shareTarget === 'line' ? 'LINEで送信' : 'メールで送信'}</h3>
                     <p className="text-xs text-[#666666] mb-6 leading-relaxed">送信するテキストを確認・編集できます。</p>
-                    
                     <div className="relative mb-8">
                       <textarea 
                         value={shareMessage}
@@ -764,7 +845,6 @@ export default function MemberMagicPage() {
                       />
                       <Edit3 className="absolute right-4 bottom-4 w-4 h-4 text-[#999999] pointer-events-none" />
                     </div>
-
                     <button onClick={handleExecuteShare} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                       <Send className="w-4 h-4" strokeWidth={1.5} /> 送信する
                     </button>
@@ -773,31 +853,22 @@ export default function MemberMagicPage() {
               )}
             </AnimatePresence>
 
-            {/* ==========================================
-                EXCHANGE MODAL
-            ========================================== */}
             <AnimatePresence>
               {isExchangeModalOpen && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex items-center justify-center p-4">
                   <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-[#fffef2] p-8 w-full max-w-sm shadow-[0_0_40px_rgba(0,0,0,0.2)] relative">
                     <button onClick={() => setIsExchangeModalOpen(false)} className="absolute top-4 right-4 p-2 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
-                    
                     <h3 className="text-base text-[#1a1a1a] mb-2">えらべるPayに交換</h3>
                     <p className="text-xs text-[#666666] mb-8 leading-relaxed">ポイントを各種電子マネーに交換します。</p>
-                    
                     <div className="mb-8 pb-6 border-b border-[#e6e2d3]">
                       <p className="text-xs text-[#666666] mb-1 tracking-wider">交換可能なポイント</p>
                       <p className="text-3xl font-sans tabular-nums text-[#1a1a1a]">{summary.confirmed.toLocaleString()}<span className="text-sm text-[#999999] ml-1">pt</span></p>
                     </div>
-
                     <div className="space-y-4 mb-10">
                       <label className={`flex items-center gap-4 p-5 border transition-all cursor-pointer ${exchangeType === 'all' ? 'border-[#1a1a1a] bg-[#f5f2e6]' : 'border-[#e6e2d3]'}`}>
                         <input type="radio" checked={exchangeType === 'all'} onChange={() => { setExchangeType('all'); setExchangeAmount(''); }} className="w-5 h-5 accent-[#1a1a1a]" />
-                        <div>
-                          <p className="text-sm text-[#333333]">すべて交換する</p>
-                        </div>
+                        <div><p className="text-sm text-[#333333]">すべて交換する</p></div>
                       </label>
-                      
                       <label className={`flex items-start gap-4 p-5 border transition-all cursor-pointer ${exchangeType === 'custom' ? 'border-[#1a1a1a] bg-[#f5f2e6]' : 'border-[#e6e2d3]'}`}>
                         <input type="radio" checked={exchangeType === 'custom'} onChange={() => setExchangeType('custom')} className="w-5 h-5 accent-[#1a1a1a] mt-1" />
                         <div className="flex-1">
@@ -813,7 +884,6 @@ export default function MemberMagicPage() {
                         </div>
                       </label>
                     </div>
-
                     <button onClick={handleExchangePay} disabled={isExchanging || summary.confirmed <= 0} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-50">
                       {isExchanging ? <Loader2 className="w-5 h-5 animate-spin"/> : "申請する"}
                     </button>
@@ -822,15 +892,11 @@ export default function MemberMagicPage() {
               )}
             </AnimatePresence>
 
-            {/* ==========================================
-                DETAIL MODAL (詳細情報表示)
-            ========================================== */}
             <AnimatePresence>
               {selectedDetail && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
                   <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
                     <button onClick={() => setSelectedDetail(null)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
-                    
                     {selectedDetail.type === 'referral' && (
                       <>
                         <h3 className="text-base text-[#1a1a1a] mb-6 border-b border-[#e6e2d3] pb-4">実績の詳細情報</h3>
@@ -866,8 +932,6 @@ export default function MemberMagicPage() {
                             <p className={`text-3xl font-sans tabular-nums ${selectedDetail.data.status === 'cancel' ? 'line-through text-[#999999]' : 'text-[#1a1a1a]'}`}>
                               +{selectedDetail.data.totalPt.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
                             </p>
-                            
-                            {/* 内訳 */}
                             <div className="mt-4 bg-[#f5f2e6] p-5">
                               <div className="flex justify-between text-sm text-[#666666] mb-3">
                                 <span>対象合計</span>
@@ -888,7 +952,6 @@ export default function MemberMagicPage() {
                         </div>
                       </>
                     )}
-
                     {selectedDetail.type === 'shop' && (
                       <>
                         <div className="flex justify-center mb-6">
@@ -898,7 +961,6 @@ export default function MemberMagicPage() {
                         </div>
                         <h3 className="text-lg text-[#1a1a1a] mb-4 text-center">{selectedDetail.data.name}</h3>
                         <p className="text-sm text-[#666666] leading-relaxed mb-8">{selectedDetail.data.desc}</p>
-                        
                         <div className="bg-[#f5f2e6] border border-[#e6e2d3] p-5 mb-8 flex justify-between items-end">
                           <div>
                             <p className="text-xs text-[#999999] mb-1 line-through">通常価格: ¥{selectedDetail.data.price.toLocaleString()}</p>
@@ -908,12 +970,8 @@ export default function MemberMagicPage() {
                             {selectedDetail.data.ptPrice.toLocaleString()}<span className="text-sm ml-1 text-[#999999]">pt</span>
                           </p>
                         </div>
-                        
                         <button 
-                          onClick={() => {
-                            alert('※ 購入フローへ遷移します');
-                            setSelectedDetail(null);
-                          }} 
+                          onClick={() => { alert('※ 購入フローへ遷移します'); setSelectedDetail(null); }} 
                           className={`w-full py-5 text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 ${summary.confirmed >= selectedDetail.data.ptPrice ? 'bg-[#1a1a1a] text-[#fffef2]' : 'bg-transparent border border-[#e6e2d3] text-[#666666]'}`}
                         >
                           {summary.confirmed >= selectedDetail.data.ptPrice ? '交換手続きへ進む' : 'ポイント不足（購入へ進む）'}
@@ -925,15 +983,11 @@ export default function MemberMagicPage() {
               )}
             </AnimatePresence>
 
-            {/* ==========================================
-                ★ BADGE INFO MODAL (オーナー/チーム)
-            ========================================== */}
             <AnimatePresence>
               {isOwnerModalOpen && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
                   <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
                     <button onClick={() => setIsOwnerModalOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
-                    
                     <div className="w-12 h-12 bg-[#f5f2e6] rounded-full flex items-center justify-center mb-6">
                       <Crown className="w-6 h-6 text-[#1a1a1a]" strokeWidth={1.5} />
                     </div>
@@ -948,7 +1002,6 @@ export default function MemberMagicPage() {
                         <li>店舗全体の売上・実績確認</li>
                       </ul>
                     </div>
-                    
                     <button onClick={() => { setIsOwnerModalOpen(false); window.open('/dashboard', '_blank'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                       <LayoutDashboard className="w-5 h-5" strokeWidth={1.5} /> 管理ダッシュボードへ <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
                     </button>
@@ -962,7 +1015,6 @@ export default function MemberMagicPage() {
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end p-4 sm:p-6">
                   <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative overflow-hidden shadow-[0_0_40px_rgba(0,0,0,0.2)]">
                     <button onClick={() => setIsTeamModalOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
-                    
                     <div className="w-12 h-12 bg-[#f5f2e6] rounded-full flex items-center justify-center mb-6">
                       <Handshake className="w-6 h-6 text-[#1a1a1a]" strokeWidth={1.5} />
                     </div>
@@ -975,7 +1027,6 @@ export default function MemberMagicPage() {
                         （自分が紹介したお客様でなくても、店舗の売上が上がることでポイントを獲得できます）
                       </p>
                     </div>
-                    
                     {isOwner ? (
                       <button onClick={() => { setIsTeamModalOpen(false); window.open('/dashboard', '_blank'); }} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2">
                         分配率を設定する <ExternalLink className="w-4 h-4 ml-1 opacity-70" />
@@ -990,14 +1041,10 @@ export default function MemberMagicPage() {
               )}
             </AnimatePresence>
 
-            {/* ==========================================
-                ★ UNREAD REFERRAL POPUP (未読CV通知)
-            ========================================== */}
             <AnimatePresence>
               {unreadReferrals.length > 0 && activeTab === 'stats' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[120] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-center items-center p-6">
                   <motion.div initial={{ scale: 0.95, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 10 }} className="bg-[#fffef2] p-8 w-full max-w-sm shadow-[0_0_40px_rgba(0,0,0,0.2)] relative border border-[#e6e2d3]">
-                    
                     <div className="flex justify-center mb-6">
                        <div className="w-12 h-12 bg-[#f5f2e6] rounded-full flex items-center justify-center">
                          <Gift className="w-6 h-6 text-[#1a1a1a]" strokeWidth={1.5} />
@@ -1007,7 +1054,6 @@ export default function MemberMagicPage() {
                     <p className="text-sm text-center text-[#333333] mb-6 leading-relaxed">
                       <span className="font-bold">{unreadReferrals[currentUnreadIndex].staffName}</span> さんのご紹介で<br/>商品が購入されました。
                     </p>
-
                     <div className="bg-[#f5f2e6] p-5 border border-[#e6e2d3] mb-6">
                       <div className="flex justify-between text-xs text-[#666666] mb-3">
                         <span>購入者</span>
@@ -1022,11 +1068,9 @@ export default function MemberMagicPage() {
                         <span className="text-[#1a1a1a] font-sans font-bold text-sm tabular-nums">{unreadReferrals[currentUnreadIndex].staffVisibleTotal?.toLocaleString()} <span className="text-[11px]">pt</span></span>
                       </div>
                     </div>
-
                     <p className="text-[11px] text-[#666666] text-center mb-6 leading-relaxed">
                       商品のお届け完了後に報酬が確定します。
                     </p>
-
                     <button onClick={handleCloseUnread} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest active:scale-[0.98] transition-all flex justify-center items-center">
                       {currentUnreadIndex < unreadReferrals.length - 1 ? '次へ' : '確認しました'}
                     </button>
