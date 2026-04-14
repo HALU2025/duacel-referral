@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 import { 
   Loader2, ShoppingBag, ChevronDown, ChevronUp, User, 
-  Check, Star, Sparkles, MapPin, ExternalLink
+  Check, Star, Sparkles, MapPin, ExternalLink, Store
 } from 'lucide-react'
 
 const DEFAULT_AVATAR = '/avatars/default.png'
