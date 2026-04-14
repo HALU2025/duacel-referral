@@ -7,7 +7,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 import { 
   ArrowRight, ArrowLeft, Loader2, Phone, KeyRound, Store, User, 
-  ChevronRight, ShieldAlert, Plus, Lock, Mail, CheckCircle2, LogIn, X
+  ChevronRight, ShieldAlert, Plus, Lock, CheckCircle2, LogIn, X,
+  MessageCircle, Mail, Send, Edit3, Share2
 } from 'lucide-react'
 
 // ==========================================
@@ -70,11 +71,17 @@ export default function PortalPage() {
   const [loginPinError, setLoginPinError] = useState(false)
   const pinInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)]
 
+  // ★ パス1: この店舗に参加する (Join)
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false)
   const [newStaffName, setNewStaffName] = useState('')
-  const [newStaffEmail, setNewStaffEmail] = useState('')
   const [newStaffPin, setNewStaffPin] = useState('')
 
+  // ★ パス2: メンバーを招待する (Invite)
+  const [isInviteOpen, setIsInviteOpen] = useState(false)
+  const [inviteTarget, setInviteTarget] = useState<'line' | 'email'>('line')
+  const [inviteMessage, setInviteMessage] = useState('')
+
+  // 管理者ログイン
   const [isAdminAuthOpen, setIsAdminAuthOpen] = useState(false)
   const [adminAuthStep, setAdminAuthStep] = useState<1 | 2>(1)
   const [adminPhone, setAdminPhone] = useState('')
@@ -98,6 +105,11 @@ export default function PortalPage() {
         // 店舗が存在する -> State 2: ポータル画面へ
         setShop(shopData)
         await loadStaffList(shopData.id)
+        
+        // 招待メッセージの初期設定
+        const portalUrl = typeof window !== 'undefined' ? window.location.href : `https://duacel.net/p/${token}`
+        setInviteMessage(`【${shopData.name}】Duacelのスタッフポータルへ招待されました。\n以下のURLからアクセスし、「この店舗に参加する」からプロフィールの登録をお願いします。\n\n${portalUrl}`)
+        
         setAppMode('portal')
       } else {
         // 店舗が存在しない -> State 1: セットアップ画面へ
@@ -162,7 +174,7 @@ export default function PortalPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('認証エラーです。最初からやり直してください。')
 
-      // 1. 店舗(Shop)の作成 (このQRのtokenを紐付ける)
+      // 1. 店舗(Shop)の作成
       const { data: newShop, error: shopErr } = await supabase
         .from('shops').insert([{ name: shopName.trim(), owner_id: user.id, invite_token: token }])
         .select('id').single()
@@ -184,7 +196,7 @@ export default function PortalPage() {
       }])
       if (staffErr) throw new Error('アカウントの作成に失敗しました。')
 
-      // 3. 登録完了後、自分のマイページへ自動ログイン＆遷移
+      // 3. 自動ログイン＆遷移
       sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true')
       router.replace(`/m/${secretToken}`)
     } catch (err: any) { setErrorMessage(err.message) } 
@@ -195,7 +207,7 @@ export default function PortalPage() {
   // 関数群 (State 2: Portal フロー)
   // ==========================================
 
-  // [機能1] スタッフログイン
+  // [既存ログイン]
   const handlePinChange = (index: number, value: string) => {
     if (!/^\d*$/.test(value)) return; 
     const newPin = [...loginPin]; newPin[index] = value.slice(-1); setLoginPin(newPin); setLoginPinError(false);
@@ -204,7 +216,6 @@ export default function PortalPage() {
     if (index === 3 && value) {
       const enteredPin = newPin.join('')
       if (!selectedStaff.security_pin || enteredPin === selectedStaff.security_pin) { 
-        // ログイン成功 -> マイページへ
         sessionStorage.setItem(`duacel_auth_${selectedStaff.secret_token}`, 'true')
         router.push(`/m/${selectedStaff.secret_token}`)
       } else {
@@ -215,7 +226,7 @@ export default function PortalPage() {
     }
   }
 
-  // [機能2] 新規スタッフの即時追加 (非同期・承認不要)
+  // ★ [参加: Join] メアド不要の最速ジョイン
   const handleAddNewStaff = async () => {
     setErrorMessage('')
     if (!newStaffName.trim()) return setErrorMessage('名前を入力してください。')
@@ -224,22 +235,19 @@ export default function PortalPage() {
     setIsLoading(true)
     try {
       const secretToken = generateSecureToken()
-      // 注意: RLSで匿名(anon)からのINSERTが許可されている必要があります
-      const { data: newStaff, error } = await supabase.from('staffs').insert([{
+      const { error } = await supabase.from('staffs').insert([{
         shop_id: shop.id, 
         name: newStaffName.trim(), 
-        email: newStaffEmail.trim() || null,
         role: 'staff', 
         referral_code: generateReferralCode(), 
         secret_token: secretToken, 
         security_pin: newStaffPin, 
         is_deleted: false,
         is_team_pool_eligible: true
-      }]).select().single()
+      }])
 
       if (error) throw new Error('スタッフの追加に失敗しました。')
 
-      // 即座にそのスタッフのマイページへログインして飛ばす
       sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true')
       router.push(`/m/${secretToken}`)
     } catch (err: any) {
@@ -248,7 +256,17 @@ export default function PortalPage() {
     }
   }
 
-  // [機能3] オーナー（管理者）ログイン
+  // ★ [招待: Invite] LINE/メール送信実行
+  const handleExecuteInvite = () => {
+    if (inviteTarget === 'line') {
+      window.open(`https://line.me/R/msg/text/?${encodeURIComponent(inviteMessage)}`, '_blank')
+    } else {
+      window.location.href = `mailto:?subject=${encodeURIComponent(shop?.name + 'からの招待')}&body=${encodeURIComponent(inviteMessage)}`
+    }
+    setIsInviteOpen(false)
+  }
+
+  // [管理者ログイン]
   const handleSendAdminOtp = async () => {
     setErrorMessage('')
     if (adminPhone.replace(/\D/g, '').length < 10) return setErrorMessage('有効な電話番号をご入力ください。')
@@ -268,7 +286,6 @@ export default function PortalPage() {
     try {
       const { error } = await supabase.auth.verifyOtp({ phone: formatPhoneNumber(adminPhone), token: adminOtp, type: 'sms' })
       if (error) throw error
-      // 成功したらダッシュボードへ
       router.push('/dashboard')
     } catch (err: any) { setErrorMessage('認証コードが正しくないか、有効期限切れです。') } 
     finally { setIsLoading(false) }
@@ -317,7 +334,6 @@ export default function PortalPage() {
                     </div>
                   )}
                   
-                  {/* Step 1: Phone */}
                   {setupStep === 1 && (
                     <div className="flex flex-col h-full justify-center">
                       <div className="mb-10 text-center">
@@ -337,7 +353,6 @@ export default function PortalPage() {
                     </div>
                   )}
 
-                  {/* Step 2: OTP */}
                   {setupStep === 2 && (
                     <div className="flex flex-col h-full justify-center">
                       <div className="mb-10 text-center">
@@ -357,7 +372,6 @@ export default function PortalPage() {
                     </div>
                   )}
 
-                  {/* Step 3: Profile */}
                   {setupStep === 3 && (
                     <div className="flex flex-col h-full justify-center">
                       <div className="mb-8 text-center">
@@ -388,7 +402,6 @@ export default function PortalPage() {
                     </div>
                   )}
 
-                  {/* Step 4: PIN & Save */}
                   {setupStep === 4 && (
                     <div className="flex flex-col h-full justify-center">
                       <div className="mb-10 text-center">
@@ -411,22 +424,21 @@ export default function PortalPage() {
         )}
 
         {/* ========================================================= */}
-        {/* STATE 2: PORTAL MODE (スタッフ一覧・ログイン) */}
+        {/* STATE 2: PORTAL MODE (スタッフ一覧・ログイン・追加・招待) */}
         {/* ========================================================= */}
         {appMode === 'portal' && (
-          <div className="flex flex-col h-full bg-[#fffef2]">
+          <div className="flex flex-col h-full bg-[#faf9f6]">
             {/* ヘッダー */}
-            <header className="pt-safe-top pb-6 pt-10 flex flex-col items-center justify-center bg-[#fffef2] border-b border-[#e6e2d3] shrink-0 z-10 px-6">
+            <header className="pt-safe-top pb-6 pt-10 flex flex-col items-center justify-center bg-[#fffef2] border-b border-[#e6e2d3] shrink-0 z-10 px-6 shadow-sm">
               <h1 className="text-2xl font-serif tracking-[0.1em] text-[#1a1a1a] mb-2">Duacel.</h1>
               <p className="text-xs font-bold text-[#666666] tracking-widest">{shop?.name}</p>
             </header>
 
-            {/* スタッフ一覧（グリッド） */}
-            <main className="flex-1 overflow-y-auto p-6 -webkit-overflow-scrolling-touch bg-[#faf9f6]">
+            {/* メインエリア：既存スタッフ */}
+            <main className="flex-1 overflow-y-auto p-6 -webkit-overflow-scrolling-touch">
               <p className="text-[10px] text-[#999999] uppercase tracking-widest text-center mb-6">Select your profile</p>
               
               <div className="grid grid-cols-2 gap-4">
-                {/* 既存スタッフ */}
                 {staffList.map(staff => (
                   <button key={staff.id} onClick={() => setSelectedStaff(staff)} className="bg-[#fffef2] border border-[#e6e2d3] p-5 flex flex-col items-center gap-3 rounded-sm hover:border-[#1a1a1a] hover:shadow-md transition-all active:scale-95 group">
                     <div className="w-16 h-16 rounded-full overflow-hidden bg-[#f5f2e6] border border-[#e6e2d3] flex items-center justify-center group-hover:scale-105 transition-transform">
@@ -442,22 +454,30 @@ export default function PortalPage() {
                     </div>
                   </button>
                 ))}
-
-                {/* 新規スタッフ追加ボタン */}
-                <button onClick={() => setIsAddStaffOpen(true)} className="bg-transparent border-2 border-dashed border-[#e6e2d3] p-5 flex flex-col items-center justify-center gap-3 rounded-sm hover:border-[#1a1a1a] hover:bg-[#fffef2] transition-all active:scale-95 group">
-                  <div className="w-12 h-12 rounded-full bg-[#f5f2e6] flex items-center justify-center group-hover:bg-[#1a1a1a] group-hover:text-[#fffef2] transition-colors text-[#999999]">
-                    <Plus className="w-6 h-6" strokeWidth={1.5} />
-                  </div>
-                  <p className="text-xs font-bold text-[#666666] group-hover:text-[#1a1a1a]">メンバーを追加</p>
-                </button>
               </div>
             </main>
 
-            {/* フッター（管理者ログイン） */}
-            <div className="p-6 bg-[#fffef2] border-t border-[#e6e2d3] shrink-0 pb-safe">
-              <button onClick={() => setIsAdminAuthOpen(true)} className="w-full py-4 text-[11px] font-bold text-[#999999] hover:text-[#1a1a1a] flex items-center justify-center gap-2 transition-colors uppercase tracking-widest">
-                <LogIn className="w-4 h-4" strokeWidth={1.5}/> Admin Dashboard Login
-              </button>
+            {/* アクションエリア：参加・招待・管理者ログイン */}
+            <div className="bg-[#fffef2] border-t border-[#e6e2d3] shrink-0 pb-safe shadow-[0_-10px_30px_rgba(0,0,0,0.02)]">
+              
+              <div className="p-6 space-y-4">
+                {/* 経路1: 自分自身の参加 (Join) */}
+                <button onClick={() => setIsAddStaffOpen(true)} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] text-sm tracking-widest font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-2 rounded-sm">
+                  <Plus className="w-5 h-5" strokeWidth={1.5} /> この店舗に参加する
+                </button>
+                
+                {/* 経路2: 誰かを招待 (Invite) */}
+                <button onClick={() => setIsInviteOpen(true)} className="w-full py-4 bg-white border border-[#e6e2d3] text-[#333333] text-sm tracking-widest font-bold hover:bg-[#faf9f6] transition-all active:scale-[0.98] flex items-center justify-center gap-2 rounded-sm">
+                  <Share2 className="w-4 h-4" strokeWidth={1.5} /> メンバーを招待する
+                </button>
+              </div>
+
+              {/* 管理者ログイン */}
+              <div className="px-6 pb-6 pt-2">
+                <button onClick={() => setIsAdminAuthOpen(true)} className="w-full py-3 text-[10px] font-bold text-[#999999] hover:text-[#1a1a1a] flex items-center justify-center gap-1.5 transition-colors uppercase tracking-widest">
+                  <LogIn className="w-3.5 h-3.5" strokeWidth={1.5}/> Admin Dashboard Login
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -499,14 +519,19 @@ export default function PortalPage() {
             </motion.div>
           )}
 
-          {/* 2. 新規スタッフ追加 モーダル */}
+          {/* ★ 2. 新規スタッフ「参加(Join)」 モーダル (メアド不要の最速フロー) */}
           {isAddStaffOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end sm:justify-center p-0 sm:p-6">
               <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative shadow-[0_0_40px_rgba(0,0,0,0.2)]">
                 <button onClick={() => setIsAddStaffOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
                 
-                <h3 className="text-lg font-bold text-[#1a1a1a] mb-2 uppercase tracking-widest">New Member</h3>
-                <p className="text-xs text-[#666666] mb-6 leading-relaxed">新しくマイページを作成し、<br/>すぐに活動を開始できます。</p>
+                <div className="mb-8">
+                  <h3 className="text-lg font-bold text-[#1a1a1a] mb-2 uppercase tracking-widest">Join Store</h3>
+                  <p className="text-xs text-[#666666] leading-relaxed">
+                    お名前とPINを入力するだけで、<br/>
+                    一瞬であなたの専用ページが発行されます。
+                  </p>
+                </div>
 
                 {errorMessage && (
                   <div className="mb-4 p-3 bg-[#fcf0f0] text-[#8a3c3c] text-[11px] flex items-start gap-2">
@@ -514,40 +539,66 @@ export default function PortalPage() {
                   </div>
                 )}
 
-                <div className="space-y-4">
+                <div className="space-y-6">
                   <div>
                     <label className="block text-[10px] text-[#999999] mb-1 tracking-widest uppercase">Name <span className="text-[#8a3c3c]">*</span></label>
                     <div className="relative">
-                      <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
+                      <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
                       <input placeholder="例: 佐藤 花子" value={newStaffName} onChange={e => setNewStaffName(e.target.value)} disabled={isLoading}
-                        className="w-full pl-10 pr-4 py-3 bg-[#f5f2e6] border-none text-sm text-[#333333] focus:ring-1 focus:ring-[#1a1a1a] outline-none disabled:opacity-50" />
+                        className="w-full pl-11 pr-4 py-4 bg-[#f5f2e6] border-none text-sm text-[#333333] focus:ring-1 focus:ring-[#1a1a1a] outline-none disabled:opacity-50" />
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-[10px] text-[#999999] mb-1 tracking-widest uppercase">Email (任意)</label>
-                    <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
-                      <input type="email" placeholder="example@email.com" value={newStaffEmail} onChange={e => setNewStaffEmail(e.target.value)} disabled={isLoading}
-                        className="w-full pl-10 pr-4 py-3 bg-[#f5f2e6] border-none text-sm text-[#333333] focus:ring-1 focus:ring-[#1a1a1a] outline-none disabled:opacity-50" />
-                    </div>
-                  </div>
+
                   <div>
                     <label className="block text-[10px] text-[#999999] mb-1 tracking-widest uppercase">New PIN <span className="text-[#8a3c3c]">*</span></label>
                     <div className="relative">
-                      <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999999]" strokeWidth={1.5} />
                       <input type="password" inputMode="numeric" maxLength={4} placeholder="4桁の数字" value={newStaffPin} onChange={e => setNewStaffPin(e.target.value.replace(/[^0-9]/g, ''))} disabled={isLoading}
-                        className="w-full pl-10 pr-4 py-3 bg-[#f5f2e6] border-none text-lg tracking-[0.5em] font-mono text-[#333333] focus:ring-1 focus:ring-[#1a1a1a] outline-none disabled:opacity-50" />
+                        className="w-full pl-11 pr-4 py-4 bg-[#f5f2e6] border-none text-lg tracking-[0.5em] font-mono text-[#333333] focus:ring-1 focus:ring-[#1a1a1a] outline-none disabled:opacity-50" />
                     </div>
                   </div>
-                  <button onClick={handleAddNewStaff} disabled={isLoading || !newStaffName.trim() || newStaffPin.length !== 4} className="w-full py-4 mt-4 bg-[#1a1a1a] text-[#fffef2] font-bold text-[11px] tracking-widest uppercase active:scale-[0.98] transition-all flex justify-center items-center gap-3 disabled:opacity-50">
-                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : '登録して開く'}
+
+                  <button onClick={handleAddNewStaff} disabled={isLoading || !newStaffName.trim() || newStaffPin.length !== 4} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] font-bold text-[11px] tracking-widest uppercase active:scale-[0.98] transition-all flex justify-center items-center gap-3 disabled:opacity-50 mt-2">
+                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'マイページを発行する'}
                   </button>
                 </div>
               </motion.div>
             </motion.div>
           )}
 
-          {/* 3. 管理者ログイン モーダル (OTP) */}
+          {/* ★ 3. メンバーを「招待(Invite)」 モーダル */}
+          {isInviteOpen && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[100] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end sm:justify-center p-0 sm:p-6">
+              <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative shadow-[0_0_40px_rgba(0,0,0,0.2)]">
+                <button onClick={() => setIsInviteOpen(false)} className="absolute top-4 right-4 p-3 text-[#999999] hover:text-[#333333]"><X className="w-6 h-6" strokeWidth={1.5} /></button>
+                
+                <h3 className="text-base font-bold text-[#1a1a1a] mb-2">メンバーを招待する</h3>
+                <p className="text-xs text-[#666666] mb-6 leading-relaxed">
+                  他のスタッフへ、このポータルのURLを送信します。<br/>送信するテキストは自由に編集できます。
+                </p>
+
+                <div className="relative mb-6">
+                  <textarea 
+                    value={inviteMessage}
+                    onChange={(e) => setInviteMessage(e.target.value)}
+                    className="w-full h-40 bg-[#f5f2e6] border-none p-4 text-sm text-[#333333] outline-none focus:ring-1 focus:ring-[#1a1a1a] resize-none leading-relaxed"
+                  />
+                  <Edit3 className="absolute right-4 bottom-4 w-4 h-4 text-[#999999] pointer-events-none" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button onClick={() => { setInviteTarget('line'); handleExecuteInvite(); }} className="w-full py-4 bg-white border border-[#e6e2d3] text-[#333333] text-[11px] font-bold tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 rounded-sm shadow-sm hover:bg-[#faf9f6]">
+                    <MessageCircle className="w-4 h-4" strokeWidth={1.5} /> LINE
+                  </button>
+                  <button onClick={() => { setInviteTarget('email'); handleExecuteInvite(); }} className="w-full py-4 bg-white border border-[#e6e2d3] text-[#333333] text-[11px] font-bold tracking-widest transition-all active:scale-[0.98] flex items-center justify-center gap-2 rounded-sm shadow-sm hover:bg-[#faf9f6]">
+                    <Mail className="w-4 h-4" strokeWidth={1.5} /> メール
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* 4. 管理者ログイン モーダル (OTP) */}
           {isAdminAuthOpen && (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-[110] bg-[#1a1a1a]/60 backdrop-blur-sm flex flex-col justify-end sm:justify-center p-0 sm:p-6">
               <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'tween', duration: 0.3 }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative shadow-[0_0_40px_rgba(0,0,0,0.2)]">
