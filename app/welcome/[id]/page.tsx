@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { 
   Sparkles, CheckCircle2, Clock, Loader2, ShoppingBag, 
   ChevronRight, Gift, ShieldCheck, Repeat, Box, Code, 
-  ArrowRight, User, Info, ArrowDownCircle
+  ArrowRight, User, Info, ArrowDownCircle, Store
 } from 'lucide-react'
 
 const getGradient = (name: string) => {
@@ -67,7 +67,6 @@ export default function WelcomeTestPage() {
     const orderNum = `SUB-${Math.floor(1000 + Math.random() * 9000)}`
     const customerName = `ゲスト ${Math.floor(100 + Math.random() * 900)}様`
 
-    // ★ 修正：確実に「今の店舗の最新設定」を再取得する
     const { data: latestShop } = await supabase.from('shops').select('ratio_individual, ratio_team, ratio_owner').eq('id', shop.id).single()
 
     const indRatio = latestShop?.ratio_individual ?? 100
@@ -102,7 +101,7 @@ export default function WelcomeTestPage() {
     setIsSimulating(true)
     const { error } = await supabase
       .from('referrals')
-      .update({ status: 'confirmed' }) // 確定に変更（ウォレットに入る）
+      .update({ status: 'confirmed' }) 
       .eq('id', referralId)
 
     if (!error) await loadData()
@@ -116,7 +115,6 @@ export default function WelcomeTestPage() {
     setIsSimulating(true)
     const orderNum = `REC-${Math.floor(1000 + Math.random() * 9000)}`
     
-    // ★ 修正：次回以降も、その時点の最新の店舗ルールを取得して適用する
     const { data: latestShop } = await supabase.from('shops').select('ratio_individual, ratio_team, ratio_owner').eq('id', shop.id).single()
     
     const indRatio = latestShop?.ratio_individual ?? 100
@@ -129,7 +127,7 @@ export default function WelcomeTestPage() {
       status: 'confirmed', // 2回目以降は即確定
       order_number: orderNum,
       customer_name: originalLog.customer_name,
-      recurring_count: originalLog.recurring_count + 1, // カウントアップ
+      recurring_count: originalLog.recurring_count + 1, 
       snapshot_ratio_individual: indRatio,
       snapshot_ratio_team: teamRatio,
       snapshot_ratio_owner: ownerRatio
@@ -143,6 +141,9 @@ export default function WelcomeTestPage() {
   if (!staff || !shop) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-gray-500 text-sm font-semibold">ページが見つかりません。</div>
 
   const basePoints = category?.reward_points || 0
+
+  // ★ 追加：このURLが「店舗公式（オーナー）」のコードかどうかを判定
+  const isOfficial = staff.role === 'owner';
 
   return (
     <div className="min-h-screen bg-gray-100 flex justify-center font-sans text-gray-900 pb-20">
@@ -162,15 +163,43 @@ export default function WelcomeTestPage() {
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          {/* Hero Profile */}
+          
+          {/* ★ 変更：Hero Profile (公式と個人で出し分け) */}
           <div className="p-6 flex flex-col items-center text-center border-b border-gray-50 bg-gray-50/30">
-            <div className={`w-20 h-20 rounded-full bg-gradient-to-tr ${getGradient(staff.name)} flex items-center justify-center text-white font-bold text-3xl shadow-md border-4 border-white mb-4`}>
-              {staff.name.charAt(0)}
-            </div>
-            <h2 className="text-lg font-bold text-gray-900 mb-1">{staff.name} <span className="text-xs font-medium text-gray-500">からの招待</span></h2>
-            <p className="text-xs text-gray-500 leading-relaxed max-w-[280px]">
-              このページからご購入いただくと、特別な特典が適用されます。サロン品質のケアをご自宅でぜひ体験してください。
-            </p>
+            {isOfficial ? (
+              // 店舗公式の場合のアイコン
+              <div className="w-20 h-20 rounded-full bg-gray-900 flex items-center justify-center text-white shadow-md border-4 border-white mb-4">
+                <Store className="w-8 h-8 text-amber-100" />
+              </div>
+            ) : (
+              // 個人スタッフの場合のアイコン（画像があれば画像、なければグラデ）
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center text-white font-bold text-3xl shadow-md border-4 border-white mb-4 overflow-hidden ${!staff.avatar_url ? `bg-gradient-to-tr ${getGradient(staff.name)}` : 'bg-gray-100'}`}>
+                {staff.avatar_url ? (
+                  <img src={staff.avatar_url} alt={staff.name} className="w-full h-full object-cover" />
+                ) : (
+                  staff.name.charAt(0)
+                )}
+              </div>
+            )}
+            
+            {isOfficial ? (
+              // 店舗公式のテキスト
+              <>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">{shop.name}</h2>
+                <p className="text-xs font-semibold text-gray-500 tracking-widest uppercase">Official Online Store</p>
+                <p className="text-xs text-gray-500 leading-relaxed max-w-[280px] mt-4">
+                  サロン専売のプレミアムケアを、ご自宅でぜひ体験してください。このページからのご購入で特別な特典が適用されます。
+                </p>
+              </>
+            ) : (
+              // 個人のテキスト
+              <>
+                <h2 className="text-lg font-bold text-gray-900 mb-1">{staff.name} <span className="text-xs font-medium text-gray-500">からの招待</span></h2>
+                <p className="text-xs text-gray-500 leading-relaxed max-w-[280px] mt-2">
+                  このページからご購入いただくと、特別な特典が適用されます。サロン品質のケアをご自宅でぜひ体験してください。
+                </p>
+              </>
+            )}
           </div>
 
           {/* Product (Subscription) Card */}
@@ -244,7 +273,6 @@ export default function WelcomeTestPage() {
                       const isPending = log.status === 'pending'
                       const isConfirmed = log.status === 'confirmed' || log.status === 'issued'
                       
-                      // ここでも「DBに保存されている当時のスナップショット」を使って計算して表示
                       const indRatio = log.snapshot_ratio_individual ?? 100
                       const staffExpectedPoints = Math.floor(basePoints * (indRatio / 100))
 
@@ -269,7 +297,6 @@ export default function WelcomeTestPage() {
                           </div>
 
                           <div className="flex gap-2">
-                            {/* 1回目の仮計上データに対する「お届け完了」ボタン */}
                             {isPending && log.recurring_count === 1 && (
                               <button 
                                 onClick={() => handle1stDelivery(log.id)} disabled={isSimulating}
@@ -279,7 +306,6 @@ export default function WelcomeTestPage() {
                               </button>
                             )}
 
-                            {/* 確定済みデータに対する「次のお届け完了（継続）」ボタン */}
                             {isConfirmed && (
                               <button 
                                 onClick={() => handleRecurringDelivery(log)} disabled={isSimulating}
