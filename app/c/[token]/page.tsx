@@ -30,22 +30,26 @@ export default function CustomerCatalogPage() {
       if (!token) return
 
       // 1. 店舗情報を取得
-      const { data: shopData } = await supabase
+      const { data: shopData, error: shopError } = await supabase
         .from('shops')
         .select('*')
         .eq('invite_token', token)
         .maybeSingle()
 
+      if (shopError) console.error('Supabase Error (Shop):', shopError)
+
       if (shopData) {
         setShop(shopData)
 
         // 2. スタッフ一覧を取得
-        const { data: staffs } = await supabase
+        const { data: staffs, error: staffError } = await supabase
           .from('staffs')
           .select('*')
           .eq('shop_id', shopData.id)
           .eq('is_deleted', false)
           .order('role', { ascending: false }) // Ownerを先頭に
+
+        if (staffError) console.error('Supabase Error (Staffs):', staffError)
 
         if (staffs) {
           setStaffList(staffs)
@@ -145,9 +149,10 @@ export default function CustomerCatalogPage() {
           <AnimatePresence>
             {isStaffListOpen && (
               <motion.div 
-                initial={{ height: 0 }} 
-                animate={{ height: 'auto' }} 
-                exit={{ height: 0 }}
+                key="staff-dropdown-menu" // ★アニメーションバグ防止用キー
+                initial={{ height: 0, opacity: 0 }} 
+                animate={{ height: 'auto', opacity: 1 }} 
+                exit={{ height: 0, opacity: 0 }}
                 className="overflow-hidden border-t border-[#e6e2d3]"
               >
                 <div className="p-4 bg-[#faf9f6] space-y-2 max-h-64 overflow-y-auto">
@@ -168,7 +173,7 @@ export default function CustomerCatalogPage() {
                     {selectedStaff?.id === ownerStaff?.id && <Check className="w-4 h-4 text-[#1a1a1a]" />}
                   </button>
 
-                  {/* スタッフ一覧 */}
+                  {/* スタッフ一覧 (オーナー以外を描画) */}
                   {staffList.filter(s => s.role !== 'owner').map(staff => (
                     <button 
                       key={staff.id}
