@@ -6,8 +6,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
 
 import { 
-  Loader2, ShoppingBag, ChevronDown, ChevronUp, User, 
-  Check, Sparkles, ExternalLink, Store
+  Loader2, ChevronDown, ChevronUp, User, 
+  Check, Sparkles, ExternalLink, Store, ArrowRight
 } from 'lucide-react'
 
 const DEFAULT_AVATAR = '/avatars/default.png'
@@ -20,8 +20,8 @@ export default function CustomerCatalogPage() {
   const [loading, setLoading] = useState(true)
   const [shop, setShop] = useState<any>(null)
   const [staffList, setStaffList] = useState<any[]>([])
-  const [ownerStaff, setOwnerStaff] = useState<any>(null)
   
+  // selectedStaff が null の場合は「店舗公式（担当なし）」として扱う
   const [selectedStaff, setSelectedStaff] = useState<any>(null)
   const [isStaffListOpen, setIsStaffListOpen] = useState(false)
 
@@ -40,20 +40,18 @@ export default function CustomerCatalogPage() {
       if (shopData) {
         setShop(shopData)
 
+        // オーナーも含めて全員取得
         const { data: staffs, error: staffError } = await supabase
           .from('staffs')
           .select('*')
           .eq('shop_id', shopData.id)
           .eq('is_deleted', false)
-          .order('role', { ascending: false })
+          .order('role', { ascending: false }) // オーナーを上に
 
         if (staffError) console.error('Supabase Error (Staffs):', staffError)
 
         if (staffs) {
           setStaffList(staffs)
-          const owner = staffs.find(s => s.role === 'owner')
-          setOwnerStaff(owner)
-          setSelectedStaff(owner)
         }
       }
       setLoading(false)
@@ -61,15 +59,21 @@ export default function CustomerCatalogPage() {
     fetchShopAndStaff()
   }, [token])
 
-  const handlePurchase = () => {
-    if (!selectedStaff) return
-    router.push(`/welcome/${selectedStaff.referral_code}`)
+  // 次のページへエスコートする処理
+  const handleProceedToStore = () => {
+    // 担当者が選ばれていなければ、店舗公式コード (shop_〇〇) を使う
+    const targetCode = selectedStaff 
+      ? selectedStaff.referral_code 
+      : `shop_${shop.id}`
+      
+    router.push(`/welcome/${targetCode}`)
   }
 
   if (loading) {
     return <div className="fixed inset-0 flex items-center justify-center bg-[#fffef2]"><Loader2 className="w-8 h-8 animate-spin text-[#1a1a1a]" /></div>
   }
 
+  // 店舗未登録（未開拓QR）の場合
   if (!shop) {
     return (
       <div className="fixed inset-0 bg-[#fffef2] flex justify-center font-sans text-[#333333] overflow-hidden">
@@ -91,7 +95,6 @@ export default function CustomerCatalogPage() {
   }
 
   return (
-    // ★ 修正箇所：全体を固定し、中身だけスクロールさせるアプリ型レイアウト
     <div className="fixed inset-0 bg-[#f5f2e6] flex justify-center font-sans text-[#333333] overflow-hidden selection:bg-[#e6e2d3]">
       <div className="w-full max-w-md bg-[#fffef2] h-full flex flex-col relative shadow-sm border-x border-[#e6e2d3]">
         
@@ -133,9 +136,9 @@ export default function CustomerCatalogPage() {
                 <div className="flex items-center gap-3">
                   <User className="w-4 h-4 text-[#999999]" />
                   <span className="text-xs font-bold tracking-wider">
-                    {selectedStaff?.id === ownerStaff?.id 
-                      ? "担当スタッフを選択（任意）" 
-                      : `担当：${selectedStaff?.name}`}
+                    {selectedStaff 
+                      ? `担当：${selectedStaff.name}` 
+                      : "担当スタッフを選択（任意）"}
                   </span>
                 </div>
                 {isStaffListOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -151,9 +154,11 @@ export default function CustomerCatalogPage() {
                     className="overflow-hidden border-t border-[#e6e2d3]"
                   >
                     <div className="p-4 bg-[#faf9f6] space-y-2 max-h-64 overflow-y-auto">
+                      
+                      {/* 店舗公式（担当なし・デフォルト） */}
                       <button 
-                        onClick={() => { setSelectedStaff(ownerStaff); setIsStaffListOpen(false); }}
-                        className={`w-full p-4 flex items-center justify-between rounded-sm border transition-all ${selectedStaff?.id === ownerStaff?.id ? 'bg-white border-[#1a1a1a] shadow-sm' : 'bg-transparent border-transparent'}`}
+                        onClick={() => { setSelectedStaff(null); setIsStaffListOpen(false); }}
+                        className={`w-full p-4 flex items-center justify-between rounded-sm border transition-all ${!selectedStaff ? 'bg-white border-[#1a1a1a] shadow-sm' : 'bg-transparent border-transparent'}`}
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-full bg-[#e6e2d3] flex items-center justify-center shrink-0">
@@ -164,10 +169,11 @@ export default function CustomerCatalogPage() {
                             <p className="text-[9px] text-[#999999]">特定の担当者がいない場合はこちら</p>
                           </div>
                         </div>
-                        {selectedStaff?.id === ownerStaff?.id && <Check className="w-4 h-4 text-[#1a1a1a]" />}
+                        {!selectedStaff && <Check className="w-4 h-4 text-[#1a1a1a]" />}
                       </button>
 
-                      {staffList.filter(s => s.role !== 'owner').map(staff => (
+                      {/* スタッフ一覧（オーナーも全員表示） */}
+                      {staffList.map(staff => (
                         <button 
                           key={staff.id}
                           onClick={() => { setSelectedStaff(staff); setIsStaffListOpen(false); }}
@@ -182,8 +188,11 @@ export default function CustomerCatalogPage() {
                               )}
                             </div>
                             <div className="text-left">
-                              <p className="text-xs font-bold text-[#1a1a1a]">{staff.name}</p>
-                              <p className="text-[9px] text-[#999999]">このスタッフの紹介で購入する</p>
+                              <p className="text-xs font-bold text-[#1a1a1a] flex items-center gap-2">
+                                {staff.name}
+                                {staff.role === 'owner' && <span className="text-[8px] bg-[#f5f2e6] text-[#666666] px-1.5 py-0.5 rounded-sm">OWNER</span>}
+                              </p>
+                              <p className="text-[9px] text-[#999999]">このスタッフからの紹介で進む</p>
                             </div>
                           </div>
                           {selectedStaff?.id === staff.id && <Check className="w-4 h-4 text-[#1a1a1a]" />}
@@ -198,18 +207,18 @@ export default function CustomerCatalogPage() {
 
         </main>
 
-        {/* ★ 修正箇所：フッター（ここをmainの外に出したことで被りが100%消えます） */}
+        {/* フッター（エスコートボタン） */}
         <div className="shrink-0 p-6 bg-white/90 backdrop-blur-md border-t border-[#e6e2d3] z-50 pb-safe">
           <button 
-            onClick={handlePurchase}
-            className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] font-bold text-sm tracking-[0.2em] flex items-center justify-center gap-3 active:scale-[0.98] transition-all shadow-xl"
+            onClick={handleProceedToStore}
+            className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] font-bold text-sm tracking-widest flex items-center justify-center gap-3 active:scale-[0.98] transition-all shadow-xl"
           >
-            <ShoppingBag className="w-5 h-5" />
-            商品を購入する
+            公式オンラインストアへ進む
+            <ArrowRight className="w-4 h-4" />
           </button>
           
           <p className="text-center text-[10px] text-[#999999] mt-4 tracking-wider flex items-center justify-center gap-1">
-             <ExternalLink className="w-3 h-3" /> 公式オンラインストアへ移動します
+             <ExternalLink className="w-3 h-3" /> 限定特典付きの専用ページへ移動します
           </p>
         </div>
 
