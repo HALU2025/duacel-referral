@@ -4,9 +4,9 @@ import { useEffect, useState, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { 
-  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon,
-  BarChart3, Users, Store, Gift, Settings, ChevronRight, ChevronDown,
-  Building, User, Info, LogOut, Shield, Edit2, CheckCircle2, Copy 
+  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Link as LinkIcon,
+  BarChart3, Users, Store, Gift, Settings, ChevronDown,
+  Building, LogOut, Shield, Edit2, CheckCircle2, Copy 
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createAdminUserAction } from '@/app/actions/admin'
@@ -37,7 +37,6 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
-// ダッシュボード(home)を廃止し、アイコンを統一
 const PAGE_TITLES: Record<string, { label: string, icon: any }> = {
   referrals: { label: '成果一覧', icon: <BarChart3 className="w-5 h-5" /> },
   redemptions: { label: 'ポイント交換管理', icon: <Gift className="w-5 h-5" /> },
@@ -297,14 +296,11 @@ export default function AdminDashboard() {
 
     setIsProcessing(true)
 
-    // ステータス更新
     await supabase.from('referrals').update({ 
       status: updatedRef.status,
       cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null,
     }).eq('id', updatedRef.id)
 
-    // 手動でポイント数が変更された場合（編集モードでの更新）
-    // （※本来はトランザクションテーブルのポイントを更新しますが、要望に基づき簡易的に対応）
     if (updatedRef.status === 'confirmed' && originalRef?.status !== 'confirmed') {
       await issuePoints(updatedRef, shops, categories)
     } else if (updatedRef.status !== 'confirmed' && originalRef?.status === 'confirmed') {
@@ -422,15 +418,15 @@ export default function AdminDashboard() {
             <span className="text-gray-900 p-2 bg-white border border-gray-200 rounded-lg shadow-sm">
               {PAGE_TITLES[activeTab].icon}
             </span>
-            <h1 className="text-xl font-black text-gray-900 tracking-tight">{PAGE_TITLES[activeTab].label}</h1>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">{PAGE_TITLES[activeTab].label}</h1>
           </div>
           {isProcessing && <span className="flex items-center gap-2 text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-full"><Loader2 className="w-4 h-4 animate-spin"/> 処理中...</span>}
         </div>
 
-        {/* 成果一覧 (UI/レイアウト改修) */}
+        {/* 成果一覧 */}
         {activeTab === 'referrals' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-xl mb-6 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setIsRefFilterOpen(!isRefFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-700 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
                 {activeFilterCountVal > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeFilterCountVal}件適用中</span>}
@@ -438,7 +434,7 @@ export default function AdminDashboard() {
               
               {isRefFilterOpen && (
                 <div className="p-5 border-t border-gray-200 bg-white">
-                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm font-medium">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm font-normal">
                     <div><label className="block text-gray-500 mb-1.5">受注番号</label><input type="text" value={refFilters.order_number} onChange={(e) => setRefFilters({...refFilters, order_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
                     <div><label className="block text-gray-500 mb-1.5">顧客名</label><input type="text" value={refFilters.customer_number} onChange={(e) => setRefFilters({...refFilters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
                     <div><label className="block text-gray-500 mb-1.5">店舗番号</label><input type="text" placeholder="例: 12" value={refFilters.shop_number} onChange={(e) => setRefFilters({...refFilters, shop_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
@@ -463,17 +459,17 @@ export default function AdminDashboard() {
             </div>
 
             {/* 一覧上部のサマリーエリア */}
-            <div className="flex justify-between items-center mb-2 px-1">
-              <div className="text-sm font-bold text-black">検索結果 {filteredReferrals.length} 件該当しました</div>
-              <div className="text-sm font-bold text-black">総獲得ポイント {totalFilteredPoints.toLocaleString()} pt</div>
+            <div className="flex justify-between items-center mb-4 px-1">
+              <div className="text-sm font-bold text-gray-900">検索結果 {filteredReferrals.length} 件該当しました</div>
+              <div className="text-sm font-bold text-gray-900">総獲得ポイント {totalFilteredPoints.toLocaleString()} pt</div>
             </div>
-            <hr className="mb-4 border-gray-300" />
+            <hr className="mb-6 border-gray-300" />
 
             {/* テーブル */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-black text-sm tracking-wider">
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
                     <th className="p-4 font-bold whitespace-nowrap">発生日時</th>
                     <th className="p-4 font-bold whitespace-nowrap">受注番号</th>
                     <th className="p-4 font-bold whitespace-nowrap">ステータス</th>
@@ -484,7 +480,7 @@ export default function AdminDashboard() {
                     <th className="p-4 font-bold whitespace-nowrap text-right">操作</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 text-sm text-black font-medium">
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-900">
                   {filteredReferrals.map(ref => {
                     const shop = getShopByShopId(ref.shop_id);
                     const staff = staffs.find(s => s.id === ref.staff_id);
@@ -495,19 +491,19 @@ export default function AdminDashboard() {
 
                     return (
                       <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/50 opacity-75' : 'hover:bg-blue-50/30'}`}>
-                        <td className="p-4 whitespace-nowrap text-black">{new Date(ref.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                        <td className="p-4 whitespace-nowrap text-black">{ref.order_number}</td>
+                        <td className="p-4 whitespace-nowrap">{new Date(ref.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td className="p-4 whitespace-nowrap">{ref.order_number}</td>
                         <td className="p-4 whitespace-nowrap">
                           <span className={`px-2.5 py-1 rounded-md text-sm border ${status.bgColor} ${status.color} ${status.border} font-bold inline-flex items-center justify-center min-w-[70px]`}>
                             {status.label}
                           </span>
                         </td>
-                        <td className="p-4 whitespace-nowrap text-black">{shop?.name || '不明'}</td>
-                        <td className="p-4 whitespace-nowrap text-black">{shop?.shop_number || '-'}</td>
-                        <td className="p-4 whitespace-nowrap text-black">
+                        <td className="p-4 whitespace-nowrap">{shop?.name || '不明'}</td>
+                        <td className="p-4 whitespace-nowrap font-mono">{shop?.invite_token || '-'}</td>
+                        <td className="p-4 whitespace-nowrap">
                           {staff?.name || '不明'} {ref.customer_name ? `/ ${ref.customer_name} 様 (${ref.recurring_count > 1 ? `定期${ref.recurring_count}回目` : '初回'})` : ''}
                         </td>
-                        <td className="p-4 whitespace-nowrap text-black font-bold">{totalPt.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-bold">{totalPt.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingRef({...ref, total_points: totalPt}); setIsRefModalOpen(true); }} className="text-blue-600 hover:text-blue-800 font-bold text-sm bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
                             詳細・編集
@@ -538,7 +534,7 @@ export default function AdminDashboard() {
                     <th className="p-4 font-bold text-right">操作</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 text-sm text-gray-800 font-medium">
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-900">
                   {redemptions.map(req => {
                     const staff = staffs.find(s => s.id === req.staff_id);
                     const shop = shops.find(s => s.id === req.shop_id);
@@ -604,10 +600,10 @@ export default function AdminDashboard() {
                         <Building className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-black text-gray-900 text-base flex items-center gap-2">
-                          {shop.name} <span className="text-xs font-mono text-gray-400 font-medium">No.{shop.shop_number}</span>
+                        <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
+                          {shop.name} <span className="text-xs font-mono text-gray-400 font-normal">No.{shop.shop_number}</span>
                         </h3>
-                        <p className="text-xs text-gray-500 mt-1 font-medium">
+                        <p className="text-xs text-gray-500 mt-1 font-normal">
                           オーナー: {shop.owner_email} / 所属: {shopStaffs.length}名 / {category?.label || 'カテゴリ未設定'}
                         </p>
                       </div>
@@ -666,8 +662,8 @@ export default function AdminDashboard() {
           <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto relative">
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h3 className="text-base font-black text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
-                <p className="text-xs text-gray-500 font-medium">店舗の属性ごとに、通常報酬・初回・定期継続ボーナスを設定します。</p>
+                <h3 className="text-base font-bold text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
+                <p className="text-xs text-gray-500 font-normal">店舗の属性ごとに、通常報酬・初回・定期継続ボーナスを設定します。</p>
               </div>
               {!isEditingSettings && (
                 <button onClick={() => setIsEditingSettings(true)} className="flex items-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
@@ -681,10 +677,10 @@ export default function AdminDashboard() {
                 {categories.map(cat => (
                   <div key={cat.id} className="border border-gray-200 rounded-xl p-5 bg-gray-50/50 flex flex-col gap-4">
                     <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-                      <span className="font-black text-gray-900 text-lg">{cat.label}</span>
+                      <span className="font-bold text-gray-900 text-lg">{cat.label}</span>
                       <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-bold">基本 {cat.reward_points} pt</span>
                     </div>
-                    <div className="space-y-2 text-sm font-medium text-gray-600">
+                    <div className="space-y-2 text-sm font-normal text-gray-600">
                       <div className="flex justify-between items-center">
                         <span>初回ボーナス</span>
                         {cat.first_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.first_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
@@ -773,7 +769,7 @@ export default function AdminDashboard() {
           <div className="space-y-6">
             <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full md:w-2/3">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-base font-black text-gray-900">システム管理者一覧</h3>
+                <h3 className="text-base font-bold text-gray-900">システム管理者一覧</h3>
                 <div className="flex gap-2">
                   <button onClick={() => setShowPasswordForm(!showPasswordForm)} className="text-xs font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 px-3 py-2 rounded-lg transition-colors">
                     自分のパスワード変更
@@ -855,25 +851,25 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-black text-gray-900">詳細情報・成果編集</h3>
+              <h3 className="text-lg font-bold text-gray-900">詳細情報・成果編集</h3>
               <button onClick={() => setIsRefModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
             </div>
             
-            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-black font-medium">
+            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
               
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">発生日時</label>
-                <div className="col-span-2 text-black text-sm font-mono">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div>
+                <div className="col-span-2 text-gray-900 text-sm font-mono">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">受注番号</label>
-                <div className="col-span-2 text-black text-sm font-mono">{editingRef.order_number || '-'}</div>
+                <div className="col-span-2 text-gray-900 text-sm font-mono">{editingRef.order_number || '-'}</div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">顧客名 / 回数</label>
-                <div className="col-span-2 text-black text-sm">
+                <div className="col-span-2 text-gray-900 text-sm">
                   {editingRef.customer_name || '不明'} 
                   <span className="ml-2 px-2 py-0.5 bg-gray-200 rounded text-xs">{editingRef.recurring_count || 1}回目</span>
                 </div>
@@ -881,15 +877,15 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">店舗名 / コード</label>
-                <div className="col-span-2 text-black text-sm">
+                <div className="col-span-2 text-gray-900 text-sm">
                   {getShopByShopId(editingRef.shop_id)?.name || '不明'} 
-                  <span className="ml-2 font-mono text-gray-400">No.{getShopByShopId(editingRef.shop_id)?.shop_number}</span>
+                  <span className="ml-2 font-mono text-gray-400">{getShopByShopId(editingRef.shop_id)?.invite_token}</span>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">担当スタッフ</label>
-                <div className="col-span-2 text-black text-sm">
+                <div className="col-span-2 text-gray-900 text-sm">
                   {staffs.find(s => s.id === editingRef.staff_id)?.name || '不明'}
                 </div>
               </div>
@@ -910,15 +906,15 @@ export default function AdminDashboard() {
 
               {/* 編集可能: 獲得ポイント */}
               <div className="grid grid-cols-3 gap-3 items-center">
-                <label className="text-black text-sm font-bold">獲得ポイント</label>
+                <label className="text-gray-900 text-sm font-bold">獲得ポイント</label>
                 <div className="col-span-2 flex items-center gap-2">
                   <input 
                     type="number"
-                    className="border border-gray-300 p-2 rounded w-full text-black text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
+                    className="border border-gray-300 p-2 rounded w-full text-gray-900 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
                     value={editingRef.total_points || 0} 
                     onChange={(e) => setEditingRef({...editingRef, total_points: Number(e.target.value)})} 
                   />
-                  <span className="text-black text-sm">pt</span>
+                  <span className="text-gray-900 text-sm">pt</span>
                 </div>
               </div>
 
@@ -932,7 +928,7 @@ export default function AdminDashboard() {
                 </div>
               ) : (
                 <div>
-                  <label className="block text-sm text-black mb-2 font-bold">ステータス更新</label>
+                  <label className="block text-sm text-gray-900 mb-2 font-bold">ステータス更新</label>
                   <select 
                     value={editingRef.status} 
                     onChange={(e) => setEditingRef({...editingRef, status: e.target.value, cancel_reason: e.target.value !== 'cancel' ? '' : editingRef.cancel_reason})} 
@@ -970,12 +966,12 @@ export default function AdminDashboard() {
       {isShopModalOpen && editingShop && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-lg font-black text-gray-900 mb-6">店舗情報の編集 (No.{editingShop.shop_number})</h3>
-            <div className="space-y-4 mb-8 text-sm font-medium">
-              <div><label className="block text-gray-500 mb-1.5">店舗名</label><input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
-              <div><label className="block text-gray-500 mb-1.5">電話番号</label><input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
+            <h3 className="text-lg font-bold text-gray-900 mb-6">店舗情報の編集 (No.{editingShop.shop_number})</h3>
+            <div className="space-y-4 mb-8 text-sm font-normal">
+              <div><label className="block text-gray-500 mb-1.5 font-bold">店舗名</label><input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
+              <div><label className="block text-gray-500 mb-1.5 font-bold">電話番号</label><input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
               <div>
-                <label className="block text-gray-500 mb-1.5">設定カテゴリ</label>
+                <label className="block text-gray-500 mb-1.5 font-bold">設定カテゴリ</label>
                 <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none bg-white focus:ring-2 focus:ring-blue-100 font-bold">
                   <option value="">未設定</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
