@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { 
   RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Download, Link as LinkIcon,
   LayoutDashboard, Users, Store, Gift, Settings, ChevronRight, ChevronDown,
-  Building, User, Info, LogOut, Shield, Edit2, CheckCircle2 // ★ アイコン追加
+  Building, User, Info, LogOut, Shield, Edit2, CheckCircle2 
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createAdminUserAction } from '@/app/actions/admin'
@@ -38,7 +38,6 @@ const CANCEL_REASONS = [
 ]
 
 const PAGE_TITLES: Record<string, string> = {
-  home: 'ダッシュボード',
   referrals: '成果一覧',
   redemptions: 'ポイント交換管理',
   users: 'ユーザー・店舗管理',
@@ -52,7 +51,7 @@ export default function AdminDashboard() {
   // ==========================================
   // 2. ステート管理
   // ==========================================
-  const [activeTab, setActiveTab] = useState<'home' | 'referrals' | 'redemptions' | 'users' | 'settings' | 'admins'>('home')
+  const [activeTab, setActiveTab] = useState<'referrals' | 'redemptions' | 'users' | 'settings' | 'admins'>('referrals')
   
   const [referrals, setReferrals] = useState<any[]>([])
   const [redemptions, setRedemptions] = useState<any[]>([])
@@ -80,7 +79,7 @@ export default function AdminDashboard() {
   const [editingCategories, setEditingCategories] = useState<any[]>([])
   const [expandedShopId, setExpandedShopId] = useState<string | null>(null) 
 
-  // ★ 追加：編集モードのトグル用ステート
+  // 編集モードのトグル用ステート
   const [isEditingSettings, setIsEditingSettings] = useState(false)
   const [showAddAdminForm, setShowAddAdminForm] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
@@ -92,16 +91,6 @@ export default function AdminDashboard() {
   const [newPassword, setNewPassword] = useState('')
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false)
 
-  // サマリー用
-  const summary = useMemo(() => {
-    return {
-      totalPointsIssued: pointTransactions.reduce((sum, tx) => sum + (Number(tx.points) || 0), 0),
-      totalRedeemed: redemptions.filter(r => r.status === 'completed').reduce((sum, r) => sum + (Number(r.points_consumed) || 0), 0),
-      activeShops: shops.length,
-      activeStaffs: staffs.filter(s => !s.is_deleted).length,
-      pendingReferrals: referrals.filter(r => r.status === 'pending').length
-    }
-  }, [pointTransactions, redemptions, shops, staffs, referrals])
 
   // ==========================================
   // 3. データ取得・認証
@@ -136,7 +125,7 @@ export default function AdminDashboard() {
     if (st.data) setStaffs(st.data)
     if (cat.data) { 
       setCategories(cat.data); 
-      setEditingCategories(cat.data); // 初期データを編集用ステートにもコピー
+      setEditingCategories(cat.data);
     }
     if (tx.data) setPointTransactions(tx.data)
     if (ex.data) setRedemptions(ex.data)
@@ -155,6 +144,23 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
+  // ヘルパー関数群
+  // ==========================================
+  const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
+
+  // テーブルやサマリーで共通利用するためのポイント計算ロジック
+  const getReferralPoints = (ref: any) => {
+    const shop = getShopByShopId(ref.shop_id);
+    const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
+    const isOldest = referrals.filter(r => r.shop_id === ref.shop_id && r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0]?.id === ref.id;
+    const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
+    const category = categories.find(r => r.id === shop?.category_id);
+    const standardPt = Number(category?.reward_points) || 0;
+    const bonusPt = (isFirstTime && category?.first_bonus_enabled) ? Number(category.first_bonus_points) : 0;
+    return ref.status === 'cancel' ? 0 : (refTxs.length > 0 ? refTxs.reduce((sum: number, tx: any) => sum + Number(tx.points), 0) : standardPt + bonusPt);
+  }
+
+  // ==========================================
   // アクションハンドラー
   // ==========================================
   const handleAddAdmin = async (e: React.FormEvent) => {
@@ -169,7 +175,7 @@ export default function AdminDashboard() {
       alert('管理者を登録しました。')
       setNewAdminEmail('')
       setNewAdminPassword('')
-      setShowAddAdminForm(false) // 成功したらフォームを閉じる
+      setShowAddAdminForm(false)
       fetchData()
     } else {
       alert('登録エラー: ' + res.error)
@@ -198,19 +204,15 @@ export default function AdminDashboard() {
     else { 
       alert('自分のパスワードを変更しました。次回から新しいパスワードでログインしてください。'); 
       setNewPassword(''); 
-      setShowPasswordForm(false); // 成功したらフォームを閉じる
+      setShowPasswordForm(false);
     }
   }
 
-  const getShopOwnerName = (shopId: string) => {
-    const owner = staffs.find(staff => staff.shop_id === shopId && staff.email === shops.find(s => s.id === shopId)?.owner_email)
-    return owner ? owner.name : '不明'
-  }
-  const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
   const openShopEditModal = (shopId: string) => {
     const targetShop = getShopByShopId(shopId)
     if (targetShop) { setEditingShop(targetShop); setIsShopModalOpen(true); }
   }
+
   const handleRefFilter = () => {
     let result = [...referrals]
     if (refFilters.order_number) result = result.filter(r => r.order_number?.includes(refFilters.order_number))
@@ -232,15 +234,18 @@ export default function AdminDashboard() {
     setFilteredReferrals(result)
     setIsRefFilterOpen(false)
   }
+
   const handleClearRefFilters = () => {
     setRefFilters({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
     setFilteredReferrals(referrals)
   }
+
   const handleCopyUrl = (token: string, type: 'staff' | 'invite') => {
     const url = type === 'staff' ? `${window.location.origin}/m/${token}` : `${window.location.origin}/reg/${token}`
     navigator.clipboard.writeText(url)
     alert(`URLをコピーしました。\n${url}`)
   }
+
   const issuePoints = async (referral: any, currentShops: any[], currentCategories: any[]) => {
     const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
     if (existing && existing.length > 0) return
@@ -271,21 +276,20 @@ export default function AdminDashboard() {
 
     await supabase.from('point_transactions').insert(transactions)
   }
+
   const removePoints = async (referralId: string) => {
     await supabase.from('point_transactions').delete().eq('referral_id', referralId)
   }
+
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
-    if (originalRef?.status === updatedRef.status && originalRef?.cancel_reason === updatedRef.cancel_reason) {
-      setIsRefModalOpen(false); return;
-    }
-
+    
     if (originalRef?.status === 'cancel') { alert('キャンセル済みのデータは変更できません。'); return; }
     if (originalRef?.status === 'issued') { alert('分配済のデータは変更できません。'); return; }
     if (originalRef?.status === 'confirmed' && updatedRef.status === 'pending') { alert('確定済みのデータを仮計上に戻すことはできません。'); return; }
     if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) { alert('キャンセル事由を選択してください。'); return; }
 
-    if (updatedRef.status === 'cancel') {
+    if (updatedRef.status === 'cancel' && originalRef?.status !== 'cancel') {
       const msg = originalRef?.status === 'confirmed'
         ? "【⚠️ 重大警告】\nこのデータはすでに「報酬確定」されています。\nキャンセルを実行すると、ユーザーへ付与済みのポイントが没収（マイナス処理）されます。\n\n本当にキャンセルしてよろしいですか？"
         : "【⚠️ 警告】\nこのデータをキャンセル（無効化）します。\n一度キャンセルすると、今後一切ステータスを戻すことはできません。\n\n本当にキャンセルしてよろしいですか？";
@@ -295,7 +299,12 @@ export default function AdminDashboard() {
     setIsProcessing(true)
     await supabase.from('referrals').update({ 
       status: updatedRef.status,
-      cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null 
+      cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null,
+      order_number: updatedRef.order_number,
+      customer_name: updatedRef.customer_name,
+      recurring_count: updatedRef.recurring_count,
+      shop_id: updatedRef.shop_id,
+      staff_id: updatedRef.staff_id
     }).eq('id', updatedRef.id)
     
     if (updatedRef.status === 'confirmed' && originalRef?.status !== 'confirmed') {
@@ -310,6 +319,7 @@ export default function AdminDashboard() {
     await fetchData()
     setIsProcessing(false)
   }
+
   const handleShopModalSave = async (updatedShop: any) => {
     setIsProcessing(true)
     const { error } = await supabase.from('shops').update({
@@ -320,9 +330,11 @@ export default function AdminDashboard() {
     else { setIsShopModalOpen(false); await fetchData(); }
     setIsProcessing(false)
   }
+
   const handleCategoryChange = (id: string, field: string, value: any) => {
     setEditingCategories(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
   }
+
   const handleAddCategory = () => {
     if (editingCategories.length >= 5) { alert('カテゴリは最大5つまで設定できます。'); return; }
     setEditingCategories([...editingCategories, {
@@ -333,11 +345,10 @@ export default function AdminDashboard() {
     }])
   }
   
-  // ★ 編集キャンセル処理
   const handleCancelSettings = () => {
     if (!confirm('編集内容を破棄してよろしいですか？')) return;
-    setEditingCategories([...categories]); // 元のデータに戻す
-    setIsEditingSettings(false); // 閲覧モードに戻す
+    setEditingCategories([...categories]);
+    setIsEditingSettings(false); 
   }
 
   const handleSaveAllSettings = async () => {
@@ -359,7 +370,7 @@ export default function AdminDashboard() {
     }
     await fetchData()
     setIsProcessing(false)
-    setIsEditingSettings(false) // 保存完了後に閲覧モードに戻す
+    setIsEditingSettings(false)
     alert('設定を保存しました。')
   }
 
@@ -367,6 +378,7 @@ export default function AdminDashboard() {
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
 
   const activeFilterCountVal = Object.values(refFilters).filter(val => val !== '').length
+  const totalFilteredPoints = filteredReferrals.reduce((sum, r) => sum + getReferralPoints(r), 0)
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col md:flex-row">
@@ -382,7 +394,6 @@ export default function AdminDashboard() {
         
         <nav className="flex md:flex-col gap-1 p-4 overflow-x-auto md:overflow-x-visible">
           {[
-            { id: 'home', icon: <LayoutDashboard className="w-4 h-4"/>, label: PAGE_TITLES.home },
             { id: 'referrals', icon: <Store className="w-4 h-4"/>, label: PAGE_TITLES.referrals },
             { id: 'redemptions', icon: <Gift className="w-4 h-4"/>, label: PAGE_TITLES.redemptions },
             { id: 'users', icon: <Users className="w-4 h-4"/>, label: PAGE_TITLES.users },
@@ -418,40 +429,7 @@ export default function AdminDashboard() {
           {isProcessing && <span className="flex items-center gap-2 text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-full"><Loader2 className="w-4 h-4 animate-spin"/> 処理中...</span>}
         </div>
 
-        {/* --- Home, Referrals, Redemptions, Users (そのまま) --- */}
-        {activeTab === 'home' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <p className="text-sm font-bold text-gray-500 mb-2">総発行ポイント (負債)</p>
-                <p className="text-3xl font-black font-mono text-gray-900">{summary.totalPointsIssued.toLocaleString()}</p>
-              </div>
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <p className="text-sm font-bold text-gray-500 mb-2">総交換額 (出費)</p>
-                <p className="text-3xl font-black font-mono text-blue-600">{summary.totalRedeemed.toLocaleString()}<span className="text-sm font-sans text-gray-400 ml-1">円</span></p>
-              </div>
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-                <p className="text-sm font-bold text-gray-500 mb-2">アクティブ店舗 / スタッフ</p>
-                <p className="text-2xl font-black font-mono text-gray-900">{summary.activeShops} <span className="text-sm font-sans text-gray-400 font-normal">/ {summary.activeStaffs} 人</span></p>
-              </div>
-              <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm border-l-4 border-l-amber-400">
-                <p className="text-sm font-bold text-gray-500 mb-2">仮計上 (未確定) 成果</p>
-                <p className="text-3xl font-black font-mono text-amber-600">{summary.pendingReferrals}<span className="text-sm font-sans text-gray-400 ml-1">件</span></p>
-              </div>
-            </div>
-            <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-start gap-3">
-              <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5"/>
-              <div>
-                <h4 className="text-sm font-bold text-blue-900 mb-1">システム運用について</h4>
-                <p className="text-xs text-blue-800 leading-relaxed">
-                  基本的にはecforceとのAPI連携により、成果の「仮計上」「確定（ポイント付与）」は自動で行われます。<br/>
-                  管理者が手動でステータスを変更するのは、イレギュラーなキャンセル対応やエラー時の補填時のみに留めてください。
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
+        {/* 成果一覧 (UI/レイアウト改修) */}
         {activeTab === 'referrals' && (
           <div>
             <div className="bg-white border border-gray-200 rounded-xl mb-6 shadow-sm overflow-hidden transition-all">
@@ -486,58 +464,54 @@ export default function AdminDashboard() {
               )}
             </div>
 
+            {/* 一覧上部のサマリーエリア */}
+            <div className="flex justify-between items-center mb-2 px-1">
+              <div className="text-sm font-bold text-black">検索結果 {filteredReferrals.length} 件該当しました</div>
+              <div className="text-sm font-bold text-black">総獲得ポイント {totalFilteredPoints.toLocaleString()} pt</div>
+            </div>
+            <hr className="mb-4 border-gray-300" />
+
+            {/* テーブル */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs tracking-wider uppercase">
-                    <th className="p-4 font-bold">受注番号</th>
-                    <th className="p-4 font-bold">ステータス</th>
-                    <th className="p-4 font-bold">店舗情報</th>
-                    <th className="p-4 font-bold">担当スタッフ</th>
-                    <th className="p-4 font-bold">獲得Pt</th>
-                    <th className="p-4 font-bold">発生日時</th>
-                    <th className="p-4 font-bold text-right">操作</th>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-black text-sm tracking-wider">
+                    <th className="p-4 font-bold whitespace-nowrap">発生日時</th>
+                    <th className="p-4 font-bold whitespace-nowrap">受注番号</th>
+                    <th className="p-4 font-bold whitespace-nowrap">ステータス</th>
+                    <th className="p-4 font-bold whitespace-nowrap">店舗情報</th>
+                    <th className="p-4 font-bold whitespace-nowrap">担当スタッフ・顧客情報</th>
+                    <th className="p-4 font-bold whitespace-nowrap">獲得Pt</th>
+                    <th className="p-4 font-bold whitespace-nowrap text-right">操作</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 text-sm text-gray-800 font-medium">
+                <tbody className="divide-y divide-gray-100 text-sm text-black font-medium">
                   {filteredReferrals.map(ref => {
                     const shop = getShopByShopId(ref.shop_id);
                     const staff = staffs.find(s => s.id === ref.staff_id);
                     const status = REF_STATUS_OPTIONS.find(s => s.value === ref.status) || REF_STATUS_OPTIONS[0];
                     const isDead = ref.status === 'cancel' || ref.status === 'issued';
                     
-                    const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
-                    const isOldest = referrals.filter(r => r.shop_id === ref.shop_id && r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0]?.id === ref.id;
-                    const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
-                    const category = categories.find(r => r.id === shop?.category_id);
-                    const standardPt = Number(category?.reward_points) || 0;
-                    const bonusPt = (isFirstTime && category?.first_bonus_enabled) ? Number(category.first_bonus_points) : 0;
-                    const totalPt = ref.status === 'cancel' ? 0 : (refTxs.length > 0 ? refTxs.reduce((sum, tx) => sum + Number(tx.points), 0) : standardPt + bonusPt);
+                    const totalPt = getReferralPoints(ref);
 
                     return (
                       <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/50 opacity-75' : 'hover:bg-blue-50/30'}`}>
-                        <td className="p-4 font-mono">{ref.order_number}</td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-md text-xs border ${status.bgColor} ${status.color} ${status.border} font-bold inline-flex items-center justify-center min-w-[70px]`}>
+                        <td className="p-4 whitespace-nowrap text-black">{new Date(ref.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td className="p-4 whitespace-nowrap text-black">{ref.order_number}</td>
+                        <td className="p-4 whitespace-nowrap">
+                          <span className={`px-2.5 py-1 rounded-md text-sm border ${status.bgColor} ${status.color} ${status.border} font-bold inline-flex items-center justify-center min-w-[70px]`}>
                             {status.label}
                           </span>
                         </td>
-                        <td className="p-4">
-                          <div className="flex flex-col">
-                            <span>{shop?.name || '不明'}</span>
-                            <span className="text-xs text-gray-400 font-mono">No.{shop?.shop_number}</span>
-                          </div>
+                        <td className="p-4 whitespace-nowrap text-black">
+                          {shop?.name || '不明'}
                         </td>
-                        <td className="p-4">
-                          <div className="flex flex-col">
-                            <span>{staff?.name || '不明'}</span>
-                            <span className="text-xs text-gray-400">{ref.customer_name ? `${ref.customer_name} 様の${ref.recurring_count > 1 ? '定期' : '初回'}` : ''}</span>
-                          </div>
+                        <td className="p-4 whitespace-nowrap text-black">
+                          {staff?.name || '不明'} {ref.customer_name ? `/ ${ref.customer_name} 様 (${ref.recurring_count > 1 ? `定期${ref.recurring_count}回目` : '初回'})` : ''}
                         </td>
-                        <td className="p-4 font-mono font-bold">{totalPt.toLocaleString()}</td>
-                        <td className="p-4 font-mono text-gray-500 text-xs">{new Date(ref.created_at).toLocaleString('ja-JP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                        <td className="p-4 text-right">
-                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
+                        <td className="p-4 whitespace-nowrap text-black">{totalPt.toLocaleString()}</td>
+                        <td className="p-4 text-right whitespace-nowrap">
+                          <button onClick={() => { setEditingRef(ref); setIsRefModalOpen(true); }} className="text-blue-600 hover:text-blue-800 font-bold text-sm bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
                             詳細・編集
                           </button>
                         </td>
@@ -551,6 +525,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
+        {/* --- Redemptions, Users, Settings, Admins は変更なし --- */}
         {activeTab === 'redemptions' && (
           <div>
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
@@ -687,9 +662,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* =========================================
-            ★ UI改修：Settings (ポイント設定) 
-        ========================================= */}
         {activeTab === 'settings' && (
           <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto relative">
             <div className="flex justify-between items-start mb-6">
@@ -704,7 +676,6 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* --- 閲覧モード（Read-only） --- */}
             {!isEditingSettings ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {categories.map(cat => (
@@ -731,7 +702,6 @@ export default function AdminDashboard() {
                 ))}
               </div>
             ) : (
-              /* --- 編集モード（Form） --- */
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
                 {editingCategories.map(cat => (
                   <div key={cat.id} className="border-2 border-blue-100 rounded-xl p-4 bg-white shadow-sm">
@@ -798,9 +768,6 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* =========================================
-            ★ UI改修：Admins (管理者設定)
-        ========================================= */}
         {activeTab === 'admins' && (
           <div className="space-y-6">
             <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full md:w-2/3">
@@ -816,7 +783,6 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              {/* パスワード変更フォーム (トグル) */}
               <AnimatePresence>
                 {showPasswordForm && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-6">
@@ -833,7 +799,6 @@ export default function AdminDashboard() {
                 )}
               </AnimatePresence>
 
-              {/* 新規管理者追加フォーム (トグル) */}
               <AnimatePresence>
                 {showAddAdminForm && (
                   <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden mb-6">
@@ -857,7 +822,6 @@ export default function AdminDashboard() {
                 )}
               </AnimatePresence>
 
-              {/* 管理者リスト */}
               <div className="space-y-3">
                 {systemAdmins.map(admin => (
                   <div key={admin.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
@@ -883,31 +847,88 @@ export default function AdminDashboard() {
       </div>
 
       {/* =========================================
-          モーダル類 (そのまま)
+          モーダル類
       ========================================= */}
       {isRefModalOpen && editingRef && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-2xl">
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-black text-gray-900">詳細情報・ステータス更新</h3>
+              <h3 className="text-lg font-black text-gray-900">詳細情報・全項目編集</h3>
               <button onClick={() => setIsRefModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
             </div>
             
-            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-3 text-gray-700 font-medium">
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">受注番号</div><div className="col-span-2 font-mono">{editingRef.order_number}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">顧客情報</div><div className="col-span-2">{editingRef.customer_name || '不明'} <span className="text-xs text-gray-400 ml-1">({editingRef.recurring_count > 1 ? `定期${editingRef.recurring_count}回目` : '初回'})</span></div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">店舗</div><div className="col-span-2">No.{getShopByShopId(editingRef.shop_id)?.shop_number} {getShopByShopId(editingRef.shop_id)?.name || '不明'}</div></div>
-              <div className="grid grid-cols-3 gap-2"><div className="text-gray-500">発生日時</div><div className="col-span-2 font-mono text-gray-500">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div></div>
+            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-black font-medium">
+              
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <label className="text-black text-sm font-bold">発生日時 (読取専用)</label>
+                <div className="col-span-2 text-black text-sm font-mono">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <label className="text-black text-sm font-bold">受注番号</label>
+                <input 
+                  className="col-span-2 border border-gray-300 p-2 rounded text-black text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
+                  value={editingRef.order_number || ''} 
+                  onChange={(e) => setEditingRef({...editingRef, order_number: e.target.value})} 
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <label className="text-black text-sm font-bold">顧客名</label>
+                <input 
+                  className="col-span-2 border border-gray-300 p-2 rounded text-black text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
+                  value={editingRef.customer_name || ''} 
+                  onChange={(e) => setEditingRef({...editingRef, customer_name: e.target.value})} 
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <label className="text-black text-sm font-bold">購入回数</label>
+                <div className="col-span-2 flex items-center gap-2">
+                  <input 
+                    type="number" min={1}
+                    className="border border-gray-300 p-2 rounded w-24 text-black text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
+                    value={editingRef.recurring_count || 1} 
+                    onChange={(e) => setEditingRef({...editingRef, recurring_count: Number(e.target.value)})} 
+                  />
+                  <span className="text-black text-sm">回目</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <label className="text-black text-sm font-bold">店舗情報</label>
+                <select 
+                  className="col-span-2 border border-gray-300 p-2 rounded text-black text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
+                  value={editingRef.shop_id || ''} 
+                  onChange={(e) => setEditingRef({...editingRef, shop_id: e.target.value})}
+                >
+                  <option value="">未選択</option>
+                  {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <label className="text-black text-sm font-bold">担当スタッフ</label>
+                <select 
+                  className="col-span-2 border border-gray-300 p-2 rounded text-black text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
+                  value={editingRef.staff_id || ''} 
+                  onChange={(e) => setEditingRef({...editingRef, staff_id: e.target.value})}
+                >
+                  <option value="">未選択</option>
+                  {staffs.filter(s => s.shop_id === editingRef.shop_id).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+
             </div>
 
             <div className="space-y-4 mb-8">
               {editingRef.status === 'cancel' || editingRef.status === 'issued' ? (
                 <div className="bg-gray-100 border border-gray-300 rounded-xl p-4 text-sm text-gray-600 font-bold text-center">
-                  {editingRef.status === 'cancel' ? 'キャンセル済（変更不可）' : '分配済（変更不可）'}
+                  {editingRef.status === 'cancel' ? 'キャンセル済（ステータス変更不可）' : '分配済（ステータス変更不可）'}
                 </div>
               ) : (
                 <div>
-                  <label className="block text-sm text-gray-700 mb-2 font-bold">強制ステータス更新 (サポート用)</label>
+                  <label className="block text-sm text-black mb-2 font-bold">ステータス更新</label>
                   <select value={editingRef.status} onChange={(e) => setEditingRef({...editingRef, status: e.target.value, cancel_reason: e.target.value !== 'cancel' ? '' : editingRef.cancel_reason})} className="w-full border border-gray-300 rounded-lg p-3 text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-100">
                     <option value="pending">仮計上</option>
                     <option value="confirmed">報酬確定</option>
@@ -929,11 +950,9 @@ export default function AdminDashboard() {
 
             <div className="flex gap-3 justify-end">
               <button onClick={() => setIsRefModalOpen(false)} className="px-5 py-2.5 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
-              {editingRef.status !== 'cancel' && editingRef.status !== 'issued' && (
-                <button onClick={() => handleRefModalSave(editingRef)} disabled={isProcessing} className="px-5 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
-                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 更新を保存
-                </button>
-              )}
+              <button onClick={() => handleRefModalSave(editingRef)} disabled={isProcessing} className="px-5 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 更新を保存
+              </button>
             </div>
           </div>
         </div>
