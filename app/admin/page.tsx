@@ -138,7 +138,10 @@ export default function AdminDashboard() {
     if (cat.data) { 
       const safeCategories = cat.data.map(c => ({
         ...c,
-        recurring_rules: c.recurring_rules || []
+        recurring_rules: c.recurring_rules || [],
+        upgrade_condition_type: c.upgrade_condition_type || 'count',
+        upgrade_condition_value: c.upgrade_condition_value || 0,
+        next_category_id: c.next_category_id || null
       }))
       setCategories(safeCategories); 
     }
@@ -164,7 +167,6 @@ export default function AdminDashboard() {
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
   const getStaffName = (staffId: string) => staffs.find(s => s.id === staffId)?.name || '不明'
 
-  // ★ 新しいロジック：基本報酬を上書きする「回数別報酬」
   const getReferralPoints = (ref: any) => {
     if (ref.status === 'cancel') return 0;
 
@@ -176,10 +178,10 @@ export default function AdminDashboard() {
     const matchedRule = rules.find((r: any) => Number(r.count) === Number(ref.recurring_count));
     
     if (matchedRule) {
-      return Number(matchedRule.points); // ルールがあればそのポイントを返す
+      return Number(matchedRule.points);
     }
 
-    return Number(category.reward_points) || 0; // ルールがなければ基本報酬
+    return Number(category.reward_points) || 0;
   }
 
   // ==========================================
@@ -254,6 +256,11 @@ export default function AdminDashboard() {
     setFilteredShops(shops)
   }
 
+  const copyToClipboard = (text: string, message: string = 'コピーしました') => {
+    navigator.clipboard.writeText(text)
+    alert(message)
+  }
+
   // ==========================================
   // 保存・更新処理
   // ==========================================
@@ -264,7 +271,6 @@ export default function AdminDashboard() {
     const shop = currentShops.find(s => s.id === referral.shop_id)
     const category = currentCategories.find(c => c.id === shop?.category_id)
 
-    // 新ロジックによるポイント算出
     const rules = category?.recurring_rules || [];
     const matchedRule = rules.find((r: any) => Number(r.count) === Number(referral.recurring_count));
     
@@ -379,6 +385,9 @@ export default function AdminDashboard() {
       signup_bonus_enabled: false,
       signup_bonus_points: 0,
       recurring_rules: [],
+      upgrade_condition_type: 'count',
+      upgrade_condition_value: 0,
+      next_category_id: null,
       isNew: true
     });
     setIsCategoryEditMode(true);
@@ -423,6 +432,9 @@ export default function AdminDashboard() {
       signup_bonus_enabled: editingCategory.signup_bonus_enabled || false, 
       signup_bonus_points: editingCategory.signup_bonus_points || 0,
       recurring_rules: editingCategory.recurring_rules || [],
+      upgrade_condition_type: editingCategory.upgrade_condition_type || null,
+      upgrade_condition_value: editingCategory.upgrade_condition_value || 0,
+      next_category_id: editingCategory.next_category_id || null,
     }
 
     if (editingCategory.isNew) { 
@@ -765,8 +777,8 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-normal">{category?.label || '未設定'}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{owner?.name || shop.owner_email}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{shopStaffs.length}</td>
-                        <td className="p-4 whitespace-nowrap font-normal">{shopEarned.toLocaleString()}</td>
-                        <td className="p-4 whitespace-nowrap font-normal">{shopRedeemed.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal text-emerald-600">{shopEarned.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal text-blue-600">{shopRedeemed.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
                             詳細
@@ -810,7 +822,10 @@ export default function AdminDashboard() {
                     return (
                       <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
                         <td className="p-4 whitespace-nowrap font-normal">
-                          <div className="text-gray-900">{cat.label} <span className="text-xs text-gray-500 ml-1">({shopCount}店舗)</span></div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-900">{cat.label}</span>
+                            <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-xs">{shopCount} 店舗</span>
+                          </div>
                         </td>
                         <td className="p-4 whitespace-nowrap font-normal">{Number(cat.reward_points).toLocaleString()} pt</td>
                         <td className="p-4 whitespace-nowrap font-normal">
@@ -818,15 +833,20 @@ export default function AdminDashboard() {
                         </td>
                         <td className="p-4 whitespace-nowrap font-normal">
                           {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
-                            <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs border border-blue-200">設定あり ({cat.recurring_rules.length}件)</span>
+                            <span className="text-blue-600 font-bold">設定あり</span>
                           ) : (
                             <span className="text-gray-400 text-xs">設定なし</span>
                           )}
                         </td>
                         <td className="p-4 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
-                            詳細
-                          </button>
+                          <div className="flex justify-end gap-2">
+                            <button onClick={() => copyToClipboard(`${window.location.origin}/p/${cat.id}`, '招待URLをコピーしました')} className="text-blue-600 border border-blue-200 hover:bg-blue-50 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm flex items-center gap-1">
+                              <LinkIcon className="w-3 h-3"/> URLコピー
+                            </button>
+                            <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                              詳細
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -926,7 +946,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900">成果情報 Detail</h3>
+              <h3 className="text-lg font-bold text-gray-900">成果情報 詳細</h3>
               <div className="flex items-center gap-2">
                 {!isRefEditMode && (
                   <button onClick={() => setIsRefEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
@@ -1047,7 +1067,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900">ポイント交換 Detail</h3>
+              <h3 className="text-lg font-bold text-gray-900">ポイント交換 詳細</h3>
               <div className="flex items-center gap-2">
                 {!isRedeemEditMode && (
                   <button onClick={() => setIsRedeemEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
@@ -1131,7 +1151,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900">店舗情報 Detail</h3>
+              <h3 className="text-lg font-bold text-gray-900">店舗情報 詳細</h3>
               <div className="flex items-center gap-2">
                 {!isShopEditMode && (
                   <button onClick={() => setIsShopEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
@@ -1223,7 +1243,7 @@ export default function AdminDashboard() {
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900">カテゴリ情報 Detail</h3>
+              <h3 className="text-lg font-bold text-gray-900">カテゴリ情報 詳細</h3>
               <div className="flex items-center gap-2">
                 {!isCategoryEditMode && (
                   <button onClick={() => setIsCategoryEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
@@ -1292,7 +1312,7 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 items-start">
+              <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">回数別報酬</label>
                 <div className="col-span-2">
                   {isCategoryEditMode ? (
@@ -1334,6 +1354,86 @@ export default function AdminDashboard() {
                   )}
                 </div>
               </div>
+
+              {/* ★ 自動ランクアップ設定セクション */}
+              <div className="grid grid-cols-3 gap-3 items-start mt-4 pt-2">
+                <label className="text-gray-500 text-sm font-bold">自動ランクアップ</label>
+                <div className="col-span-2">
+                  {isCategoryEditMode ? (
+                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      <label className="flex items-center gap-2 text-sm font-bold text-gray-900 mb-3">
+                        <input
+                          type="checkbox"
+                          checked={!!editingCategory.next_category_id}
+                          onChange={(e) => {
+                            if (!e.target.checked) {
+                              handleCategoryFieldChange('next_category_id', null);
+                            } else {
+                              handleCategoryFieldChange('upgrade_condition_type', 'count');
+                              handleCategoryFieldChange('upgrade_condition_value', 10);
+                              handleCategoryFieldChange('next_category_id', categories.filter(c => c.id !== editingCategory.id)[0]?.id || '');
+                            }
+                          }}
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                        条件達成で上位ランクへ自動昇格させる
+                      </label>
+
+                      {!!editingCategory.next_category_id && (
+                        <div className="space-y-3 pl-6 border-l-2 border-blue-200">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-600">条件:</span>
+                            <select
+                              value={editingCategory.upgrade_condition_type || 'count'}
+                              onChange={(e) => handleCategoryFieldChange('upgrade_condition_type', e.target.value)}
+                              className="border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+                            >
+                              <option value="count">累計獲得件数</option>
+                              <option value="points">累計獲得ポイント</option>
+                            </select>
+                            <span className="text-xs font-bold text-gray-600">が</span>
+                            <input
+                              type="number"
+                              value={editingCategory.upgrade_condition_value || 0}
+                              onChange={(e) => handleCategoryFieldChange('upgrade_condition_value', Number(e.target.value))}
+                              className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+                            />
+                            <span className="text-xs font-bold text-gray-600">{editingCategory.upgrade_condition_type === 'points' ? 'pt' : '件'} に達したら</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-600">昇格先:</span>
+                            <select
+                              value={editingCategory.next_category_id || ''}
+                              onChange={(e) => handleCategoryFieldChange('next_category_id', e.target.value)}
+                              className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+                            >
+                              <option value="">選択してください</option>
+                              {categories.filter(c => c.id !== editingCategory.id).map(c => (
+                                <option key={c.id} value={c.id}>{c.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-gray-900 text-sm">
+                      {editingCategory.next_category_id ? (
+                        <div className="bg-blue-50 text-blue-800 p-3 rounded border border-blue-100">
+                          <span className="font-bold">
+                            {editingCategory.upgrade_condition_type === 'points' ? '累計獲得ポイント' : '累計獲得件数'}が
+                            {Number(editingCategory.upgrade_condition_value).toLocaleString()}{editingCategory.upgrade_condition_type === 'points' ? 'pt' : '件'}
+                          </span> に達したら<br/>
+                          <span className="font-bold text-blue-900">「{categories.find(c => c.id === editingCategory.next_category_id)?.label || '不明なカテゴリ'}」</span> へ自動昇格
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">設定なし（最高ランク）</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
             </div>
 
             {isCategoryEditMode ? (
