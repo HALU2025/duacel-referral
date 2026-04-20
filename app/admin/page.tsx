@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+// ★ 修正：ReactNode をインポートに追加
+import { useEffect, useState, useMemo, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { 
@@ -39,7 +40,8 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
-const PAGE_TITLES: Record<TabType, { label: string, icon: JSX.Element }> = {
+// ★ 修正：JSX.Element ではなく ReactNode を使用
+const PAGE_TITLES: Record<TabType, { label: string, icon: ReactNode }> = {
   referrals: { label: '成果一覧', icon: <BarChart3 className="w-5 h-5" /> },
   redemptions: { label: 'ポイント交換管理', icon: <Gift className="w-5 h-5" /> },
   users: { label: 'ユーザー・店舗管理', icon: <Users className="w-5 h-5" /> },
