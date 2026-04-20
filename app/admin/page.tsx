@@ -81,22 +81,28 @@ export default function AdminDashboard() {
   const [filteredShops, setFilteredShops] = useState<any[]>([])
   const [isShopFilterOpen, setIsShopFilterOpen] = useState(false)
 
-  // モーダル・UI用
+  // モーダル・UI用 (成果)
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
   const [isRefEditMode, setIsRefEditMode] = useState(false)
 
+  // モーダル・UI用 (交換)
   const [isRedeemModalOpen, setIsRedeemModalOpen] = useState(false)
   const [editingRedeem, setEditingRedeem] = useState<any>(null)
   const [isRedeemEditMode, setIsRedeemEditMode] = useState(false)
 
+  // モーダル・UI用 (店舗)
   const [isShopModalOpen, setIsShopModalOpen] = useState(false)
   const [editingShop, setEditingShop] = useState<any>(null)
   const [isShopEditMode, setIsShopEditMode] = useState(false)
+  const [expandedShopId, setExpandedShopId] = useState<string | null>(null)
 
-  const [editingCategories, setEditingCategories] = useState<any[]>([])
+  // モーダル・UI用 (ポイントカテゴリ)
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
+  const [editingCategory, setEditingCategory] = useState<any>(null)
+  const [isCategoryEditMode, setIsCategoryEditMode] = useState(false)
 
-  const [isEditingSettings, setIsEditingSettings] = useState(false)
+  // その他設定用
   const [showAddAdminForm, setShowAddAdminForm] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [newAdminEmail, setNewAdminEmail] = useState('')
@@ -137,13 +143,11 @@ export default function AdminDashboard() {
     if (s.data) { setShops(s.data); setFilteredShops(s.data); }
     if (st.data) setStaffs(st.data)
     if (cat.data) { 
-      // JSONBがnullの場合の対策
       const safeCategories = cat.data.map(c => ({
         ...c,
         recurring_rules: c.recurring_rules || []
       }))
       setCategories(safeCategories); 
-      setEditingCategories(JSON.parse(JSON.stringify(safeCategories))); 
     }
     if (tx.data) setPointTransactions(tx.data)
     if (ex.data) { setRedemptions(ex.data); setFilteredRedemptions(ex.data); }
@@ -164,10 +168,18 @@ export default function AdminDashboard() {
   // ==========================================
   // 高速化：ポイント計算の事前処理
   // ==========================================
+  const oldestRefMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const validRefs = [...referrals].filter(r => r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    validRefs.forEach(r => {
+      if (!map.has(r.shop_id)) map.set(r.shop_id, r.id);
+    });
+    return map;
+  }, [referrals]);
+
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
   const getStaffName = (staffId: string) => staffs.find(s => s.id === staffId)?.name || '不明'
 
-  // ★新しいロジックに基づくポイント計算
   const getReferralPoints = (ref: any) => {
     if (ref.status === 'cancel') return 0;
 
@@ -178,7 +190,6 @@ export default function AdminDashboard() {
     const standardPt = Number(category.reward_points) || 0;
     let bonusPt = 0;
 
-    // 回数に応じたボーナスを検索
     const rules = category.recurring_rules || [];
     const matchedRule = rules.find((r: any) => Number(r.count) === Number(ref.recurring_count));
     if (matchedRule) {
@@ -272,7 +283,6 @@ export default function AdminDashboard() {
 
     const standardPoints = Number(category?.reward_points) || 0
     
-    // ★新しい計算ロジックを適用
     const rules = category?.recurring_rules || [];
     const matchedRule = rules.find((r: any) => Number(r.count) === Number(referral.recurring_count));
     const bonusPt = matchedRule ? Number(matchedRule.points) : 0;
@@ -381,84 +391,81 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // 新・ポイントカテゴリ設定ハンドラー
+  // 新・ポイントカテゴリ設定ハンドラー (モーダル型)
   // ==========================================
-  const handleCategoryChange = (id: string, field: string, value: any) => {
-    setEditingCategories(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
-  }
-
-  const handleRuleChange = (catId: string, ruleIndex: number, field: 'count' | 'points', value: string) => {
-    setEditingCategories(prev => prev.map(c => {
-      if (c.id !== catId) return c;
-      const newRules = [...(c.recurring_rules || [])];
-      newRules[ruleIndex] = { ...newRules[ruleIndex], [field]: Number(value) };
-      return { ...c, recurring_rules: newRules };
-    }));
-  }
-
-  const handleAddRule = (catId: string) => {
-    setEditingCategories(prev => prev.map(c => {
-      if (c.id !== catId) return c;
-      const newRules = [...(c.recurring_rules || []), { count: 1, points: 0 }];
-      return { ...c, recurring_rules: newRules };
-    }));
-  }
-
-  const handleRemoveRule = (catId: string, ruleIndex: number) => {
-    setEditingCategories(prev => prev.map(c => {
-      if (c.id !== catId) return c;
-      const newRules = [...(c.recurring_rules || [])];
-      newRules.splice(ruleIndex, 1);
-      return { ...c, recurring_rules: newRules };
-    }));
-  }
-
-  const handleAddCategory = () => {
-    if (editingCategories.length >= 10) { alert('カテゴリは最大10個まで設定できます。'); return; }
-    setEditingCategories([...editingCategories, {
-      id: `new_${Date.now()}`, 
-      label: '新規カテゴリ', 
+  const openNewCategoryModal = () => {
+    setEditingCategory({
+      id: `new_${Date.now()}`,
+      label: '新規カテゴリ',
       description: '',
       reward_points: 0,
-      signup_bonus_enabled: false, 
+      signup_bonus_enabled: false,
       signup_bonus_points: 0,
       recurring_rules: [],
       isNew: true
-    }])
-  }
-  
-  const handleCancelSettings = () => {
-    if (!confirm('編集内容を破棄してよろしいですか？')) return;
-    setEditingCategories(JSON.parse(JSON.stringify(categories)));
-    setIsEditingSettings(false); 
+    });
+    setIsCategoryEditMode(true);
+    setIsCategoryModalOpen(true);
   }
 
-  const handleSaveAllSettings = async () => {
-    if (!confirm('カテゴリ設定を保存しますか？')) return
+  const handleCategoryFieldChange = (field: string, value: any) => {
+    setEditingCategory((prev: any) => ({ ...prev, [field]: value }))
+  }
+
+  const handleRuleChangeSingle = (ruleIndex: number, field: 'count' | 'points', value: string) => {
+    setEditingCategory((prev: any) => {
+      const newRules = [...(prev.recurring_rules || [])];
+      newRules[ruleIndex] = { ...newRules[ruleIndex], [field]: Number(value) };
+      return { ...prev, recurring_rules: newRules };
+    })
+  }
+
+  const handleAddRuleSingle = () => {
+    setEditingCategory((prev: any) => {
+      const newRules = [...(prev.recurring_rules || []), { count: 1, points: 0 }];
+      return { ...prev, recurring_rules: newRules };
+    })
+  }
+
+  const handleRemoveRuleSingle = (ruleIndex: number) => {
+    setEditingCategory((prev: any) => {
+      const newRules = [...(prev.recurring_rules || [])];
+      newRules.splice(ruleIndex, 1);
+      return { ...prev, recurring_rules: newRules };
+    })
+  }
+
+  const handleCategoryModalSave = async () => {
+    if (!editingCategory.label) { alert('カテゴリ名を入力してください。'); return; }
+    
     setIsProcessing(true)
-    for (const cat of editingCategories) {
-      const dataToSave = {
-        label: cat.label, 
-        description: cat.description || '',
-        reward_points: cat.reward_points,
-        signup_bonus_enabled: cat.signup_bonus_enabled || false, 
-        signup_bonus_points: cat.signup_bonus_points || 0,
-        recurring_rules: cat.recurring_rules || []
-      }
-      
-      if (cat.isNew) { 
-        const { error } = await supabase.from('shop_categories').insert(dataToSave) 
-        if(error) console.error("Insert Error:", error)
-      } else { 
-        const { error } = await supabase.from('shop_categories').update(dataToSave).eq('id', cat.id) 
-        if(error) console.error("Update Error:", error)
-      }
+    const dataToSave = {
+      label: editingCategory.label, 
+      description: editingCategory.description || '',
+      reward_points: editingCategory.reward_points || 0,
+      signup_bonus_enabled: editingCategory.signup_bonus_enabled || false, 
+      signup_bonus_points: editingCategory.signup_bonus_points || 0,
+      recurring_rules: editingCategory.recurring_rules || [],
+      // 旧仕様のカラムがある場合の保険
+      first_bonus_enabled: false,
+      first_bonus_points: 0,
+      recurring_bonus_enabled: false,
+      recurring_bonus_points: 0
     }
+
+    if (editingCategory.isNew) { 
+      const { error } = await supabase.from('shop_categories').insert(dataToSave) 
+      if(error) alert("作成エラー: " + error.message)
+    } else { 
+      const { error } = await supabase.from('shop_categories').update(dataToSave).eq('id', editingCategory.id) 
+      if(error) alert("更新エラー: " + error.message)
+    }
+    
     await fetchData()
     setIsProcessing(false)
-    setIsEditingSettings(false)
-    alert('設定を保存しました。')
+    setIsCategoryModalOpen(false)
   }
+
 
   if (authError) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-600 text-sm font-bold">{authError}</div>
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
@@ -602,7 +609,7 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-bold font-mono">{totalPt.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingRef({...ref, total_points: totalPt}); setIsRefEditMode(false); setIsRefModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
-                            Detail
+                            詳細
                           </button>
                         </td>
                       </tr>
@@ -686,7 +693,7 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-bold font-mono">{Number(req.points_consumed).toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingRedeem(req); setIsRedeemEditMode(false); setIsRedeemModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
-                            Detail
+                            詳細
                           </button>
                         </td>
                       </tr>
@@ -772,7 +779,7 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-mono font-bold text-blue-600">{shopRedeemed.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
-                            Detail
+                            詳細
                           </button>
                         </td>
                       </tr>
@@ -785,139 +792,57 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* =========================================
-            Settings (ポイント設定タブ) 新規追加UI改修
-        ========================================= */}
+        {/* ポイント設定 */}
         {activeTab === 'settings' && (
-          <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto relative">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h3 className="text-base font-bold text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
-                <p className="text-xs text-gray-500 font-normal">店舗の属性ごとに、通常報酬と回数別の自由なボーナスを設定します。</p>
-              </div>
-              {!isEditingSettings && (
-                <button onClick={() => setIsEditingSettings(true)} className="flex items-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
-                  <Edit2 className="w-4 h-4"/> 編集する
-                </button>
-              )}
+          <div>
+            <div className="flex justify-between items-center mb-4 px-1">
+              <div className="text-sm font-bold text-gray-900">登録カテゴリ数: {categories.length}件</div>
+              <button onClick={openNewCategoryModal} className="flex items-center gap-1 text-sm font-bold bg-gray-900 text-white hover:bg-black px-4 py-2 rounded-lg transition-colors">
+                <Plus className="w-4 h-4"/> 新規作成
+              </button>
             </div>
+            <hr className="mb-6 border-gray-300" />
 
-            {!isEditingSettings ? (
-              /* 閲覧モード */
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {categories.map(cat => (
-                  <div key={cat.id} className="border border-gray-200 rounded-xl p-5 bg-gray-50/50 flex flex-col gap-4">
-                    <div className="flex items-start justify-between border-b border-gray-200 pb-3">
-                      <div>
-                        <span className="font-bold text-gray-900 text-lg block">{cat.label}</span>
-                        {cat.description && <span className="text-xs text-gray-500 mt-1 block">{cat.description}</span>}
-                      </div>
-                      <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-bold whitespace-nowrap">基本 {cat.reward_points} pt</span>
-                    </div>
-                    <div className="space-y-2 text-sm font-normal text-gray-600">
-                      <div className="flex justify-between items-center bg-white p-2 rounded border border-gray-100">
-                        <span>登録ボーナス</span>
-                        {cat.signup_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.signup_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
-                      </div>
-                      
-                      {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
-                        <div className="pt-2">
-                          <p className="text-xs font-bold text-gray-500 mb-2">回数別ボーナス</p>
-                          <div className="space-y-1">
-                            {cat.recurring_rules.sort((a:any, b:any) => a.count - b.count).map((rule:any, idx:number) => (
-                              <div key={idx} className="flex justify-between items-center text-sm pl-2 border-l-2 border-blue-200">
-                                <span>{rule.count} 回目</span>
-                                <span className="font-mono font-bold text-blue-700">+{rule.points} pt</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="pt-2">
-                          <p className="text-xs font-bold text-gray-500 mb-2">回数別ボーナス</p>
-                          <p className="text-xs text-gray-400">設定なし</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              /* 編集モード */
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                {editingCategories.map((cat, catIndex) => (
-                  <div key={cat.id} className="border-2 border-blue-100 rounded-xl p-5 bg-white shadow-sm relative">
-                    <div className="mb-4 pb-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">カテゴリ名</label>
-                        <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-400" placeholder="カテゴリ名" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">説明 (任意)</label>
-                        <input type="text" value={cat.description || ''} onChange={(e) => handleCategoryChange(cat.id, 'description', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" placeholder="例: 小規模サロン向け" />
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-700 mb-2">基本報酬（毎回のベース）</label>
-                          <div className="flex items-center gap-2">
-                            <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full max-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono focus:ring-2 focus:ring-blue-400" />
-                            <span className="text-xs text-gray-500 font-bold">pt</span>
-                          </div>
-                        </div>
-                        
-                        <div>
-                          <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
-                            <input type="checkbox" checked={cat.signup_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_enabled', e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                            登録ボーナス (店舗初回登録時)
-                          </label>
-                          <div className="flex items-center gap-2">
-                            <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full max-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400" />
-                            <span className="text-xs text-gray-500 font-bold">pt</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100">
-                        <label className="block text-sm font-bold text-gray-700 mb-3">回数別ボーナス設定</label>
-                        <div className="space-y-2 mb-3">
-                          {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
-                            cat.recurring_rules.map((rule:any, ruleIndex:number) => (
-                              <div key={ruleIndex} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
-                                <input type="number" min="1" value={rule.count} onChange={(e) => handleRuleChange(cat.id, ruleIndex, 'count', e.target.value)} className="w-16 border border-gray-300 rounded px-2 py-1 text-sm font-mono text-center outline-none focus:ring-2 focus:ring-blue-400" />
-                                <span className="text-xs font-bold text-gray-600">回目 :</span>
-                                <input type="number" min="0" value={rule.points} onChange={(e) => handleRuleChange(cat.id, ruleIndex, 'points', e.target.value)} className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-400" />
-                                <span className="text-xs font-bold text-gray-600">pt</span>
-                                <button onClick={() => handleRemoveRule(cat.id, ruleIndex)} className="p-1 text-gray-400 hover:text-red-500 transition-colors ml-1">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-xs text-gray-500 mb-2">回数別の追加ボーナスはありません。</p>
-                          )}
-                        </div>
-                        <button onClick={() => handleAddRule(cat.id)} className="flex items-center justify-center w-full gap-1 py-2 border-2 border-dashed border-blue-300 rounded-lg text-xs font-bold text-blue-600 hover:bg-blue-100 hover:border-blue-400 transition-all">
-                          <Plus className="w-3 h-3" /> ボーナスを追加
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
+                    <th className="p-4 font-bold whitespace-nowrap">カテゴリ名 / 説明</th>
+                    <th className="p-4 font-bold whitespace-nowrap">基本報酬</th>
+                    <th className="p-4 font-bold whitespace-nowrap">登録ボーナス</th>
+                    <th className="p-4 font-bold whitespace-nowrap">回数別ボーナス</th>
+                    <th className="p-4 font-bold whitespace-nowrap text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-900 font-normal">
+                  {categories.map(cat => (
+                    <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="p-4 whitespace-nowrap">
+                        <div className="font-bold text-gray-900">{cat.label}</div>
+                        {cat.description && <div className="text-xs text-gray-500 mt-1">{cat.description}</div>}
+                      </td>
+                      <td className="p-4 whitespace-nowrap font-mono font-bold">{Number(cat.reward_points).toLocaleString()} pt</td>
+                      <td className="p-4 whitespace-nowrap font-mono">
+                        {cat.signup_bonus_enabled ? `+${Number(cat.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 font-sans text-xs">設定なし</span>}
+                      </td>
+                      <td className="p-4 whitespace-nowrap">
+                        {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
+                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold border border-blue-200">設定あり ({cat.recurring_rules.length}件)</span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">設定なし</span>
+                        )}
+                      </td>
+                      <td className="p-4 text-right whitespace-nowrap">
+                        <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                          詳細
                         </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                
-                <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-200">
-                  <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-gray-900 bg-gray-100 px-4 py-2 rounded-lg transition-colors"><Plus className="w-4 h-4"/>カテゴリ新規作成</button>
-                  <div className="flex items-center gap-3">
-                    <button onClick={handleCancelSettings} className="px-6 py-3 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">キャンセル</button>
-                    <button onClick={handleSaveAllSettings} disabled={isProcessing} className="bg-gray-900 text-white text-sm font-bold px-8 py-3 rounded-lg hover:bg-black transition-colors flex items-center gap-2 disabled:opacity-50">
-                      {isProcessing ? <Loader2 className="w-4 h-4 animate-spin"/> : <CheckCircle2 className="w-4 h-4"/>} 保存して終了
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {categories.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">カテゴリが登録されていません</div>}
+            </div>
           </div>
         )}
 
@@ -1300,6 +1225,141 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {/* --- ポイントカテゴリ Detail モーダル --- */}
+      {isCategoryModalOpen && editingCategory && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">カテゴリ情報 Detail</h3>
+              <div className="flex items-center gap-2">
+                {!isCategoryEditMode && (
+                  <button onClick={() => setIsCategoryEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
+                    <Edit2 className="w-4 h-4"/> 編集
+                  </button>
+                )}
+                <button onClick={() => setIsCategoryModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
+              
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">カテゴリ名</label>
+                <div className="col-span-2 text-gray-900 text-sm font-bold">
+                  {isCategoryEditMode ? (
+                    <input type="text" value={editingCategory.label} onChange={(e) => handleCategoryFieldChange('label', e.target.value)} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" placeholder="例: 通常サロン" />
+                  ) : (
+                    editingCategory.label
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">説明</label>
+                <div className="col-span-2 text-gray-900 text-sm">
+                  {isCategoryEditMode ? (
+                    <input type="text" value={editingCategory.description || ''} onChange={(e) => handleCategoryFieldChange('description', e.target.value)} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" placeholder="説明を入力 (任意)" />
+                  ) : (
+                    editingCategory.description || 'なし'
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">基本報酬</label>
+                <div className="col-span-2 text-gray-900 text-sm font-mono">
+                  {isCategoryEditMode ? (
+                    <div className="flex items-center gap-2">
+                      <input type="number" value={editingCategory.reward_points} onChange={(e) => handleCategoryFieldChange('reward_points', Number(e.target.value))} className="w-32 border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
+                      <span className="font-bold">pt</span>
+                    </div>
+                  ) : (
+                    <span className="font-bold">{Number(editingCategory.reward_points).toLocaleString()} pt</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">登録ボーナス</label>
+                <div className="col-span-2 text-gray-900 text-sm font-mono">
+                  {isCategoryEditMode ? (
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1 font-bold">
+                        <input type="checkbox" checked={editingCategory.signup_bonus_enabled} onChange={(e) => handleCategoryFieldChange('signup_bonus_enabled', e.target.checked)} className="w-4 h-4 rounded border-gray-300" />
+                        あり
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input type="number" disabled={!editingCategory.signup_bonus_enabled} value={editingCategory.signup_bonus_points || 0} onChange={(e) => handleCategoryFieldChange('signup_bonus_points', Number(e.target.value))} className="w-32 border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white disabled:bg-gray-100" />
+                        <span className="font-bold">pt</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="font-bold">{editingCategory.signup_bonus_enabled ? `+${Number(editingCategory.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 font-sans text-xs">設定なし</span>}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-start">
+                <label className="text-gray-500 text-sm font-bold">回数別ボーナス</label>
+                <div className="col-span-2">
+                  {isCategoryEditMode ? (
+                    <div className="bg-white border border-gray-200 p-3 rounded-lg">
+                      <div className="space-y-2 mb-3">
+                        {editingCategory.recurring_rules && editingCategory.recurring_rules.length > 0 ? (
+                          editingCategory.recurring_rules.map((rule:any, idx:number) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <input type="number" min="1" value={rule.count} onChange={(e) => handleRuleChangeSingle(idx, 'count', e.target.value)} className="w-16 border border-gray-300 rounded px-2 py-1.5 text-sm font-mono text-center outline-none focus:ring-2 focus:ring-blue-100" />
+                              <span className="text-xs font-bold text-gray-600 whitespace-nowrap">回目 :</span>
+                              <input type="number" min="0" value={rule.points} onChange={(e) => handleRuleChangeSingle(idx, 'points', e.target.value)} className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
+                              <span className="text-xs font-bold text-gray-600">pt</span>
+                              <button onClick={() => handleRemoveRuleSingle(idx)} className="p-1 text-gray-400 hover:text-red-500 transition-colors ml-1">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-xs text-gray-400">設定されていません</p>
+                        )}
+                      </div>
+                      <button onClick={handleAddRuleSingle} className="flex items-center justify-center w-full gap-1 py-2 border border-dashed border-blue-300 rounded text-xs font-bold text-blue-600 hover:bg-blue-50 transition-colors">
+                        <Plus className="w-3 h-3" /> ルールを追加
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {editingCategory.recurring_rules && editingCategory.recurring_rules.length > 0 ? (
+                        editingCategory.recurring_rules.sort((a:any, b:any) => a.count - b.count).map((rule:any, idx:number) => (
+                          <div key={idx} className="flex items-center gap-4 bg-white px-3 py-2 border border-gray-200 rounded">
+                            <span className="text-sm font-bold text-gray-700 w-16">{rule.count} 回目</span>
+                            <span className="text-sm font-bold text-blue-600 font-mono">+{Number(rule.points).toLocaleString()} pt</span>
+                          </div>
+                        ))
+                      ) : (
+                        <span className="text-gray-400 text-xs">設定なし</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {isCategoryEditMode ? (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsCategoryEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+                <button onClick={() => handleCategoryModalSave()} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsCategoryModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
