@@ -143,7 +143,6 @@ export default function AdminDashboard() {
     if (st.data) setStaffs(st.data)
     if (cat.data) { 
       const safeCategories = cat.data.map(c => {
-        // 過去のデータ(count, points)を新しい recurring_1 にフォールバック
         let condType = c.upgrade_condition_type;
         if (!condType || condType === 'count' || condType === 'points') {
           condType = 'recurring_1';
@@ -277,6 +276,11 @@ export default function AdminDashboard() {
   const handleClearShopFilters = () => {
     setShopFilters({ shop_name: '', invite_token: '', category_id: '' })
     setFilteredShops(shops)
+  }
+
+  const copyToClipboard = (text: string, message: string = 'コピーしました') => {
+    navigator.clipboard.writeText(text)
+    alert(message)
   }
 
   // ==========================================
@@ -565,10 +569,10 @@ export default function AdminDashboard() {
       {/* =========================================
           サイドナビゲーション
       ========================================= */}
-      <aside className="w-full md:w-64 bg-white border-r border-gray-200 shadow-sm md:min-h-screen flex flex-col shrink-0">
+      <aside className="w-full md:w-64 bg-white border-r border-gray-200 shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] md:min-h-screen flex flex-col shrink-0">
         <div className="px-6 py-4 flex items-center gap-3 border-b border-gray-200">
           <img src="/logo-duacel.svg" alt="Duacel" className="h-6 w-auto" onError={(e) => e.currentTarget.style.display = 'none'} />
-          <span className="text-base font-bold tracking-wider text-gray-900">Duacel Pro</span>
+          <span className="text-base font-bold tracking-wider text-gray-900">Duacel紹介プログラム</span>
         </div>
         
         <nav className="flex md:flex-col gap-1 p-4 overflow-x-auto md:overflow-x-visible">
@@ -603,7 +607,7 @@ export default function AdminDashboard() {
             <span className="text-gray-900">
               {PAGE_TITLES[activeTab].icon}
             </span>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">{PAGE_TITLES[activeTab].label}</h1>
+            <h1 className="text-lg font-bold text-gray-900 tracking-tight">{PAGE_TITLES[activeTab].label}</h1>
           </div>
           {isProcessing && <span className="flex items-center gap-2 text-sm text-blue-600 font-bold bg-blue-50 px-3 py-1 rounded-full"><Loader2 className="w-4 h-4 animate-spin"/> 処理中...</span>}
         </div>
@@ -611,9 +615,9 @@ export default function AdminDashboard() {
         {/* 成果一覧 */}
         {activeTab === 'referrals' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] overflow-hidden transition-all">
               <button onClick={() => setIsRefFilterOpen(!isRefFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
-                <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
+                <span className="flex items-center gap-2"><Search className="w-4 h-4" /> 検索・絞り込み</span>
                 {activeRefFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeRefFilterCount}件適用中</span>}
               </button>
               
@@ -649,7 +653,7 @@ export default function AdminDashboard() {
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
@@ -687,7 +691,7 @@ export default function AdminDashboard() {
                         </td>
                         <td className="p-4 whitespace-nowrap font-normal">{totalPt.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingRef({...ref, total_points: totalPt}); setIsRefEditMode(false); setIsRefModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                          <button onClick={() => { setEditingRef({...ref, total_points: totalPt}); setIsRefEditMode(false); setIsRefModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
                             詳細
                           </button>
                         </td>
@@ -704,9 +708,9 @@ export default function AdminDashboard() {
         {/* ポイント交換管理 */}
         {activeTab === 'redemptions' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] overflow-hidden transition-all">
               <button onClick={() => setIsRedeemFilterOpen(!isRedeemFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
-                <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
+                <span className="flex items-center gap-2"><Search className="w-4 h-4" /> 検索・絞り込み</span>
                 {activeRedeemFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeRedeemFilterCount}件適用中</span>}
               </button>
               
@@ -741,7 +745,7 @@ export default function AdminDashboard() {
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
@@ -771,7 +775,7 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-normal">{shop?.name || '不明'}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{Number(req.points_consumed).toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingRedeem(req); setIsRedeemEditMode(false); setIsRedeemModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                          <button onClick={() => { setEditingRedeem(req); setIsRedeemEditMode(false); setIsRedeemModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
                             詳細
                           </button>
                         </td>
@@ -788,9 +792,9 @@ export default function AdminDashboard() {
         {/* ユーザー・店舗管理 */}
         {activeTab === 'users' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] overflow-hidden transition-all">
               <button onClick={() => setIsShopFilterOpen(!isShopFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
-                <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
+                <span className="flex items-center gap-2"><Search className="w-4 h-4" /> 検索・絞り込み</span>
                 {activeShopFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeShopFilterCount}件適用中</span>}
               </button>
               
@@ -821,13 +825,14 @@ export default function AdminDashboard() {
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
                     <th className="p-4 font-bold whitespace-nowrap">店舗名</th>
                     <th className="p-4 font-bold whitespace-nowrap">店舗コード</th>
                     <th className="p-4 font-bold whitespace-nowrap">ランク</th>
+                    <th className="p-4 font-bold whitespace-nowrap">ランクスコア</th>
                     <th className="p-4 font-bold whitespace-nowrap">オーナー名</th>
                     <th className="p-4 font-bold whitespace-nowrap">メンバー数</th>
                     <th className="p-4 font-bold whitespace-nowrap">総獲得Pt</th>
@@ -842,22 +847,36 @@ export default function AdminDashboard() {
                     const category = categories.find(c => c.id === shop.category_id)
                     
                     const shopReferrals = referrals.filter(r => r.shop_id === shop.id)
+                    const validReferrals = shopReferrals.filter(r => r.status !== 'cancel')
                     const shopEarned = shopReferrals.reduce((sum, r) => sum + getReferralPoints(r), 0)
                     
                     const shopRedeems = redemptions.filter(r => r.shop_id === shop.id && r.status === 'completed')
                     const shopRedeemed = shopRedeems.reduce((sum, r) => sum + Number(r.points_consumed), 0)
+
+                    let rankScoreStr = '-';
+                    if (category) {
+                      const condType = category.upgrade_condition_type || 'recurring_1';
+                      const targetCount = Number(condType.replace('recurring_', '')) || 1;
+                      const count = validReferrals.filter(r => r.recurring_count === targetCount).length;
+                      if (category.next_category_id) {
+                        rankScoreStr = `${count} / ${category.upgrade_condition_value} 件`;
+                      } else {
+                        rankScoreStr = `${count} 件`;
+                      }
+                    }
 
                     return (
                       <tr key={shop.id} className="hover:bg-gray-50 transition-colors">
                         <td className="p-4 whitespace-nowrap font-normal">{shop.name}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{shop.invite_token}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{category?.label || '未設定'}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{rankScoreStr}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{owner?.name || shop.owner_email}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{shopStaffs.length}</td>
                         <td className="p-4 whitespace-nowrap font-normal text-emerald-600">{shopEarned.toLocaleString()}</td>
                         <td className="p-4 whitespace-nowrap font-normal text-blue-600">{shopRedeemed.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                          <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
                             詳細
                           </button>
                         </td>
@@ -883,7 +902,7 @@ export default function AdminDashboard() {
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm mb-12">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] mb-12">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
@@ -918,7 +937,7 @@ export default function AdminDashboard() {
                           )}
                         </td>
                         <td className="p-4 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                          <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
                             詳細
                           </button>
                         </td>
@@ -938,7 +957,7 @@ export default function AdminDashboard() {
               </button>
             </div>
             <hr className="mb-6 border-gray-300" />
-            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between mb-12">
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] flex items-center justify-between mb-12">
               <div>
                 <span className="text-xs font-bold text-gray-500 block mb-1">現在のデフォルト設定</span>
                 <div className="text-gray-900 font-bold text-base">
@@ -964,7 +983,7 @@ export default function AdminDashboard() {
             {!isRankUpEditMode ? (
               <div>
                 {activeRankUps.length === 0 ? (
-                  <div className="bg-white border border-gray-200 p-8 rounded-xl text-center shadow-sm">
+                  <div className="bg-white border border-gray-200 p-8 rounded-xl text-center shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a]">
                     <p className="text-gray-500 font-bold text-sm">自動ランクアップは設定されていません</p>
                   </div>
                 ) : (
@@ -972,7 +991,7 @@ export default function AdminDashboard() {
                     {activeRankUps.map(cat => {
                       const nextCat = categories.find(c => c.id === cat.next_category_id);
                       return (
-                        <div key={cat.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                        <div key={cat.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] flex items-center justify-between">
                           <div className="font-bold text-gray-900">{cat.label}</div>
                           <div className="flex flex-col items-center px-4">
                             <span className="text-[10px] text-gray-500 font-bold mb-1 whitespace-nowrap">
@@ -991,7 +1010,7 @@ export default function AdminDashboard() {
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {editingRankUps.map(cat => (
-                    <div key={cat.id} className={`p-5 rounded-xl border-2 transition-colors ${cat.next_category_id ? 'bg-blue-50/30 border-blue-200' : 'bg-white border-gray-200'} shadow-sm flex flex-col gap-4`}>
+                    <div key={cat.id} className={`p-5 rounded-xl border-2 transition-colors ${cat.next_category_id ? 'bg-blue-50/30 border-blue-200' : 'bg-white border-gray-200'} shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] flex flex-col gap-4`}>
                       <div className="font-bold text-gray-900 text-base">{cat.label}</div>
                       
                       <label className="flex items-center gap-2 cursor-pointer">
@@ -1060,7 +1079,7 @@ export default function AdminDashboard() {
         {/* Admins */}
         {activeTab === 'admins' && (
           <div className="space-y-6">
-            <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full md:w-2/3">
+            <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-[0_0_10px_0_#0000000d,0_1px_2px_-1px_#0000001a] w-full md:w-2/3">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-base font-bold text-gray-900">システム管理者一覧</h3>
                 <div className="flex gap-2">
