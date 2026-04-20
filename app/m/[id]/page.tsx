@@ -6,6 +6,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { QRCodeCanvas } from 'qrcode.react'
 import { motion, AnimatePresence } from 'framer-motion' 
 import Cropper from 'react-easy-crop'
+// ★ 追加：LINE LIFFのインポート
+import liff from '@line/liff'
 
 import { 
   QrCode, Copy, MessageCircle, Wallet, Gift, Clock, History, 
@@ -19,7 +21,7 @@ import {
 // デフォルトアバター
 const DEFAULT_AVATAR = '/avatars/default.png'
 
-// ★ 超軽量化・圧縮版のトリミング関数
+// 超軽量化・圧縮版のトリミング関数
 const getCroppedImg = async (imageSrc: string, pixelCrop: any): Promise<File | null> => {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
@@ -94,7 +96,7 @@ export default function MemberMagicPage() {
   const [summary, setSummary] = useState({ total: 0, pending: 0, confirmed: 0, paid: 0 })
   const [copied, setCopied] = useState(false)
   
-  // ★ 編集用ステート
+  // 編集用ステート
   const [isEditMode, setIsEditMode] = useState(false) 
   const [editName, setEditName] = useState('')
   const [editAvatar, setEditAvatar] = useState('') 
@@ -102,7 +104,7 @@ export default function MemberMagicPage() {
   const [currentPinInput, setCurrentPinInput] = useState('') 
   const [newPinInput, setNewPinInput] = useState('')
   
-  // ★ 店舗情報編集用ステート (オーナーのみ使用)
+  // 店舗情報編集用ステート (オーナーのみ使用)
   const [editShopName, setEditShopName] = useState('')
   const [editShopAddress, setEditShopAddress] = useState('')
 
@@ -133,6 +135,9 @@ export default function MemberMagicPage() {
 
   const [unreadReferrals, setUnreadReferrals] = useState<any[]>([])
   const [currentUnreadIndex, setCurrentUnreadIndex] = useState(0)
+
+  // ★ 追加：LINE連携ローディング用ステート
+  const [isLiffLoading, setIsLiffLoading] = useState(false)
 
   const MOCK_PRODUCTS = [
     { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-6 h-6 text-[#999999]" />, desc: 'お客様への店販用に最適なスカルプセラムです。店内でのお試し用にもご利用いただけます。' },
@@ -459,6 +464,41 @@ export default function MemberMagicPage() {
     }
   }
 
+  // ★ 追加：LINE連携を実行する関数
+  const handleConnectLine = async () => {
+    setIsLiffLoading(true)
+    try {
+      const liffId = process.env.NEXT_PUBLIC_LIFF_ID
+      if (!liffId) throw new Error('LIFF IDが設定されていません')
+
+      await liff.init({ liffId })
+      if (!liff.isLoggedIn()) {
+        liff.login({ redirectUri: window.location.href })
+        return
+      }
+
+      const liffProfile = await liff.getProfile()
+      
+      const { error } = await supabase
+        .from('staffs')
+        .update({
+          line_user_id: liffProfile.userId,
+          line_display_name: liffProfile.displayName,
+          line_picture_url: liffProfile.pictureUrl
+        })
+        .eq('id', staff.id)
+
+      if (error) throw error
+
+      alert('LINEとの連携が完了しました！')
+      window.location.reload() // データ再取得のためにリロード
+    } catch (err: any) {
+      alert('LINE連携に失敗しました: ' + err.message)
+    } finally {
+      setIsLiffLoading(false)
+    }
+  }
+
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     if (lockoutUntil) { const interval = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(interval) }
@@ -487,7 +527,7 @@ export default function MemberMagicPage() {
   return (
     <div className="fixed inset-0 bg-[#fffef2] flex justify-center font-sans text-[#333333] overflow-hidden selection:bg-[#e6e2d3] selection:text-[#333333]">
       <div className="w-full max-w-md bg-[#fffef2] h-full relative shadow-sm border-x border-[#e6e2d3] flex flex-col overflow-hidden">
-       
+        
         {!isUnlocked ? (
           <div className="absolute inset-0 z-[100] flex flex-col items-center justify-center p-6 bg-[#fffef2]">
             <div className="w-full max-w-sm animate-in fade-in zoom-in-95 duration-500">
@@ -726,16 +766,14 @@ export default function MemberMagicPage() {
                     </div>
                   )}
 
-                  {/* 📱 TAB 3: QRコード (レイアウト・サイズ変更版) */}
+                  {/* 📱 TAB 3: QRコード */}
                   {activeTab === 'qr' && (
                     <div className="flex flex-col items-center max-w-sm mx-auto pb-10 pt-2 space-y-8 px-2">
                       
-                      {/* 1. Duacelロゴ (大きめ) */}
                       <div className="w-full text-center">
                         <h2 className="text-4xl font-black font-inter tracking-tight text-[#1a1a1a]">Duacel<sup className="text-xl font-medium -ml-0.5">®</sup></h2>
                       </div>
 
-                      {/* 2. アバター (大きめセンター表示) */}
                       <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-[#fffef2] shadow-lg bg-[#faf9f6] shrink-0">
                         {staff.avatar_url ? (
                           <img src={staff.avatar_url} alt="Staff Avatar" className="w-full h-full object-cover" />
@@ -744,28 +782,23 @@ export default function MemberMagicPage() {
                         )}
                       </div>
 
-                      {/* 3. サロン名・名前紹介 */}
                       <div className="w-full text-center space-y-1">
                         <p className="text-base text-[#666666] tracking-widest font-bold">{shop?.name}</p>
                         <p className="text-base text-[#1a1a1a] tracking-wider mt-1">{staff.name} のご紹介</p>
                       </div>
 
-                      {/* QRカードエリア */}
                       <div className="w-full bg-[#f5f2e6] border border-[#e6e2d3] shadow-[0_0_40px_rgba(0,0,0,0.05)] flex flex-col items-center overflow-hidden rounded-sm">
                         
-                        {/* 4. 広告写真 */}
                         <div className="w-full aspect-[3/2] bg-[#e6e2d3] relative border-b border-[#e6e2d3]">
                           <img src="/qr-hero.jpg" alt="Duacel Benefit" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                         </div>
 
-                        {/* 5. QRコード (下部に配置・大きめ) */}
                         <div className="w-full p-8 flex flex-col items-center">
                           <div className="p-4 bg-[#ffffff] border border-[#e6e2d3] mb-6 shadow-inner">
                             <QRCodeCanvas value={referralUrl} size={200} level={"H"} fgColor="#1a1a1a" />
                           </div>
                           <p className="text-sm text-[#666666] tracking-widest text-center leading-relaxed mb-6">お客様のスマートフォンで<br/>読み込んでください</p>
                           
-                          {/* 各種シェアボタン */}
                           <div className="w-full space-y-3">
                             <button onClick={() => handleCopy(referralUrl)} className="w-full bg-[#fffef2] border border-[#e6e2d3] p-4 flex items-center justify-between hover:bg-[#ffffff] transition-colors active:scale-[0.98] rounded-sm shadow-sm">
                               <div className="flex items-center gap-3">
@@ -825,6 +858,35 @@ export default function MemberMagicPage() {
                   {/* ⚙️ TAB 5: 設定 (Settings) */}
                   {activeTab === 'settings' && (
                     <div className="max-w-md mx-auto space-y-8 pb-10">
+
+                      {/* ★ 追加：LINE連携バナー ★ */}
+                      <div className="mb-2">
+                        {!staff.line_user_id ? (
+                          <div className="bg-[#f0f9f0] border border-[#d1e7d1] p-5 flex flex-col gap-3 relative overflow-hidden shadow-sm">
+                            <div className="absolute top-0 right-0 p-2 opacity-10"><MessageCircle className="w-16 h-16 rotate-12 text-[#2d5a2d]" /></div>
+                            <div className="relative z-10">
+                              <p className="text-xs font-bold text-[#2d5a2d] flex items-center gap-1.5 mb-1"><MessageCircle className="w-4 h-4" /> LINE連携のお願い</p>
+                              <p className="text-[10px] text-[#4a7c4a] leading-relaxed">
+                                LINEを連携すると、紹介が発生した時に通知が届きます。<br/>ポイント交換URLもLINEで受け取れるようになります。
+                              </p>
+                            </div>
+                            <button
+                              onClick={handleConnectLine}
+                              disabled={isLiffLoading}
+                              className="relative z-10 w-full bg-[#2d5a2d] text-[#fffef2] py-3 text-[11px] font-bold tracking-widest uppercase active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                              {isLiffLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'LINEと連携する'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1.5 py-3 bg-[#f0f9f0] border border-[#d1e7d1] shadow-sm">
+                            <CheckCircle2 className="w-4 h-4 text-[#2d5a2d]" />
+                            <span className="text-[10px] font-bold text-[#2d5a2d] uppercase tracking-widest">LINE連携済み</span>
+                          </div>
+                        )}
+                      </div>
+                      {/* ★ ここまで追加 ★ */}
+
                       <div className="flex justify-between items-center">
                         <p className="text-sm text-[#666666] tracking-wider">アカウント情報</p>
                         {!isEditMode ? (
@@ -889,7 +951,7 @@ export default function MemberMagicPage() {
 
                         <div>
                           <label className="block text-xs text-[#999999] mb-2 tracking-wider uppercase flex items-center gap-1">Email <Lock className="w-3 h-3"/></label>
-                          <p className="text-base text-[#999999]">{staff.email}</p>
+                          <p className="text-base text-[#999999]">{staff.email || '未設定'}</p>
                         </div>
 
                         <div>
@@ -905,7 +967,7 @@ export default function MemberMagicPage() {
                           )}
                         </div>
 
-                        {/* ★ 店舗情報設定 (オーナーのみ編集可) */}
+                        {/* 店舗情報設定 (オーナーのみ編集可) */}
                         <div className="pt-6 border-t border-[#e6e2d3]">
                            <label className="block text-xs text-[#999999] mb-4 tracking-wider uppercase flex items-center gap-1">Shop Info {isOwner ? <Edit2 className="w-3 h-3"/> : <Lock className="w-3 h-3"/>}</label>
                            <div className="space-y-4">
