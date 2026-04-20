@@ -4,9 +4,9 @@ import { useEffect, useState, useMemo, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { 
-  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Link as LinkIcon,
-  BarChart3, Users, Gift, Settings, ChevronDown, Trash2,
-  Building, LogOut, Shield, Edit2, CheckCircle2, Copy 
+  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, 
+  BarChart3, Users, Gift, Settings, ChevronDown, Trash2, ArrowRight,
+  Building, LogOut, Shield, Edit2, CheckCircle2 
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createAdminUserAction } from '@/app/actions/admin'
@@ -96,6 +96,10 @@ export default function AdminDashboard() {
   const [editingCategory, setEditingCategory] = useState<any>(null)
   const [isCategoryEditMode, setIsCategoryEditMode] = useState(false)
 
+  // ランクアップ設定用ステート
+  const [isRankUpEditMode, setIsRankUpEditMode] = useState(false)
+  const [editingRankUps, setEditingRankUps] = useState<any[]>([])
+
   const [showAddAdminForm, setShowAddAdminForm] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [newAdminEmail, setNewAdminEmail] = useState('')
@@ -162,8 +166,17 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // ヘルパー関数
+  // 高速化：ポイント計算の事前処理
   // ==========================================
+  const oldestRefMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const validRefs = [...referrals].filter(r => r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    validRefs.forEach(r => {
+      if (!map.has(r.shop_id)) map.set(r.shop_id, r.id);
+    });
+    return map;
+  }, [referrals]);
+
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
   const getStaffName = (staffId: string) => staffs.find(s => s.id === staffId)?.name || '不明'
 
@@ -254,11 +267,6 @@ export default function AdminDashboard() {
   const handleClearShopFilters = () => {
     setShopFilters({ shop_name: '', invite_token: '', category_id: '' })
     setFilteredShops(shops)
-  }
-
-  const copyToClipboard = (text: string, message: string = 'コピーしました') => {
-    navigator.clipboard.writeText(text)
-    alert(message)
   }
 
   // ==========================================
@@ -374,7 +382,7 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // ポイントカテゴリ設定モーダルのハンドラー
+  // カテゴリ設定・自動ランクアップのハンドラー
   // ==========================================
   const openNewCategoryModal = () => {
     setEditingCategory({
@@ -432,9 +440,6 @@ export default function AdminDashboard() {
       signup_bonus_enabled: editingCategory.signup_bonus_enabled || false, 
       signup_bonus_points: editingCategory.signup_bonus_points || 0,
       recurring_rules: editingCategory.recurring_rules || [],
-      upgrade_condition_type: editingCategory.upgrade_condition_type || null,
-      upgrade_condition_value: editingCategory.upgrade_condition_value || 0,
-      next_category_id: editingCategory.next_category_id || null,
     }
 
     if (editingCategory.isNew) { 
@@ -469,6 +474,47 @@ export default function AdminDashboard() {
     setIsProcessing(false);
   }
 
+  // 自動ランクアップ編集ハンドラー
+  const startRankUpEdit = () => {
+    setEditingRankUps(JSON.parse(JSON.stringify(categories)));
+    setIsRankUpEditMode(true);
+  }
+
+  const handleRankUpFieldChange = (catId: string, field: string, value: any) => {
+    setEditingRankUps(prev => prev.map(c => c.id === catId ? { ...c, [field]: value } : c))
+  }
+
+  const toggleRankUp = (catId: string, checked: boolean) => {
+    setEditingRankUps(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      if (!checked) {
+        return { ...c, next_category_id: null };
+      } else {
+        return {
+          ...c,
+          upgrade_condition_type: c.upgrade_condition_type || 'count',
+          upgrade_condition_value: c.upgrade_condition_value || 10,
+          next_category_id: categories.filter(cat => cat.id !== c.id)[0]?.id || null
+        };
+      }
+    }))
+  }
+
+  const handleRankUpSave = async () => {
+    setIsProcessing(true)
+    for (const cat of editingRankUps) {
+      const { error } = await supabase.from('shop_categories').update({
+        upgrade_condition_type: cat.upgrade_condition_type || null,
+        upgrade_condition_value: cat.upgrade_condition_value || 0,
+        next_category_id: cat.next_category_id || null
+      }).eq('id', cat.id)
+      if(error) console.error("Update RankUp Error:", error)
+    }
+    await fetchData()
+    setIsRankUpEditMode(false)
+    setIsProcessing(false)
+  }
+
   if (authError) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-600 text-sm font-bold">{authError}</div>
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
 
@@ -481,6 +527,8 @@ export default function AdminDashboard() {
 
   const activeShopFilterCount = Object.values(shopFilters).filter(val => val !== '').length
   const totalFilteredMembers = filteredShops.reduce((sum, shop) => sum + staffs.filter(s => s.shop_id === shop.id && !s.is_deleted).length, 0)
+
+  const activeRankUps = categories.filter(c => c.next_category_id);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col md:flex-row">
@@ -534,7 +582,7 @@ export default function AdminDashboard() {
         {/* 成果一覧 */}
         {activeTab === 'referrals' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setIsRefFilterOpen(!isRefFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
                 {activeRefFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeRefFilterCount}件適用中</span>}
@@ -627,7 +675,7 @@ export default function AdminDashboard() {
         {/* ポイント交換管理 */}
         {activeTab === 'redemptions' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setIsRedeemFilterOpen(!isRedeemFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
                 {activeRedeemFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeRedeemFilterCount}件適用中</span>}
@@ -711,7 +759,7 @@ export default function AdminDashboard() {
         {/* ユーザー・店舗管理 */}
         {activeTab === 'users' && (
           <div>
-            <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
+            <div className="bg-white border border-gray-200 rounded-xl mb-10 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setIsShopFilterOpen(!isShopFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
                 {activeShopFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeShopFilterCount}件適用中</span>}
@@ -777,8 +825,8 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-normal">{category?.label || '未設定'}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{owner?.name || shop.owner_email}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{shopStaffs.length}</td>
-                        <td className="p-4 whitespace-nowrap font-normal text-emerald-600">{shopEarned.toLocaleString()}</td>
-                        <td className="p-4 whitespace-nowrap font-normal text-blue-600">{shopRedeemed.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shopEarned.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shopRedeemed.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
                             詳細
@@ -797,15 +845,16 @@ export default function AdminDashboard() {
         {/* ポイント設定 */}
         {activeTab === 'settings' && (
           <div>
+            {/* カテゴリ一覧セクション */}
             <div className="flex justify-between items-center mb-4 px-1">
-              <div className="text-sm font-bold text-gray-900">登録カテゴリ数: {categories.length}件</div>
+              <div className="text-lg font-bold text-gray-900">カテゴリ一覧 (登録数: {categories.length}件)</div>
               <button onClick={openNewCategoryModal} className="flex items-center gap-1 text-sm font-bold bg-gray-900 text-white hover:bg-black px-4 py-2 rounded-lg transition-colors">
                 <Plus className="w-4 h-4"/> 新規作成
               </button>
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm mb-12">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
@@ -823,8 +872,8 @@ export default function AdminDashboard() {
                       <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
                         <td className="p-4 whitespace-nowrap font-normal">
                           <div className="flex items-center gap-2">
-                            <span className="text-gray-900">{cat.label}</span>
-                            <span className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-xs">{shopCount} 店舗</span>
+                            <span className="text-gray-900 font-bold">{cat.label}</span>
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">({shopCount} 店舗)</span>
                           </div>
                         </td>
                         <td className="p-4 whitespace-nowrap font-normal">{Number(cat.reward_points).toLocaleString()} pt</td>
@@ -839,14 +888,9 @@ export default function AdminDashboard() {
                           )}
                         </td>
                         <td className="p-4 text-right whitespace-nowrap">
-                          <div className="flex justify-end gap-2">
-                            <button onClick={() => copyToClipboard(`${window.location.origin}/p/${cat.id}`, '招待URLをコピーしました')} className="text-blue-600 border border-blue-200 hover:bg-blue-50 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm flex items-center gap-1">
-                              <LinkIcon className="w-3 h-3"/> URLコピー
-                            </button>
-                            <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
-                              詳細
-                            </button>
-                          </div>
+                          <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                            詳細
+                          </button>
                         </td>
                       </tr>
                     )
@@ -855,6 +899,110 @@ export default function AdminDashboard() {
               </table>
               {categories.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">カテゴリが登録されていません</div>}
             </div>
+
+            {/* 自動ランクアップ経路セクション */}
+            <div className="flex justify-between items-center mb-4 px-1">
+              <div className="text-lg font-bold text-gray-900">自動ランクアップ経路</div>
+              {!isRankUpEditMode && (
+                <button onClick={startRankUpEdit} className="flex items-center gap-1 text-sm font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 px-4 py-2 rounded-lg transition-colors">
+                  <Edit2 className="w-4 h-4"/> 編集
+                </button>
+              )}
+            </div>
+            <hr className="mb-6 border-gray-300" />
+
+            {!isRankUpEditMode ? (
+              <div>
+                {activeRankUps.length === 0 ? (
+                  <div className="bg-white border border-gray-200 p-8 rounded-xl text-center shadow-sm">
+                    <p className="text-gray-500 font-bold text-sm">自動ランクアップは設定されていません</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {activeRankUps.map(cat => {
+                      const nextCat = categories.find(c => c.id === cat.next_category_id);
+                      return (
+                        <div key={cat.id} className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
+                          <div className="font-bold text-gray-900">{cat.label}</div>
+                          <div className="flex flex-col items-center px-4">
+                            <span className="text-[10px] text-gray-500 font-bold mb-1 whitespace-nowrap">
+                              {cat.upgrade_condition_type === 'points' ? '累計pt' : '累計件数'} {Number(cat.upgrade_condition_value).toLocaleString()} 以上
+                            </span>
+                            <ArrowRight className="w-5 h-5 text-blue-400" />
+                          </div>
+                          <div className="font-bold text-blue-700 bg-blue-50 px-3 py-1.5 rounded-lg whitespace-nowrap">{nextCat?.label || '不明'}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {editingRankUps.map(cat => (
+                    <div key={cat.id} className={`p-5 rounded-xl border-2 transition-colors ${cat.next_category_id ? 'bg-blue-50/30 border-blue-200' : 'bg-white border-gray-200'} shadow-sm flex flex-col gap-4`}>
+                      <div className="font-bold text-gray-900 text-base">{cat.label}</div>
+                      
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          checked={!!cat.next_category_id} 
+                          onChange={(e) => toggleRankUp(cat.id, e.target.checked)} 
+                          className="w-4 h-4 rounded border-gray-300"
+                        />
+                        <span className="text-sm font-bold text-gray-700">条件達成で昇格させる</span>
+                      </label>
+
+                      {!!cat.next_category_id && (
+                        <div className="flex flex-col gap-3 pl-4 border-l-2 border-blue-300">
+                          <div>
+                            <p className="text-xs font-bold text-gray-500 mb-1">条件</p>
+                            <div className="flex items-center gap-2">
+                              <select 
+                                value={cat.upgrade_condition_type || 'count'} 
+                                onChange={(e) => handleRankUpFieldChange(cat.id, 'upgrade_condition_type', e.target.value)}
+                                className="border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+                              >
+                                <option value="count">件数</option>
+                                <option value="points">ポイント</option>
+                              </select>
+                              <span className="text-sm font-bold text-gray-600">が</span>
+                              <input 
+                                type="number" 
+                                value={cat.upgrade_condition_value || 0} 
+                                onChange={(e) => handleRankUpFieldChange(cat.id, 'upgrade_condition_value', Number(e.target.value))}
+                                className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
+                              />
+                              <span className="text-sm font-bold text-gray-600">以上</span>
+                            </div>
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-gray-500 mb-1">昇格先カテゴリ</p>
+                            <select 
+                              value={cat.next_category_id || ''} 
+                              onChange={(e) => handleRankUpFieldChange(cat.id, 'next_category_id', e.target.value)}
+                              className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white font-bold text-blue-700"
+                            >
+                              <option value="">選択してください</option>
+                              {categories.filter(c => c.id !== cat.id).map(c => (
+                                <option key={c.id} value={c.id}>{c.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-200">
+                  <button onClick={() => setIsRankUpEditMode(false)} className="px-6 py-2.5 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+                  <button onClick={handleRankUpSave} disabled={isProcessing} className="px-6 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                    {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 設定を保存
+                  </button>
+                </div>
+              </motion.div>
+            )}
           </div>
         )}
 
@@ -941,7 +1089,7 @@ export default function AdminDashboard() {
           モーダル類
       ========================================= */}
 
-      {/* --- 成果 Detail モーダル --- */}
+      {/* --- 成果 詳細・編集モーダル --- */}
       {isRefModalOpen && editingRef && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
@@ -988,15 +1136,6 @@ export default function AdminDashboard() {
                 <label className="text-gray-500 text-sm font-bold">担当スタッフ</label>
                 <div className="col-span-2 text-gray-900 text-sm">
                   {getStaffName(editingRef.staff_id)}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">紹介URL</label>
-                <div className="col-span-2">
-                  <div className="flex items-center gap-2 text-gray-900 text-xs break-all bg-white p-2 border border-gray-200 rounded">
-                    <span>https://duacel.net/welcome/ref_{staffs.find(s => s.id === editingRef.staff_id)?.referral_code}</span>
-                  </div>
                 </div>
               </div>
 
@@ -1062,7 +1201,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- ポイント交換 Detail モーダル --- */}
+      {/* --- ポイント交換 詳細・編集モーダル --- */}
       {isRedeemModalOpen && editingRedeem && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
@@ -1146,7 +1285,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- 店舗 Detail モーダル --- */}
+      {/* --- 店舗 詳細・編集モーダル --- */}
       {isShopModalOpen && editingShop && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
@@ -1238,7 +1377,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- ポイントカテゴリ Detail モーダル --- */}
+      {/* --- ポイントカテゴリ 詳細・編集モーダル --- */}
       {isCategoryModalOpen && editingCategory && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-auto">
@@ -1307,12 +1446,12 @@ export default function AdminDashboard() {
                       </div>
                     </div>
                   ) : (
-                    <span>{editingCategory.signup_bonus_enabled ? `${Number(editingCategory.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 font-sans text-xs">設定なし</span>}</span>
+                    <span>{editingCategory.signup_bonus_enabled ? `${Number(editingCategory.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 text-xs">設定なし</span>}</span>
                   )}
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
+              <div className="grid grid-cols-3 gap-3 items-start">
                 <label className="text-gray-500 text-sm font-bold">回数別報酬</label>
                 <div className="col-span-2">
                   {isCategoryEditMode ? (
@@ -1354,86 +1493,6 @@ export default function AdminDashboard() {
                   )}
                 </div>
               </div>
-
-              {/* ★ 自動ランクアップ設定セクション */}
-              <div className="grid grid-cols-3 gap-3 items-start mt-4 pt-2">
-                <label className="text-gray-500 text-sm font-bold">自動ランクアップ</label>
-                <div className="col-span-2">
-                  {isCategoryEditMode ? (
-                    <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                      <label className="flex items-center gap-2 text-sm font-bold text-gray-900 mb-3">
-                        <input
-                          type="checkbox"
-                          checked={!!editingCategory.next_category_id}
-                          onChange={(e) => {
-                            if (!e.target.checked) {
-                              handleCategoryFieldChange('next_category_id', null);
-                            } else {
-                              handleCategoryFieldChange('upgrade_condition_type', 'count');
-                              handleCategoryFieldChange('upgrade_condition_value', 10);
-                              handleCategoryFieldChange('next_category_id', categories.filter(c => c.id !== editingCategory.id)[0]?.id || '');
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-gray-300"
-                        />
-                        条件達成で上位ランクへ自動昇格させる
-                      </label>
-
-                      {!!editingCategory.next_category_id && (
-                        <div className="space-y-3 pl-6 border-l-2 border-blue-200">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-gray-600">条件:</span>
-                            <select
-                              value={editingCategory.upgrade_condition_type || 'count'}
-                              onChange={(e) => handleCategoryFieldChange('upgrade_condition_type', e.target.value)}
-                              className="border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
-                            >
-                              <option value="count">累計獲得件数</option>
-                              <option value="points">累計獲得ポイント</option>
-                            </select>
-                            <span className="text-xs font-bold text-gray-600">が</span>
-                            <input
-                              type="number"
-                              value={editingCategory.upgrade_condition_value || 0}
-                              onChange={(e) => handleCategoryFieldChange('upgrade_condition_value', Number(e.target.value))}
-                              className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
-                            />
-                            <span className="text-xs font-bold text-gray-600">{editingCategory.upgrade_condition_type === 'points' ? 'pt' : '件'} に達したら</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-bold text-gray-600">昇格先:</span>
-                            <select
-                              value={editingCategory.next_category_id || ''}
-                              onChange={(e) => handleCategoryFieldChange('next_category_id', e.target.value)}
-                              className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
-                            >
-                              <option value="">選択してください</option>
-                              {categories.filter(c => c.id !== editingCategory.id).map(c => (
-                                <option key={c.id} value={c.id}>{c.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-gray-900 text-sm">
-                      {editingCategory.next_category_id ? (
-                        <div className="bg-blue-50 text-blue-800 p-3 rounded border border-blue-100">
-                          <span className="font-bold">
-                            {editingCategory.upgrade_condition_type === 'points' ? '累計獲得ポイント' : '累計獲得件数'}が
-                            {Number(editingCategory.upgrade_condition_value).toLocaleString()}{editingCategory.upgrade_condition_type === 'points' ? 'pt' : '件'}
-                          </span> に達したら<br/>
-                          <span className="font-bold text-blue-900">「{categories.find(c => c.id === editingCategory.next_category_id)?.label || '不明なカテゴリ'}」</span> へ自動昇格
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">設定なし（最高ランク）</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
             </div>
 
             {isCategoryEditMode ? (
