@@ -1,12 +1,11 @@
 'use client'
 
-// ★ 修正：ReactNode をインポートに追加
 import { useEffect, useState, useMemo, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { 
   RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Link as LinkIcon,
-  BarChart3, Users, Gift, Settings, ChevronDown,
+  BarChart3, Users, Gift, Settings, ChevronDown, Trash2,
   Building, LogOut, Shield, Edit2, CheckCircle2, Copy 
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -40,7 +39,6 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
-// ★ 修正：JSX.Element ではなく ReactNode を使用
 const PAGE_TITLES: Record<TabType, { label: string, icon: ReactNode }> = {
   referrals: { label: '成果一覧', icon: <BarChart3 className="w-5 h-5" /> },
   redemptions: { label: 'ポイント交換管理', icon: <Gift className="w-5 h-5" /> },
@@ -138,7 +136,15 @@ export default function AdminDashboard() {
     if (r.data) { setReferrals(r.data); setFilteredReferrals(r.data); }
     if (s.data) { setShops(s.data); setFilteredShops(s.data); }
     if (st.data) setStaffs(st.data)
-    if (cat.data) { setCategories(cat.data); setEditingCategories(cat.data); }
+    if (cat.data) { 
+      // JSONBがnullの場合の対策
+      const safeCategories = cat.data.map(c => ({
+        ...c,
+        recurring_rules: c.recurring_rules || []
+      }))
+      setCategories(safeCategories); 
+      setEditingCategories(JSON.parse(JSON.stringify(safeCategories))); 
+    }
     if (tx.data) setPointTransactions(tx.data)
     if (ex.data) { setRedemptions(ex.data); setFilteredRedemptions(ex.data); }
     if (sys.data) setSystemAdmins(sys.data)
@@ -158,27 +164,28 @@ export default function AdminDashboard() {
   // ==========================================
   // 高速化：ポイント計算の事前処理
   // ==========================================
-  const oldestRefMap = useMemo(() => {
-    const map = new Map<string, string>();
-    const validRefs = [...referrals].filter(r => r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    validRefs.forEach(r => {
-      if (!map.has(r.shop_id)) map.set(r.shop_id, r.id);
-    });
-    return map;
-  }, [referrals]);
-
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
   const getStaffName = (staffId: string) => staffs.find(s => s.id === staffId)?.name || '不明'
 
+  // ★新しいロジックに基づくポイント計算
   const getReferralPoints = (ref: any) => {
+    if (ref.status === 'cancel') return 0;
+
     const shop = getShopByShopId(ref.shop_id);
-    const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
-    const isOldest = oldestRefMap.get(ref.shop_id) === ref.id;
-    const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
     const category = categories.find(r => r.id === shop?.category_id);
-    const standardPt = Number(category?.reward_points) || 0;
-    const bonusPt = (isFirstTime && category?.first_bonus_enabled) ? Number(category.first_bonus_points) : 0;
-    return ref.status === 'cancel' ? 0 : (refTxs.length > 0 ? refTxs.reduce((sum: number, tx: any) => sum + Number(tx.points), 0) : standardPt + bonusPt);
+    if (!category) return 0;
+
+    const standardPt = Number(category.reward_points) || 0;
+    let bonusPt = 0;
+
+    // 回数に応じたボーナスを検索
+    const rules = category.recurring_rules || [];
+    const matchedRule = rules.find((r: any) => Number(r.count) === Number(ref.recurring_count));
+    if (matchedRule) {
+      bonusPt = Number(matchedRule.points);
+    }
+
+    return standardPt + bonusPt;
   }
 
   // ==========================================
@@ -260,26 +267,28 @@ export default function AdminDashboard() {
     const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
     if (existing && existing.length > 0) return
 
-    const { data: pastTxs } = await supabase.from('point_transactions').select('metadata').eq('shop_id', referral.shop_id)
-    const hasReceivedBonus = pastTxs?.some(tx => tx.metadata?.is_bonus === true) || false
-    const isFirstTime = !hasReceivedBonus
-
     const shop = currentShops.find(s => s.id === referral.shop_id)
     const category = currentCategories.find(c => c.id === shop?.category_id) || currentCategories[0]
 
     const standardPoints = Number(category?.reward_points) || 0
+    
+    // ★新しい計算ロジックを適用
+    const rules = category?.recurring_rules || [];
+    const matchedRule = rules.find((r: any) => Number(r.count) === Number(referral.recurring_count));
+    const bonusPt = matchedRule ? Number(matchedRule.points) : 0;
+
     const transactions = []
     
     transactions.push({
       shop_id: referral.shop_id, referral_id: referral.id,
-      points: standardPoints, reason: `紹介報酬`, status: 'confirmed',
+      points: standardPoints, reason: `紹介報酬 (基本)`, status: 'confirmed',
       metadata: { order_number: referral.order_number }
     })
 
-    if (isFirstTime && category?.first_bonus_enabled) {
+    if (bonusPt > 0) {
       transactions.push({
         shop_id: referral.shop_id, referral_id: referral.id,
-        points: Number(category.first_bonus_points) || 0, reason: '初回ボーナス', status: 'confirmed',
+        points: bonusPt, reason: `${referral.recurring_count}回目 ボーナス`, status: 'confirmed',
         metadata: { order_number: referral.order_number, is_bonus: true }
       })
     }
@@ -296,6 +305,7 @@ export default function AdminDashboard() {
     if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) { alert('キャンセル事由を選択してください。'); return; }
 
     setIsProcessing(true)
+
     await supabase.from('referrals').update({ 
       status: updatedRef.status,
       cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null,
@@ -370,23 +380,56 @@ export default function AdminDashboard() {
     else { alert('パスワードを変更しました。'); setNewPassword(''); setShowPasswordForm(false); }
   }
 
+  // ==========================================
+  // 新・ポイントカテゴリ設定ハンドラー
+  // ==========================================
   const handleCategoryChange = (id: string, field: string, value: any) => {
     setEditingCategories(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c))
   }
 
+  const handleRuleChange = (catId: string, ruleIndex: number, field: 'count' | 'points', value: string) => {
+    setEditingCategories(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      const newRules = [...(c.recurring_rules || [])];
+      newRules[ruleIndex] = { ...newRules[ruleIndex], [field]: Number(value) };
+      return { ...c, recurring_rules: newRules };
+    }));
+  }
+
+  const handleAddRule = (catId: string) => {
+    setEditingCategories(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      const newRules = [...(c.recurring_rules || []), { count: 1, points: 0 }];
+      return { ...c, recurring_rules: newRules };
+    }));
+  }
+
+  const handleRemoveRule = (catId: string, ruleIndex: number) => {
+    setEditingCategories(prev => prev.map(c => {
+      if (c.id !== catId) return c;
+      const newRules = [...(c.recurring_rules || [])];
+      newRules.splice(ruleIndex, 1);
+      return { ...c, recurring_rules: newRules };
+    }));
+  }
+
   const handleAddCategory = () => {
-    if (editingCategories.length >= 5) { alert('カテゴリは最大5つまで設定できます。'); return; }
+    if (editingCategories.length >= 10) { alert('カテゴリは最大10個まで設定できます。'); return; }
     setEditingCategories([...editingCategories, {
-      id: `new_${Date.now()}`, label: '新規カテゴリ', reward_points: 0,
-      first_bonus_enabled: false, first_bonus_points: 0, signup_bonus_enabled: false, signup_bonus_points: 0,
-      recurring_bonus_enabled: false, recurring_bonus_points: 0,
+      id: `new_${Date.now()}`, 
+      label: '新規カテゴリ', 
+      description: '',
+      reward_points: 0,
+      signup_bonus_enabled: false, 
+      signup_bonus_points: 0,
+      recurring_rules: [],
       isNew: true
     }])
   }
   
   const handleCancelSettings = () => {
     if (!confirm('編集内容を破棄してよろしいですか？')) return;
-    setEditingCategories([...categories]);
+    setEditingCategories(JSON.parse(JSON.stringify(categories)));
     setIsEditingSettings(false); 
   }
 
@@ -395,13 +438,21 @@ export default function AdminDashboard() {
     setIsProcessing(true)
     for (const cat of editingCategories) {
       const dataToSave = {
-        label: cat.label, reward_points: cat.reward_points,
-        first_bonus_enabled: cat.first_bonus_enabled || false, first_bonus_points: cat.first_bonus_points || 0,
-        signup_bonus_enabled: cat.signup_bonus_enabled || false, signup_bonus_points: cat.signup_bonus_points || 0,
-        recurring_bonus_enabled: cat.recurring_bonus_enabled || false, recurring_bonus_points: cat.recurring_bonus_points || 0
+        label: cat.label, 
+        description: cat.description || '',
+        reward_points: cat.reward_points,
+        signup_bonus_enabled: cat.signup_bonus_enabled || false, 
+        signup_bonus_points: cat.signup_bonus_points || 0,
+        recurring_rules: cat.recurring_rules || []
       }
-      if (cat.isNew) { await supabase.from('shop_categories').insert(dataToSave) } 
-      else { await supabase.from('shop_categories').update(dataToSave).eq('id', cat.id) }
+      
+      if (cat.isNew) { 
+        const { error } = await supabase.from('shop_categories').insert(dataToSave) 
+        if(error) console.error("Insert Error:", error)
+      } else { 
+        const { error } = await supabase.from('shop_categories').update(dataToSave).eq('id', cat.id) 
+        if(error) console.error("Update Error:", error)
+      }
     }
     await fetchData()
     setIsProcessing(false)
@@ -734,13 +785,15 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Settings */}
+        {/* =========================================
+            Settings (ポイント設定タブ) 新規追加UI改修
+        ========================================= */}
         {activeTab === 'settings' && (
           <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm w-full overflow-x-auto relative">
             <div className="flex justify-between items-start mb-6">
               <div>
                 <h3 className="text-base font-bold text-gray-900 mb-1">カテゴリ別ポイント設定</h3>
-                <p className="text-xs text-gray-500 font-normal">店舗の属性ごとに、通常報酬・初回・定期継続ボーナスを設定します。</p>
+                <p className="text-xs text-gray-500 font-normal">店舗の属性ごとに、通常報酬と回数別の自由なボーナスを設定します。</p>
               </div>
               {!isEditingSettings && (
                 <button onClick={() => setIsEditingSettings(true)} className="flex items-center gap-2 bg-blue-50 text-blue-700 hover:bg-blue-100 px-4 py-2 rounded-lg text-sm font-bold transition-colors">
@@ -750,85 +803,112 @@ export default function AdminDashboard() {
             </div>
 
             {!isEditingSettings ? (
+              /* 閲覧モード */
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {categories.map(cat => (
                   <div key={cat.id} className="border border-gray-200 rounded-xl p-5 bg-gray-50/50 flex flex-col gap-4">
-                    <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-                      <span className="font-bold text-gray-900 text-lg">{cat.label}</span>
-                      <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-bold">基本 {cat.reward_points} pt</span>
+                    <div className="flex items-start justify-between border-b border-gray-200 pb-3">
+                      <div>
+                        <span className="font-bold text-gray-900 text-lg block">{cat.label}</span>
+                        {cat.description && <span className="text-xs text-gray-500 mt-1 block">{cat.description}</span>}
+                      </div>
+                      <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded font-bold whitespace-nowrap">基本 {cat.reward_points} pt</span>
                     </div>
                     <div className="space-y-2 text-sm font-normal text-gray-600">
-                      <div className="flex justify-between items-center">
-                        <span>初回ボーナス</span>
-                        {cat.first_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.first_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span>定期ボーナス</span>
-                        {cat.recurring_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.recurring_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
-                      </div>
-                      <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-center bg-white p-2 rounded border border-gray-100">
                         <span>登録ボーナス</span>
                         {cat.signup_bonus_enabled ? <span className="font-mono font-bold text-gray-900">+{cat.signup_bonus_points} pt</span> : <span className="text-gray-400">-</span>}
                       </div>
+                      
+                      {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
+                        <div className="pt-2">
+                          <p className="text-xs font-bold text-gray-500 mb-2">回数別ボーナス</p>
+                          <div className="space-y-1">
+                            {cat.recurring_rules.sort((a:any, b:any) => a.count - b.count).map((rule:any, idx:number) => (
+                              <div key={idx} className="flex justify-between items-center text-sm pl-2 border-l-2 border-blue-200">
+                                <span>{rule.count} 回目</span>
+                                <span className="font-mono font-bold text-blue-700">+{rule.points} pt</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="pt-2">
+                          <p className="text-xs font-bold text-gray-500 mb-2">回数別ボーナス</p>
+                          <p className="text-xs text-gray-400">設定なし</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
+              /* 編集モード */
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                {editingCategories.map(cat => (
-                  <div key={cat.id} className="border-2 border-blue-100 rounded-xl p-4 bg-white shadow-sm">
-                    <div className="mb-4 pb-4 border-b border-gray-100 flex items-center gap-4">
-                      <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-1/3 border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent" placeholder="カテゴリ名" />
+                {editingCategories.map((cat, catIndex) => (
+                  <div key={cat.id} className="border-2 border-blue-100 rounded-xl p-5 bg-white shadow-sm relative">
+                    <div className="mb-4 pb-4 border-b border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">カテゴリ名</label>
+                        <input type="text" value={cat.label} onChange={(e) => handleCategoryChange(cat.id, 'label', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-400" placeholder="カテゴリ名" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">説明 (任意)</label>
+                        <input type="text" value={cat.description || ''} onChange={(e) => handleCategoryChange(cat.id, 'description', e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-400" placeholder="例: 小規模サロン向け" />
+                      </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-2">通常報酬（ベース）</label>
-                        <div className="flex items-center gap-2">
-                          <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
-                          <span className="text-xs text-gray-500 font-bold">pt</span>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-700 mb-2">基本報酬（毎回のベース）</label>
+                          <div className="flex items-center gap-2">
+                            <input type="number" value={cat.reward_points} onChange={(e) => handleCategoryChange(cat.id, 'reward_points', Number(e.target.value))} className="w-full max-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono focus:ring-2 focus:ring-blue-400" />
+                            <span className="text-xs text-gray-500 font-bold">pt</span>
+                          </div>
                         </div>
-                      </div>
-                      
-                      <div>
-                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
-                          <input type="checkbox" checked={cat.first_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
-                          初回ボーナス
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input type="number" disabled={!cat.first_bonus_enabled} value={cat.first_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'first_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
-                          <span className="text-xs text-gray-500 font-bold">pt</span>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
-                          <input type="checkbox" checked={cat.recurring_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
-                          定期ボーナス (2回目以降)
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input type="number" disabled={!cat.recurring_bonus_enabled} value={cat.recurring_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'recurring_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
-                          <span className="text-xs text-gray-500 font-bold">pt</span>
+                        
+                        <div>
+                          <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
+                            <input type="checkbox" checked={cat.signup_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_enabled', e.target.checked)} className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                            登録ボーナス (店舗初回登録時)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full max-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400" />
+                            <span className="text-xs text-gray-500 font-bold">pt</span>
+                          </div>
                         </div>
                       </div>
 
-                      <div>
-                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 mb-2">
-                          <input type="checkbox" checked={cat.signup_bonus_enabled} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_enabled', e.target.checked)} className="w-3.5 h-3.5" />
-                          登録ボーナス
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input type="number" disabled={!cat.signup_bonus_enabled} value={cat.signup_bonus_points || 0} onChange={(e) => handleCategoryChange(cat.id, 'signup_bonus_points', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none tabular-nums font-mono disabled:bg-gray-100 disabled:text-gray-400 focus:ring-2 focus:ring-blue-400 focus:border-transparent" />
-                          <span className="text-xs text-gray-500 font-bold">pt</span>
+                      <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100">
+                        <label className="block text-sm font-bold text-gray-700 mb-3">回数別ボーナス設定</label>
+                        <div className="space-y-2 mb-3">
+                          {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
+                            cat.recurring_rules.map((rule:any, ruleIndex:number) => (
+                              <div key={ruleIndex} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-200">
+                                <input type="number" min="1" value={rule.count} onChange={(e) => handleRuleChange(cat.id, ruleIndex, 'count', e.target.value)} className="w-16 border border-gray-300 rounded px-2 py-1 text-sm font-mono text-center outline-none focus:ring-2 focus:ring-blue-400" />
+                                <span className="text-xs font-bold text-gray-600">回目 :</span>
+                                <input type="number" min="0" value={rule.points} onChange={(e) => handleRuleChange(cat.id, ruleIndex, 'points', e.target.value)} className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-400" />
+                                <span className="text-xs font-bold text-gray-600">pt</span>
+                                <button onClick={() => handleRemoveRule(cat.id, ruleIndex)} className="p-1 text-gray-400 hover:text-red-500 transition-colors ml-1">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))
+                          ) : (
+                            <p className="text-xs text-gray-500 mb-2">回数別の追加ボーナスはありません。</p>
+                          )}
                         </div>
+                        <button onClick={() => handleAddRule(cat.id)} className="flex items-center justify-center w-full gap-1 py-2 border-2 border-dashed border-blue-300 rounded-lg text-xs font-bold text-blue-600 hover:bg-blue-100 hover:border-blue-400 transition-all">
+                          <Plus className="w-3 h-3" /> ボーナスを追加
+                        </button>
                       </div>
                     </div>
                   </div>
                 ))}
                 
                 <div className="flex justify-between items-center mt-6 pt-6 border-t border-gray-200">
-                  <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-gray-900 bg-gray-100 px-4 py-2 rounded-lg transition-colors"><Plus className="w-4 h-4"/>カテゴリ追加</button>
+                  <button onClick={handleAddCategory} className="flex items-center gap-1 text-sm font-bold text-gray-600 hover:text-gray-900 bg-gray-100 px-4 py-2 rounded-lg transition-colors"><Plus className="w-4 h-4"/>カテゴリ新規作成</button>
                   <div className="flex items-center gap-3">
                     <button onClick={handleCancelSettings} className="px-6 py-3 rounded-lg text-sm font-bold text-gray-600 hover:bg-gray-100 transition-colors">キャンセル</button>
                     <button onClick={handleSaveAllSettings} disabled={isProcessing} className="bg-gray-900 text-white text-sm font-bold px-8 py-3 rounded-lg hover:bg-black transition-colors flex items-center gap-2 disabled:opacity-50">
