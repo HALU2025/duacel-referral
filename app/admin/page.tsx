@@ -68,7 +68,6 @@ export default function AdminDashboard() {
   const [authError, setAuthError] = useState('')
   const [currentUserId, setCurrentUserId] = useState('')
 
-  // 検索・フィルター用
   const [refFilters, setRefFilters] = useState({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
   const [filteredReferrals, setFilteredReferrals] = useState<any[]>([])
   const [isRefFilterOpen, setIsRefFilterOpen] = useState(false)
@@ -81,28 +80,22 @@ export default function AdminDashboard() {
   const [filteredShops, setFilteredShops] = useState<any[]>([])
   const [isShopFilterOpen, setIsShopFilterOpen] = useState(false)
 
-  // モーダル・UI用 (成果)
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
   const [isRefEditMode, setIsRefEditMode] = useState(false)
 
-  // モーダル・UI用 (交換)
   const [isRedeemModalOpen, setIsRedeemModalOpen] = useState(false)
   const [editingRedeem, setEditingRedeem] = useState<any>(null)
   const [isRedeemEditMode, setIsRedeemEditMode] = useState(false)
 
-  // モーダル・UI用 (店舗)
   const [isShopModalOpen, setIsShopModalOpen] = useState(false)
   const [editingShop, setEditingShop] = useState<any>(null)
   const [isShopEditMode, setIsShopEditMode] = useState(false)
-  const [expandedShopId, setExpandedShopId] = useState<string | null>(null)
 
-  // モーダル・UI用 (ポイントカテゴリ)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false)
   const [editingCategory, setEditingCategory] = useState<any>(null)
   const [isCategoryEditMode, setIsCategoryEditMode] = useState(false)
 
-  // その他設定用
   const [showAddAdminForm, setShowAddAdminForm] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
   const [newAdminEmail, setNewAdminEmail] = useState('')
@@ -166,20 +159,12 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // 高速化：ポイント計算の事前処理
+  // ヘルパー関数
   // ==========================================
-  const oldestRefMap = useMemo(() => {
-    const map = new Map<string, string>();
-    const validRefs = [...referrals].filter(r => r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    validRefs.forEach(r => {
-      if (!map.has(r.shop_id)) map.set(r.shop_id, r.id);
-    });
-    return map;
-  }, [referrals]);
-
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
   const getStaffName = (staffId: string) => staffs.find(s => s.id === staffId)?.name || '不明'
 
+  // ★ 新しいロジック：基本報酬を上書きする「回数別報酬」
   const getReferralPoints = (ref: any) => {
     if (ref.status === 'cancel') return 0;
 
@@ -187,16 +172,14 @@ export default function AdminDashboard() {
     const category = categories.find(r => r.id === shop?.category_id);
     if (!category) return 0;
 
-    const standardPt = Number(category.reward_points) || 0;
-    let bonusPt = 0;
-
     const rules = category.recurring_rules || [];
     const matchedRule = rules.find((r: any) => Number(r.count) === Number(ref.recurring_count));
+    
     if (matchedRule) {
-      bonusPt = Number(matchedRule.points);
+      return Number(matchedRule.points); // ルールがあればそのポイントを返す
     }
 
-    return standardPt + bonusPt;
+    return Number(category.reward_points) || 0; // ルールがなければ基本報酬
   }
 
   // ==========================================
@@ -279,29 +262,23 @@ export default function AdminDashboard() {
     if (existing && existing.length > 0) return
 
     const shop = currentShops.find(s => s.id === referral.shop_id)
-    const category = currentCategories.find(c => c.id === shop?.category_id) || currentCategories[0]
+    const category = currentCategories.find(c => c.id === shop?.category_id)
 
-    const standardPoints = Number(category?.reward_points) || 0
-    
+    // 新ロジックによるポイント算出
     const rules = category?.recurring_rules || [];
     const matchedRule = rules.find((r: any) => Number(r.count) === Number(referral.recurring_count));
-    const bonusPt = matchedRule ? Number(matchedRule.points) : 0;
-
-    const transactions = []
     
-    transactions.push({
-      shop_id: referral.shop_id, referral_id: referral.id,
-      points: standardPoints, reason: `紹介報酬 (基本)`, status: 'confirmed',
-      metadata: { order_number: referral.order_number }
-    })
+    const finalPoints = matchedRule ? Number(matchedRule.points) : (Number(category?.reward_points) || 0);
+    const reason = matchedRule ? `${referral.recurring_count}回目 報酬` : `紹介報酬 (基本)`;
 
-    if (bonusPt > 0) {
-      transactions.push({
-        shop_id: referral.shop_id, referral_id: referral.id,
-        points: bonusPt, reason: `${referral.recurring_count}回目 ボーナス`, status: 'confirmed',
-        metadata: { order_number: referral.order_number, is_bonus: true }
-      })
-    }
+    const transactions = [{
+      shop_id: referral.shop_id, 
+      referral_id: referral.id,
+      points: finalPoints, 
+      reason: reason, 
+      status: 'confirmed',
+      metadata: { order_number: referral.order_number }
+    }]
 
     await supabase.from('point_transactions').insert(transactions)
   }
@@ -391,7 +368,7 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // 新・ポイントカテゴリ設定ハンドラー (モーダル型)
+  // ポイントカテゴリ設定モーダルのハンドラー
   // ==========================================
   const openNewCategoryModal = () => {
     setEditingCategory({
@@ -446,11 +423,6 @@ export default function AdminDashboard() {
       signup_bonus_enabled: editingCategory.signup_bonus_enabled || false, 
       signup_bonus_points: editingCategory.signup_bonus_points || 0,
       recurring_rules: editingCategory.recurring_rules || [],
-      // 旧仕様のカラムがある場合の保険
-      first_bonus_enabled: false,
-      first_bonus_points: 0,
-      recurring_bonus_enabled: false,
-      recurring_bonus_points: 0
     }
 
     if (editingCategory.isNew) { 
@@ -466,6 +438,24 @@ export default function AdminDashboard() {
     setIsCategoryModalOpen(false)
   }
 
+  const handleDeleteCategory = async (id: string) => {
+    const usedCount = shops.filter(s => s.category_id === id).length;
+    if (usedCount > 0) {
+      alert(`このカテゴリは現在 ${usedCount} 店舗で使用されているため、削除できません。\n先に該当店舗のカテゴリを変更してください。`);
+      return;
+    }
+    if (!confirm('このカテゴリを完全に削除してよろしいですか？\nこの操作は取り消せません。')) return;
+
+    setIsProcessing(true);
+    const { error } = await supabase.from('shop_categories').delete().eq('id', id);
+    if (error) {
+      alert('削除エラー: ' + error.message);
+    } else {
+      setIsCategoryModalOpen(false);
+      await fetchData();
+    }
+    setIsProcessing(false);
+  }
 
   if (authError) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-600 text-sm font-bold">{authError}</div>
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
@@ -594,19 +584,19 @@ export default function AdminDashboard() {
 
                     return (
                       <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/50 opacity-75' : 'hover:bg-gray-50'}`}>
-                        <td className="p-4 whitespace-nowrap">{new Date(ref.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                        <td className="p-4 whitespace-nowrap font-mono">{ref.order_number}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{new Date(ref.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{ref.order_number}</td>
                         <td className="p-4 whitespace-nowrap">
                           <span className={`px-2.5 py-1 rounded-md text-xs border ${status.bgColor} ${status.color} ${status.border} font-bold inline-flex items-center justify-center min-w-[70px]`}>
                             {status.label}
                           </span>
                         </td>
-                        <td className="p-4 whitespace-nowrap">{shop?.name || '不明'}</td>
-                        <td className="p-4 whitespace-nowrap font-mono">{shop?.invite_token || '-'}</td>
-                        <td className="p-4 whitespace-nowrap">
+                        <td className="p-4 whitespace-nowrap font-normal">{shop?.name || '不明'}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shop?.invite_token || '-'}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">
                           {staff?.name || '不明'} {ref.customer_name ? `/ ${ref.customer_name} 様 (${ref.recurring_count > 1 ? `定期${ref.recurring_count}回目` : '初回'})` : ''}
                         </td>
-                        <td className="p-4 whitespace-nowrap font-bold font-mono">{totalPt.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{totalPt.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingRef({...ref, total_points: totalPt}); setIsRefEditMode(false); setIsRefModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
                             詳細
@@ -682,15 +672,15 @@ export default function AdminDashboard() {
 
                     return (
                       <tr key={req.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="p-4 whitespace-nowrap">{new Date(req.created_at).toLocaleString('ja-JP')}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{new Date(req.created_at).toLocaleString('ja-JP')}</td>
                         <td className="p-4 whitespace-nowrap">
                           <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${status.bgColor} ${status.color}`}>
                             {status.label}
                           </span>
                         </td>
-                        <td className="p-4 whitespace-nowrap">{staff?.name || '不明'}</td>
-                        <td className="p-4 whitespace-nowrap">{shop?.name || '不明'}</td>
-                        <td className="p-4 whitespace-nowrap font-bold font-mono">{Number(req.points_consumed).toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{staff?.name || '不明'}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shop?.name || '不明'}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{Number(req.points_consumed).toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingRedeem(req); setIsRedeemEditMode(false); setIsRedeemModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
                             詳細
@@ -770,13 +760,13 @@ export default function AdminDashboard() {
 
                     return (
                       <tr key={shop.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="p-4 whitespace-nowrap">{shop.name}</td>
-                        <td className="p-4 whitespace-nowrap font-mono">{shop.invite_token}</td>
-                        <td className="p-4 whitespace-nowrap">{category?.label || '未設定'}</td>
-                        <td className="p-4 whitespace-nowrap">{owner?.name || shop.owner_email}</td>
-                        <td className="p-4 whitespace-nowrap font-mono">{shopStaffs.length}</td>
-                        <td className="p-4 whitespace-nowrap font-mono font-bold text-emerald-600">{shopEarned.toLocaleString()}</td>
-                        <td className="p-4 whitespace-nowrap font-mono font-bold text-blue-600">{shopRedeemed.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shop.name}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shop.invite_token}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{category?.label || '未設定'}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{owner?.name || shop.owner_email}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shopStaffs.length}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shopEarned.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal">{shopRedeemed.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
                             詳細
@@ -807,38 +797,40 @@ export default function AdminDashboard() {
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
-                    <th className="p-4 font-bold whitespace-nowrap">カテゴリ名 / 説明</th>
+                    <th className="p-4 font-bold whitespace-nowrap">カテゴリ名</th>
                     <th className="p-4 font-bold whitespace-nowrap">基本報酬</th>
-                    <th className="p-4 font-bold whitespace-nowrap">登録ボーナス</th>
-                    <th className="p-4 font-bold whitespace-nowrap">回数別ボーナス</th>
+                    <th className="p-4 font-bold whitespace-nowrap">登録報酬</th>
+                    <th className="p-4 font-bold whitespace-nowrap">回数別報酬</th>
                     <th className="p-4 font-bold whitespace-nowrap text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm text-gray-900 font-normal">
-                  {categories.map(cat => (
-                    <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="p-4 whitespace-nowrap">
-                        <div className="font-bold text-gray-900">{cat.label}</div>
-                        {cat.description && <div className="text-xs text-gray-500 mt-1">{cat.description}</div>}
-                      </td>
-                      <td className="p-4 whitespace-nowrap font-mono font-bold">{Number(cat.reward_points).toLocaleString()} pt</td>
-                      <td className="p-4 whitespace-nowrap font-mono">
-                        {cat.signup_bonus_enabled ? `+${Number(cat.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 font-sans text-xs">設定なし</span>}
-                      </td>
-                      <td className="p-4 whitespace-nowrap">
-                        {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
-                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold border border-blue-200">設定あり ({cat.recurring_rules.length}件)</span>
-                        ) : (
-                          <span className="text-gray-400 text-xs">設定なし</span>
-                        )}
-                      </td>
-                      <td className="p-4 text-right whitespace-nowrap">
-                        <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
-                          詳細
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {categories.map(cat => {
+                    const shopCount = shops.filter(s => s.category_id === cat.id).length;
+                    return (
+                      <tr key={cat.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-4 whitespace-nowrap font-normal">
+                          <div className="text-gray-900">{cat.label} <span className="text-xs text-gray-500 ml-1">({shopCount}店舗)</span></div>
+                        </td>
+                        <td className="p-4 whitespace-nowrap font-normal">{Number(cat.reward_points).toLocaleString()} pt</td>
+                        <td className="p-4 whitespace-nowrap font-normal">
+                          {cat.signup_bonus_enabled ? `${Number(cat.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 text-xs">設定なし</span>}
+                        </td>
+                        <td className="p-4 whitespace-nowrap font-normal">
+                          {cat.recurring_rules && cat.recurring_rules.length > 0 ? (
+                            <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs border border-blue-200">設定あり ({cat.recurring_rules.length}件)</span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">設定なし</span>
+                          )}
+                        </td>
+                        <td className="p-4 text-right whitespace-nowrap">
+                          <button onClick={() => { setEditingCategory(JSON.parse(JSON.stringify(cat))); setIsCategoryEditMode(false); setIsCategoryModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                            詳細
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
               {categories.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">カテゴリが登録されていません</div>}
@@ -868,7 +860,7 @@ export default function AdminDashboard() {
                     <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
                       <p className="text-sm font-bold mb-3 text-gray-700">新しいパスワード (6文字以上)</p>
                       <div className="flex gap-2">
-                        <input type="password" required minLength={6} placeholder="••••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="flex-1 border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
+                        <input type="password" required minLength={6} placeholder="••••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} className="flex-1 border border-gray-300 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100" />
                         <button onClick={handleUpdatePassword} disabled={isUpdatingPassword || newPassword.length < 6} className="bg-blue-600 text-white font-bold text-sm px-4 rounded-lg hover:bg-blue-500 transition-colors disabled:opacity-50">
                           {isUpdatingPassword ? <Loader2 className="w-4 h-4 animate-spin"/> : '更新'}
                         </button>
@@ -888,7 +880,7 @@ export default function AdminDashboard() {
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-gray-500 mb-1">初期パスワード (6文字以上)</label>
-                        <input type="text" placeholder="password123" required minLength={6} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
+                        <input type="text" placeholder="password123" required minLength={6} value={newAdminPassword} onChange={e => setNewAdminPassword(e.target.value)} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
                       </div>
                       <div className="flex justify-end gap-2">
                         <button type="button" onClick={() => setShowAddAdminForm(false)} className="px-4 py-2 text-sm font-bold text-gray-600 hover:bg-blue-100 rounded-lg transition-colors">キャンセル</button>
@@ -909,7 +901,7 @@ export default function AdminDashboard() {
                         {admin.email}
                         {admin.id === currentUserId && <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-bold">You</span>}
                       </p>
-                      <p className="text-xs text-gray-500 font-mono mt-0.5">登録: {new Date(admin.created_at).toLocaleString('ja-JP')}</p>
+                      <p className="text-xs text-gray-500 mt-0.5">登録: {new Date(admin.created_at).toLocaleString('ja-JP')}</p>
                     </div>
                     {admin.id !== currentUserId && (
                       <button onClick={() => handleDeleteAdmin(admin.id, admin.email)} className="text-xs font-bold text-red-500 hover:bg-red-50 border border-transparent hover:border-red-100 px-3 py-1.5 rounded-lg transition-all">
@@ -948,12 +940,12 @@ export default function AdminDashboard() {
             <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">発生日時</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div>
+                <div className="col-span-2 text-gray-900 text-sm">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">受注番号</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono">{editingRef.order_number || '-'}</div>
+                <div className="col-span-2 text-gray-900 text-sm">{editingRef.order_number || '-'}</div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
@@ -968,7 +960,7 @@ export default function AdminDashboard() {
                 <label className="text-gray-500 text-sm font-bold">店舗名 / コード</label>
                 <div className="col-span-2 text-gray-900 text-sm">
                   {getShopByShopId(editingRef.shop_id)?.name || '不明'} 
-                  <span className="ml-2 font-mono text-gray-400">{getShopByShopId(editingRef.shop_id)?.invite_token}</span>
+                  <span className="ml-2 text-gray-400">{getShopByShopId(editingRef.shop_id)?.invite_token}</span>
                 </div>
               </div>
 
@@ -982,7 +974,7 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">紹介URL</label>
                 <div className="col-span-2">
-                  <div className="flex items-center gap-2 text-gray-900 text-xs break-all bg-white p-2 border border-gray-200 rounded font-mono">
+                  <div className="flex items-center gap-2 text-gray-900 text-xs break-all bg-white p-2 border border-gray-200 rounded">
                     <span>https://duacel.net/welcome/ref_{staffs.find(s => s.id === editingRef.staff_id)?.referral_code}</span>
                   </div>
                 </div>
@@ -990,7 +982,7 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">獲得ポイント</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono font-bold">
+                <div className="col-span-2 text-gray-900 text-sm font-bold">
                   {isRefEditMode ? (
                     <input 
                       type="number"
@@ -1069,7 +1061,7 @@ export default function AdminDashboard() {
             <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">申請日時</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono">{new Date(editingRedeem.created_at).toLocaleString('ja-JP')}</div>
+                <div className="col-span-2 text-gray-900 text-sm">{new Date(editingRedeem.created_at).toLocaleString('ja-JP')}</div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
@@ -1081,14 +1073,14 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">交換ポイント</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono font-bold">{Number(editingRedeem.points_consumed).toLocaleString()} pt</div>
+                <div className="col-span-2 text-gray-900 text-sm font-bold">{Number(editingRedeem.points_consumed).toLocaleString()} pt</div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">ギフトURL</label>
                 <div className="col-span-2 text-gray-900 text-sm break-all">
                   {isRedeemEditMode ? (
-                    <input type="text" value={editingRedeem.gift_url || ''} onChange={(e) => setEditingRedeem({...editingRedeem, gift_url: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white font-mono text-xs" placeholder="https://" />
+                    <input type="text" value={editingRedeem.gift_url || ''} onChange={(e) => setEditingRedeem({...editingRedeem, gift_url: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white text-xs" placeholder="https://" />
                   ) : (
                     editingRedeem.gift_url ? (
                       <a href={editingRedeem.gift_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{editingRedeem.gift_url}</a>
@@ -1112,7 +1104,7 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3 items-start">
                 <label className="text-gray-500 text-sm font-bold">エラーログ</label>
-                <div className="col-span-2 text-gray-500 text-xs font-mono bg-white p-2 border border-gray-200 rounded h-24 overflow-y-auto whitespace-pre-wrap">
+                <div className="col-span-2 text-gray-500 text-xs bg-white p-2 border border-gray-200 rounded h-24 overflow-y-auto whitespace-pre-wrap">
                   {editingRedeem.error_details ? JSON.stringify(editingRedeem.error_details, null, 2) : 'なし'}
                 </div>
               </div>
@@ -1164,7 +1156,7 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">店舗コード (URL共通)</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono">
+                <div className="col-span-2 text-gray-900 text-sm">
                   {editingShop.invite_token}
                 </div>
               </div>
@@ -1203,7 +1195,7 @@ export default function AdminDashboard() {
                         <span className="font-bold text-sm text-gray-900">{staff.name}</span>
                         {staff.role === 'owner' && <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">オーナー</span>}
                       </div>
-                      <span className="text-xs text-gray-500 font-mono">ref_{staff.referral_code}</span>
+                      <span className="text-xs text-gray-500">ref_{staff.referral_code}</span>
                     </div>
                   ))}
                 </div>
@@ -1268,21 +1260,21 @@ export default function AdminDashboard() {
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">基本報酬</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono">
+                <div className="col-span-2 text-gray-900 text-sm">
                   {isCategoryEditMode ? (
                     <div className="flex items-center gap-2">
                       <input type="number" value={editingCategory.reward_points} onChange={(e) => handleCategoryFieldChange('reward_points', Number(e.target.value))} className="w-32 border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
-                      <span className="font-bold">pt</span>
+                      <span>pt</span>
                     </div>
                   ) : (
-                    <span className="font-bold">{Number(editingCategory.reward_points).toLocaleString()} pt</span>
+                    <span>{Number(editingCategory.reward_points).toLocaleString()} pt</span>
                   )}
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">登録ボーナス</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono">
+                <label className="text-gray-500 text-sm font-bold">登録報酬</label>
+                <div className="col-span-2 text-gray-900 text-sm">
                   {isCategoryEditMode ? (
                     <div className="flex items-center gap-3">
                       <label className="flex items-center gap-1 font-bold">
@@ -1291,17 +1283,17 @@ export default function AdminDashboard() {
                       </label>
                       <div className="flex items-center gap-2">
                         <input type="number" disabled={!editingCategory.signup_bonus_enabled} value={editingCategory.signup_bonus_points || 0} onChange={(e) => handleCategoryFieldChange('signup_bonus_points', Number(e.target.value))} className="w-32 border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white disabled:bg-gray-100" />
-                        <span className="font-bold">pt</span>
+                        <span>pt</span>
                       </div>
                     </div>
                   ) : (
-                    <span className="font-bold">{editingCategory.signup_bonus_enabled ? `+${Number(editingCategory.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 font-sans text-xs">設定なし</span>}</span>
+                    <span>{editingCategory.signup_bonus_enabled ? `${Number(editingCategory.signup_bonus_points).toLocaleString()} pt` : <span className="text-gray-400 font-sans text-xs">設定なし</span>}</span>
                   )}
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-start">
-                <label className="text-gray-500 text-sm font-bold">回数別ボーナス</label>
+                <label className="text-gray-500 text-sm font-bold">回数別報酬</label>
                 <div className="col-span-2">
                   {isCategoryEditMode ? (
                     <div className="bg-white border border-gray-200 p-3 rounded-lg">
@@ -1309,9 +1301,9 @@ export default function AdminDashboard() {
                         {editingCategory.recurring_rules && editingCategory.recurring_rules.length > 0 ? (
                           editingCategory.recurring_rules.map((rule:any, idx:number) => (
                             <div key={idx} className="flex items-center gap-2">
-                              <input type="number" min="1" value={rule.count} onChange={(e) => handleRuleChangeSingle(idx, 'count', e.target.value)} className="w-16 border border-gray-300 rounded px-2 py-1.5 text-sm font-mono text-center outline-none focus:ring-2 focus:ring-blue-100" />
+                              <input type="number" min="1" value={rule.count} onChange={(e) => handleRuleChangeSingle(idx, 'count', e.target.value)} className="w-16 border border-gray-300 rounded px-2 py-1.5 text-sm text-center outline-none focus:ring-2 focus:ring-blue-100" />
                               <span className="text-xs font-bold text-gray-600 whitespace-nowrap">回目 :</span>
-                              <input type="number" min="0" value={rule.points} onChange={(e) => handleRuleChangeSingle(idx, 'points', e.target.value)} className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100" />
+                              <input type="number" min="0" value={rule.points} onChange={(e) => handleRuleChangeSingle(idx, 'points', e.target.value)} className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100" />
                               <span className="text-xs font-bold text-gray-600">pt</span>
                               <button onClick={() => handleRemoveRuleSingle(idx)} className="p-1 text-gray-400 hover:text-red-500 transition-colors ml-1">
                                 <Trash2 className="w-4 h-4" />
@@ -1332,7 +1324,7 @@ export default function AdminDashboard() {
                         editingCategory.recurring_rules.sort((a:any, b:any) => a.count - b.count).map((rule:any, idx:number) => (
                           <div key={idx} className="flex items-center gap-4 bg-white px-3 py-2 border border-gray-200 rounded">
                             <span className="text-sm font-bold text-gray-700 w-16">{rule.count} 回目</span>
-                            <span className="text-sm font-bold text-blue-600 font-mono">+{Number(rule.points).toLocaleString()} pt</span>
+                            <span className="text-sm text-blue-600">{Number(rule.points).toLocaleString()} pt</span>
                           </div>
                         ))
                       ) : (
@@ -1345,14 +1337,21 @@ export default function AdminDashboard() {
             </div>
 
             {isCategoryEditMode ? (
-              <div className="flex gap-3 justify-end">
-                <button onClick={() => setIsCategoryEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-                <button onClick={() => handleCategoryModalSave()} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
-                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
-                </button>
+              <div className="flex justify-between items-center w-full">
+                <div>
+                  {!editingCategory.isNew && (
+                    <button onClick={() => handleDeleteCategory(editingCategory.id)} className="px-5 py-2 font-bold text-red-600 hover:bg-red-50 rounded-lg transition-colors">削除</button>
+                  )}
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setIsCategoryEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+                  <button onClick={() => handleCategoryModalSave()} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                    {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="flex gap-3 justify-end">
+              <div className="flex justify-end">
                 <button onClick={() => setIsCategoryModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
               </div>
             )}
