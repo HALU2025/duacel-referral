@@ -99,7 +99,6 @@ export default function AdminDashboard() {
   const [isRankUpEditMode, setIsRankUpEditMode] = useState(false)
   const [editingRankUps, setEditingRankUps] = useState<any[]>([])
 
-  // デフォルトランク設定用ステート
   const [isDefaultRankModalOpen, setIsDefaultRankModalOpen] = useState(false)
   const [editingDefaultRankId, setEditingDefaultRankId] = useState<string>('')
 
@@ -143,14 +142,21 @@ export default function AdminDashboard() {
     if (s.data) { setShops(s.data); setFilteredShops(s.data); }
     if (st.data) setStaffs(st.data)
     if (cat.data) { 
-      const safeCategories = cat.data.map(c => ({
-        ...c,
-        recurring_rules: c.recurring_rules || [],
-        upgrade_condition_type: c.upgrade_condition_type || 'count',
-        upgrade_condition_value: c.upgrade_condition_value || 0,
-        next_category_id: c.next_category_id || null,
-        is_default: c.is_default || false
-      }))
+      const safeCategories = cat.data.map(c => {
+        // 過去のデータ(count, points)を新しい recurring_1 にフォールバック
+        let condType = c.upgrade_condition_type;
+        if (!condType || condType === 'count' || condType === 'points') {
+          condType = 'recurring_1';
+        }
+        return {
+          ...c,
+          recurring_rules: c.recurring_rules || [],
+          upgrade_condition_type: condType,
+          upgrade_condition_value: c.upgrade_condition_value || 0,
+          next_category_id: c.next_category_id || null,
+          is_default: c.is_default || false
+        };
+      });
       setCategories(safeCategories); 
     }
     if (tx.data) setPointTransactions(tx.data)
@@ -397,7 +403,7 @@ export default function AdminDashboard() {
       signup_bonus_enabled: false,
       signup_bonus_points: 0,
       recurring_rules: [],
-      upgrade_condition_type: 'count',
+      upgrade_condition_type: 'recurring_1',
       upgrade_condition_value: 0,
       next_category_id: null,
       isNew: true
@@ -501,7 +507,7 @@ export default function AdminDashboard() {
       } else {
         return {
           ...c,
-          upgrade_condition_type: c.upgrade_condition_type || 'count',
+          upgrade_condition_type: c.upgrade_condition_type || 'recurring_1',
           upgrade_condition_value: c.upgrade_condition_value || 10,
           next_category_id: categories.filter(cat => cat.id !== c.id)[0]?.id || null
         };
@@ -524,20 +530,14 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
-  // デフォルトランク設定の保存
   const handleDefaultRankSave = async () => {
     if (!confirm('デフォルトランクを変更すると、今後の新規登録店舗すべてにこのランクの報酬設定が適用されます。\n本当に変更してよろしいですか？')) return;
 
     setIsProcessing(true);
-    
-    // 全ての is_default を false にリセット
     await supabase.from('shop_categories').update({ is_default: false }).not('id', 'is', null);
-    
-    // 選択されたものを true に設定
     if (editingDefaultRankId) {
       await supabase.from('shop_categories').update({ is_default: true }).eq('id', editingDefaultRankId);
     }
-
     await fetchData();
     setIsDefaultRankModalOpen(false);
     setIsProcessing(false);
@@ -976,7 +976,7 @@ export default function AdminDashboard() {
                           <div className="font-bold text-gray-900">{cat.label}</div>
                           <div className="flex flex-col items-center px-4">
                             <span className="text-[10px] text-gray-500 font-bold mb-1 whitespace-nowrap">
-                              {cat.upgrade_condition_type === 'points' ? '累計pt' : '累計件数'} {Number(cat.upgrade_condition_value).toLocaleString()} 以上
+                              {cat.upgrade_condition_type === 'recurring_2' ? '2回目受取' : cat.upgrade_condition_type === 'recurring_3' ? '3回目受取' : '初回受取'} {Number(cat.upgrade_condition_value).toLocaleString()} 件以上
                             </span>
                             <ArrowRight className="w-5 h-5 text-blue-400" />
                           </div>
@@ -1010,12 +1010,13 @@ export default function AdminDashboard() {
                             <p className="text-xs font-bold text-gray-500 mb-1">条件</p>
                             <div className="flex items-center gap-2">
                               <select 
-                                value={cat.upgrade_condition_type || 'count'} 
+                                value={cat.upgrade_condition_type || 'recurring_1'} 
                                 onChange={(e) => handleRankUpFieldChange(cat.id, 'upgrade_condition_type', e.target.value)}
                                 className="border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
                               >
-                                <option value="count">件数</option>
-                                <option value="points">ポイント</option>
+                                <option value="recurring_1">初回受取数 (新規獲得)</option>
+                                <option value="recurring_2">2回目受取数</option>
+                                <option value="recurring_3">3回目受取数</option>
                               </select>
                               <span className="text-sm font-bold text-gray-600">が</span>
                               <input 
@@ -1024,7 +1025,7 @@ export default function AdminDashboard() {
                                 onChange={(e) => handleRankUpFieldChange(cat.id, 'upgrade_condition_value', Number(e.target.value))}
                                 className="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm outline-none focus:ring-2 focus:ring-blue-100 bg-white"
                               />
-                              <span className="text-sm font-bold text-gray-600">以上</span>
+                              <span className="text-sm font-bold text-gray-600">件 に達したら</span>
                             </div>
                           </div>
                           <div>
