@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { 
   RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Link as LinkIcon,
   BarChart3, Users, Store, Gift, Settings, ChevronDown,
-  Building, LogOut, Shield, Edit2, CheckCircle2, Copy 
+  Building, LogOut, Shield, Edit2, CheckCircle2, Copy, Eye
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createAdminUserAction } from '@/app/actions/admin'
@@ -66,25 +66,38 @@ export default function AdminDashboard() {
   const [authError, setAuthError] = useState('')
   const [currentUserId, setCurrentUserId] = useState('')
 
-  // 検索・フィルター用
+  // --- 検索・フィルター用 ---
   const [refFilters, setRefFilters] = useState({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
   const [filteredReferrals, setFilteredReferrals] = useState<any[]>([])
   const [isRefFilterOpen, setIsRefFilterOpen] = useState(false)
 
-  // モーダル・UI用
+  const [redeemFilters, setRedeemFilters] = useState({ staff_name: '', shop_name: '', status: '', date_start: '', date_end: '' })
+  const [filteredRedemptions, setFilteredRedemptions] = useState<any[]>([])
+  const [isRedeemFilterOpen, setIsRedeemFilterOpen] = useState(false)
+
+  const [shopFilters, setShopFilters] = useState({ shop_name: '', invite_token: '', category_id: '' })
+  const [filteredShops, setFilteredShops] = useState<any[]>([])
+  const [isShopFilterOpen, setIsShopFilterOpen] = useState(false)
+
+  // --- モーダル・UI用 ---
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
+  const [isRefEditMode, setIsRefEditMode] = useState(false)
+
+  const [isRedeemModalOpen, setIsRedeemModalOpen] = useState(false)
+  const [editingRedeem, setEditingRedeem] = useState<any>(null)
+  const [isRedeemEditMode, setIsRedeemEditMode] = useState(false)
+
   const [isShopModalOpen, setIsShopModalOpen] = useState(false)
   const [editingShop, setEditingShop] = useState<any>(null)
-  const [editingCategories, setEditingCategories] = useState<any[]>([])
-  const [expandedShopId, setExpandedShopId] = useState<string | null>(null) 
+  const [isShopEditMode, setIsShopEditMode] = useState(false)
 
-  // 編集モードのトグル用ステート
+  const [editingCategories, setEditingCategories] = useState<any[]>([])
+
+  // --- その他設定用 ---
   const [isEditingSettings, setIsEditingSettings] = useState(false)
   const [showAddAdminForm, setShowAddAdminForm] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
-
-  // 管理者設定用ステート
   const [newAdminEmail, setNewAdminEmail] = useState('')
   const [newAdminPassword, setNewAdminPassword] = useState('')
   const [isAddingAdmin, setIsAddingAdmin] = useState(false)
@@ -120,14 +133,11 @@ export default function AdminDashboard() {
     ])
     
     if (r.data) { setReferrals(r.data); setFilteredReferrals(r.data); }
-    if (s.data) setShops(s.data)
+    if (s.data) { setShops(s.data); setFilteredShops(s.data); }
     if (st.data) setStaffs(st.data)
-    if (cat.data) { 
-      setCategories(cat.data); 
-      setEditingCategories(cat.data);
-    }
+    if (cat.data) { setCategories(cat.data); setEditingCategories(cat.data); }
     if (tx.data) setPointTransactions(tx.data)
-    if (ex.data) setRedemptions(ex.data)
+    if (ex.data) { setRedemptions(ex.data); setFilteredRedemptions(ex.data); }
     if (sys.data) setSystemAdmins(sys.data)
     
     setLoading(false)
@@ -146,6 +156,8 @@ export default function AdminDashboard() {
   // ヘルパー関数
   // ==========================================
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
+  
+  const getStaffName = (staffId: string) => staffs.find(s => s.id === staffId)?.name || '不明'
 
   const getReferralPoints = (ref: any) => {
     const shop = getShopByShopId(ref.shop_id);
@@ -159,64 +171,14 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // アクションハンドラー
+  // フィルター処理
   // ==========================================
-  const handleAddAdmin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (newAdminPassword.length < 6) { alert('パスワードは6文字以上にしてください。'); return; }
-    
-    setIsAddingAdmin(true)
-    const res = await createAdminUserAction(newAdminEmail, newAdminPassword)
-    setIsAddingAdmin(false)
-
-    if (res.success) {
-      alert('管理者を登録しました。')
-      setNewAdminEmail('')
-      setNewAdminPassword('')
-      setShowAddAdminForm(false)
-      fetchData()
-    } else {
-      alert('登録エラー: ' + res.error)
-    }
-  }
-
-  const handleDeleteAdmin = async (id: string, email: string) => {
-    if (id === currentUserId) { alert('自分自身は削除できません。'); return; }
-    if (!confirm(`【警告】\n${email} の管理者権限を削除しますか？\n二度とログインできなくなります。`)) return;
-    
-    setIsProcessing(true)
-    const { error } = await supabase.from('system_admins').delete().eq('id', id)
-    setIsProcessing(false)
-    
-    if (error) alert('削除エラー: ' + error.message)
-    else fetchData()
-  }
-
-  const handleUpdatePassword = async () => {
-    if (newPassword.length < 6) { alert('パスワードは6文字以上にしてください。'); return; }
-    setIsUpdatingPassword(true)
-    const { error } = await supabase.auth.updateUser({ password: newPassword })
-    setIsUpdatingPassword(false)
-    
-    if (error) alert('パスワードの変更に失敗しました: ' + error.message)
-    else { 
-      alert('自分のパスワードを変更しました。次回から新しいパスワードでログインしてください。'); 
-      setNewPassword(''); 
-      setShowPasswordForm(false);
-    }
-  }
-
-  const openShopEditModal = (shopId: string) => {
-    const targetShop = getShopByShopId(shopId)
-    if (targetShop) { setEditingShop(targetShop); setIsShopModalOpen(true); }
-  }
-
   const handleRefFilter = () => {
     let result = [...referrals]
     if (refFilters.order_number) result = result.filter(r => r.order_number?.includes(refFilters.order_number))
     if (refFilters.customer_number) result = result.filter(r => r.customer_name?.includes(refFilters.customer_number))
     if (refFilters.shop_number) {
-      const targetShop = shops.find(s => String(s.shop_number) === refFilters.shop_number)
+      const targetShop = shops.find(s => String(s.invite_token) === refFilters.shop_number) // invite_tokenで検索
       if (targetShop) result = result.filter(r => r.shop_id === targetShop.id)
       else result = []
     }
@@ -238,12 +200,51 @@ export default function AdminDashboard() {
     setFilteredReferrals(referrals)
   }
 
-  const handleCopyUrl = (token: string, type: 'staff' | 'invite') => {
-    const url = type === 'staff' ? `${window.location.origin}/m/${token}` : `${window.location.origin}/reg/${token}`
-    navigator.clipboard.writeText(url)
-    alert(`URLをコピーしました。\n${url}`)
+  const handleRedeemFilter = () => {
+    let result = [...redemptions]
+    if (redeemFilters.staff_name) {
+      const matchedStaffIds = staffs.filter(s => s.name.includes(redeemFilters.staff_name)).map(s => s.id)
+      result = result.filter(r => matchedStaffIds.includes(r.staff_id))
+    }
+    if (redeemFilters.shop_name) {
+      const matchedShopIds = shops.filter(s => s.name.includes(redeemFilters.shop_name)).map(s => s.id)
+      result = result.filter(r => matchedShopIds.includes(r.shop_id))
+    }
+    if (redeemFilters.status) result = result.filter(r => r.status === redeemFilters.status)
+    if (redeemFilters.date_start) {
+      const start = new Date(redeemFilters.date_start).getTime()
+      result = result.filter(r => new Date(r.created_at).getTime() >= start)
+    }
+    if (redeemFilters.date_end) {
+      const end = new Date(redeemFilters.date_end).getTime() + 86400000 
+      result = result.filter(r => new Date(r.created_at).getTime() <= end)
+    }
+    setFilteredRedemptions(result)
+    setIsRedeemFilterOpen(false)
   }
 
+  const handleClearRedeemFilters = () => {
+    setRedeemFilters({ staff_name: '', shop_name: '', status: '', date_start: '', date_end: '' })
+    setFilteredRedemptions(redemptions)
+  }
+
+  const handleShopFilter = () => {
+    let result = [...shops]
+    if (shopFilters.shop_name) result = result.filter(s => s.name?.includes(shopFilters.shop_name))
+    if (shopFilters.invite_token) result = result.filter(s => s.invite_token?.includes(shopFilters.invite_token))
+    if (shopFilters.category_id) result = result.filter(s => s.category_id === shopFilters.category_id)
+    setFilteredShops(result)
+    setIsShopFilterOpen(false)
+  }
+
+  const handleClearShopFilters = () => {
+    setShopFilters({ shop_name: '', invite_token: '', category_id: '' })
+    setFilteredShops(shops)
+  }
+
+  // ==========================================
+  // 保存・更新処理
+  // ==========================================
   const issuePoints = async (referral: any, currentShops: any[], currentCategories: any[]) => {
     const { data: existing } = await supabase.from('point_transactions').select('id').eq('referral_id', referral.id).limit(1)
     if (existing && existing.length > 0) return
@@ -281,21 +282,9 @@ export default function AdminDashboard() {
 
   const handleRefModalSave = async (updatedRef: any) => {
     const originalRef = referrals.find(r => r.id === updatedRef.id)
-    
-    if (originalRef?.status === 'cancel') { alert('キャンセル済みのデータは変更できません。'); return; }
-    if (originalRef?.status === 'issued') { alert('分配済のデータは変更できません。'); return; }
-    if (originalRef?.status === 'confirmed' && updatedRef.status === 'pending') { alert('確定済みのデータを仮計上に戻すことはできません。'); return; }
     if (updatedRef.status === 'cancel' && !updatedRef.cancel_reason) { alert('キャンセル事由を選択してください。'); return; }
 
-    if (updatedRef.status === 'cancel' && originalRef?.status !== 'cancel') {
-      const msg = originalRef?.status === 'confirmed'
-        ? "【⚠️ 重大警告】\nこのデータはすでに「報酬確定」されています。\nキャンセルを実行すると、ユーザーへ付与済みのポイントが没収（マイナス処理）されます。\n\n本当にキャンセルしてよろしいですか？"
-        : "【⚠️ 警告】\nこのデータをキャンセル（無効化）します。\n一度キャンセルすると、今後一切ステータスを戻すことはできません。\n\n本当にキャンセルしてよろしいですか？";
-      if (!confirm(msg)) return;
-    }
-
     setIsProcessing(true)
-
     await supabase.from('referrals').update({ 
       status: updatedRef.status,
       cancel_reason: updatedRef.status === 'cancel' ? updatedRef.cancel_reason : null,
@@ -314,6 +303,18 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
+  const handleRedeemModalSave = async (updatedReq: any) => {
+    setIsProcessing(true)
+    await supabase.from('reward_exchanges').update({
+      status: updatedReq.status,
+      gift_url: updatedReq.gift_url || null
+    }).eq('id', updatedReq.id)
+
+    setIsRedeemModalOpen(false)
+    await fetchData()
+    setIsProcessing(false)
+  }
+
   const handleShopModalSave = async (updatedShop: any) => {
     setIsProcessing(true)
     const { error } = await supabase.from('shops').update({
@@ -323,6 +324,40 @@ export default function AdminDashboard() {
     if (error) alert('更新失敗: ' + error.message)
     else { setIsShopModalOpen(false); await fetchData(); }
     setIsProcessing(false)
+  }
+
+  // 管理者設定・ポイント設定などの関数
+  const handleAddAdmin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newAdminPassword.length < 6) { alert('パスワードは6文字以上にしてください。'); return; }
+    setIsAddingAdmin(true)
+    const res = await createAdminUserAction(newAdminEmail, newAdminPassword)
+    setIsAddingAdmin(false)
+    if (res.success) {
+      alert('管理者を登録しました。')
+      setNewAdminEmail(''); setNewAdminPassword(''); setShowAddAdminForm(false); fetchData()
+    } else {
+      alert('登録エラー: ' + res.error)
+    }
+  }
+
+  const handleDeleteAdmin = async (id: string, email: string) => {
+    if (id === currentUserId) { alert('自分自身は削除できません。'); return; }
+    if (!confirm(`【警告】\n${email} の管理者権限を削除しますか？`)) return;
+    setIsProcessing(true)
+    const { error } = await supabase.from('system_admins').delete().eq('id', id)
+    setIsProcessing(false)
+    if (error) alert('削除エラー: ' + error.message)
+    else fetchData()
+  }
+
+  const handleUpdatePassword = async () => {
+    if (newPassword.length < 6) { alert('パスワードは6文字以上にしてください。'); return; }
+    setIsUpdatingPassword(true)
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    setIsUpdatingPassword(false)
+    if (error) alert('変更失敗: ' + error.message)
+    else { alert('パスワードを変更しました。'); setNewPassword(''); setShowPasswordForm(false); }
   }
 
   const handleCategoryChange = (id: string, field: string, value: any) => {
@@ -350,14 +385,10 @@ export default function AdminDashboard() {
     setIsProcessing(true)
     for (const cat of editingCategories) {
       const dataToSave = {
-        label: cat.label,
-        reward_points: cat.reward_points,
-        first_bonus_enabled: cat.first_bonus_enabled || false,
-        first_bonus_points: cat.first_bonus_points || 0,
-        signup_bonus_enabled: cat.signup_bonus_enabled || false,
-        signup_bonus_points: cat.signup_bonus_points || 0,
-        recurring_bonus_enabled: cat.recurring_bonus_enabled || false,
-        recurring_bonus_points: cat.recurring_bonus_points || 0
+        label: cat.label, reward_points: cat.reward_points,
+        first_bonus_enabled: cat.first_bonus_enabled || false, first_bonus_points: cat.first_bonus_points || 0,
+        signup_bonus_enabled: cat.signup_bonus_enabled || false, signup_bonus_points: cat.signup_bonus_points || 0,
+        recurring_bonus_enabled: cat.recurring_bonus_enabled || false, recurring_bonus_points: cat.recurring_bonus_points || 0
       }
       if (cat.isNew) { await supabase.from('shop_categories').insert(dataToSave) } 
       else { await supabase.from('shop_categories').update(dataToSave).eq('id', cat.id) }
@@ -371,8 +402,15 @@ export default function AdminDashboard() {
   if (authError) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-600 text-sm font-bold">{authError}</div>
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
 
-  const activeFilterCountVal = Object.values(refFilters).filter(val => val !== '').length
+  // --- サマリー計算 ---
+  const activeRefFilterCount = Object.values(refFilters).filter(val => val !== '').length
   const totalFilteredPoints = filteredReferrals.reduce((sum, r) => sum + getReferralPoints(r), 0)
+
+  const activeRedeemFilterCount = Object.values(redeemFilters).filter(val => val !== '').length
+  const totalFilteredRedeemedPoints = filteredRedemptions.reduce((sum, r) => sum + Number(r.points_consumed), 0)
+
+  const activeShopFilterCount = Object.values(shopFilters).filter(val => val !== '').length
+  const totalFilteredMembers = filteredShops.reduce((sum, shop) => sum + staffs.filter(s => s.shop_id === shop.id && !s.is_deleted).length, 0)
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans flex flex-col md:flex-row">
@@ -413,9 +451,9 @@ export default function AdminDashboard() {
       ========================================= */}
       <div className="flex-1 p-4 md:p-8 overflow-x-auto w-full">
         
-        <div className="mb-6 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <span className="text-gray-900 p-2 bg-white border border-gray-200 rounded-lg shadow-sm">
+        <div className="mb-8 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-900">
               {PAGE_TITLES[activeTab].icon}
             </span>
             <h1 className="text-xl font-bold text-gray-900 tracking-tight">{PAGE_TITLES[activeTab].label}</h1>
@@ -426,28 +464,29 @@ export default function AdminDashboard() {
         {/* 成果一覧 */}
         {activeTab === 'referrals' && (
           <div>
+            {/* 検索 */}
             <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
-              <button onClick={() => setIsRefFilterOpen(!isRefFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-700 text-left">
+              <button onClick={() => setIsRefFilterOpen(!isRefFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
-                {activeFilterCountVal > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeFilterCountVal}件適用中</span>}
+                {activeRefFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeRefFilterCount}件適用中</span>}
               </button>
               
               {isRefFilterOpen && (
                 <div className="p-5 border-t border-gray-200 bg-white">
                   <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm font-normal">
-                    <div><label className="block text-gray-500 mb-1.5">受注番号</label><input type="text" value={refFilters.order_number} onChange={(e) => setRefFilters({...refFilters, order_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
-                    <div><label className="block text-gray-500 mb-1.5">顧客名</label><input type="text" value={refFilters.customer_number} onChange={(e) => setRefFilters({...refFilters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
-                    <div><label className="block text-gray-500 mb-1.5">店舗番号</label><input type="text" placeholder="例: 12" value={refFilters.shop_number} onChange={(e) => setRefFilters({...refFilters, shop_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
+                    <div><label className="block text-gray-500 mb-1.5">受注番号</label><input type="text" value={refFilters.order_number} onChange={(e) => setRefFilters({...refFilters, order_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                    <div><label className="block text-gray-500 mb-1.5">顧客名</label><input type="text" value={refFilters.customer_number} onChange={(e) => setRefFilters({...refFilters, customer_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                    <div><label className="block text-gray-500 mb-1.5">店舗コード</label><input type="text" placeholder="例: A1B2C3" value={refFilters.shop_number} onChange={(e) => setRefFilters({...refFilters, shop_number: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
                     <div>
                       <label className="block text-gray-500 mb-1.5">ステータス</label>
-                      <select value={refFilters.status} onChange={(e) => setRefFilters({...refFilters, status: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none bg-white rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400">
+                      <select value={refFilters.status} onChange={(e) => setRefFilters({...refFilters, status: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none bg-white rounded-lg focus:ring-2 focus:ring-blue-100">
                         <option value="">すべて</option>
                         {REF_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                       </select>
                     </div>
                     <div className="flex gap-2">
-                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">From</label><input type="date" value={refFilters.date_start} onChange={(e) => setRefFilters({...refFilters, date_start: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
-                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">To</label><input type="date" value={refFilters.date_end} onChange={(e) => setRefFilters({...refFilters, date_end: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-400" /></div>
+                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">From</label><input type="date" value={refFilters.date_start} onChange={(e) => setRefFilters({...refFilters, date_start: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">To</label><input type="date" value={refFilters.date_end} onChange={(e) => setRefFilters({...refFilters, date_end: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
                     </div>
                   </div>
                   <div className="flex gap-2 justify-end pt-4 border-t border-gray-100">
@@ -458,14 +497,14 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* 一覧上部のサマリーエリア */}
+            {/* サマリー */}
             <div className="flex justify-between items-center mb-4 px-1">
               <div className="text-sm font-bold text-gray-900">検索結果 {filteredReferrals.length} 件該当しました</div>
               <div className="text-sm font-bold text-gray-900">総獲得ポイント {totalFilteredPoints.toLocaleString()} pt</div>
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            {/* テーブル */}
+            {/* リスト */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
@@ -480,21 +519,20 @@ export default function AdminDashboard() {
                     <th className="p-4 font-bold whitespace-nowrap text-right">操作</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 text-sm text-gray-900">
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-900 font-normal">
                   {filteredReferrals.map(ref => {
                     const shop = getShopByShopId(ref.shop_id);
                     const staff = staffs.find(s => s.id === ref.staff_id);
                     const status = REF_STATUS_OPTIONS.find(s => s.value === ref.status) || REF_STATUS_OPTIONS[0];
                     const isDead = ref.status === 'cancel' || ref.status === 'issued';
-                    
                     const totalPt = getReferralPoints(ref);
 
                     return (
-                      <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/50 opacity-75' : 'hover:bg-blue-50/30'}`}>
+                      <tr key={ref.id} className={`transition-colors ${isDead ? 'bg-gray-50/50 opacity-75' : 'hover:bg-gray-50'}`}>
                         <td className="p-4 whitespace-nowrap">{new Date(ref.created_at).toLocaleString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                        <td className="p-4 whitespace-nowrap">{ref.order_number}</td>
+                        <td className="p-4 whitespace-nowrap font-mono">{ref.order_number}</td>
                         <td className="p-4 whitespace-nowrap">
-                          <span className={`px-2.5 py-1 rounded-md text-sm border ${status.bgColor} ${status.color} ${status.border} font-bold inline-flex items-center justify-center min-w-[70px]`}>
+                          <span className={`px-2.5 py-1 rounded-md text-xs border ${status.bgColor} ${status.color} ${status.border} font-bold inline-flex items-center justify-center min-w-[70px]`}>
                             {status.label}
                           </span>
                         </td>
@@ -503,10 +541,10 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap">
                           {staff?.name || '不明'} {ref.customer_name ? `/ ${ref.customer_name} 様 (${ref.recurring_count > 1 ? `定期${ref.recurring_count}回目` : '初回'})` : ''}
                         </td>
-                        <td className="p-4 whitespace-nowrap font-bold">{totalPt.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-bold font-mono">{totalPt.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
-                          <button onClick={() => { setEditingRef({...ref, total_points: totalPt}); setIsRefModalOpen(true); }} className="text-blue-600 hover:text-blue-800 font-bold text-sm bg-blue-50 px-3 py-1.5 rounded-lg transition-colors">
-                            詳細・編集
+                          <button onClick={() => { setEditingRef({...ref, total_points: totalPt}); setIsRefEditMode(false); setIsRefModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                            Detail
                           </button>
                         </td>
                       </tr>
@@ -514,57 +552,86 @@ export default function AdminDashboard() {
                   })}
                 </tbody>
               </table>
-              {filteredReferrals.length === 0 && <div className="p-10 text-center text-gray-400 font-bold">条件に一致する成果がありません</div>}
+              {filteredReferrals.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">条件に一致する成果がありません</div>}
             </div>
           </div>
         )}
 
-        {/* Redemptions */}
+        {/* ポイント交換管理 */}
         {activeTab === 'redemptions' && (
           <div>
+            {/* 検索 */}
+            <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
+              <button onClick={() => setIsRedeemFilterOpen(!isRedeemFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
+                <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
+                {activeRedeemFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeRedeemFilterCount}件適用中</span>}
+              </button>
+              
+              {isRedeemFilterOpen && (
+                <div className="p-5 border-t border-gray-200 bg-white">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 text-sm font-normal">
+                    <div><label className="block text-gray-500 mb-1.5">スタッフ名</label><input type="text" value={redeemFilters.staff_name} onChange={(e) => setRedeemFilters({...redeemFilters, staff_name: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                    <div><label className="block text-gray-500 mb-1.5">店舗名</label><input type="text" value={redeemFilters.shop_name} onChange={(e) => setRedeemFilters({...redeemFilters, shop_name: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                    <div>
+                      <label className="block text-gray-500 mb-1.5">ステータス</label>
+                      <select value={redeemFilters.status} onChange={(e) => setRedeemFilters({...redeemFilters, status: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none bg-white rounded-lg focus:ring-2 focus:ring-blue-100">
+                        <option value="">すべて</option>
+                        {REDEEM_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex gap-2 col-span-2">
+                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">From</label><input type="date" value={redeemFilters.date_start} onChange={(e) => setRedeemFilters({...redeemFilters, date_start: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                      <div className="w-1/2"><label className="block text-gray-500 mb-1.5">To</label><input type="date" value={redeemFilters.date_end} onChange={(e) => setRedeemFilters({...redeemFilters, date_end: e.target.value})} className="w-full border border-gray-300 px-2 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end pt-4 border-t border-gray-100">
+                    <button onClick={handleClearRedeemFilters} className="px-5 py-2 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">クリア</button>
+                    <button onClick={handleRedeemFilter} className="px-5 py-2 text-sm font-bold text-white bg-gray-900 hover:bg-black rounded-lg flex items-center gap-2 transition-colors"><Search className="w-4 h-4"/> 検索する</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* サマリー */}
+            <div className="flex justify-between items-center mb-4 px-1">
+              <div className="text-sm font-bold text-gray-900">検索結果 {filteredRedemptions.length} 件該当しました</div>
+              <div className="text-sm font-bold text-gray-900">総交換ポイント {totalFilteredRedeemedPoints.toLocaleString()} pt</div>
+            </div>
+            <hr className="mb-6 border-gray-300" />
+
+            {/* リスト */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs tracking-wider uppercase">
-                    <th className="p-4 font-bold">申請日時</th>
-                    <th className="p-4 font-bold">ステータス</th>
-                    <th className="p-4 font-bold">申請スタッフ</th>
-                    <th className="p-4 font-bold">交換Pt</th>
-                    <th className="p-4 font-bold">ギフトURL</th>
-                    <th className="p-4 font-bold text-right">操作</th>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
+                    <th className="p-4 font-bold whitespace-nowrap">申請日時</th>
+                    <th className="p-4 font-bold whitespace-nowrap">ステータス</th>
+                    <th className="p-4 font-bold whitespace-nowrap">申請スタッフ</th>
+                    <th className="p-4 font-bold whitespace-nowrap">店舗名</th>
+                    <th className="p-4 font-bold whitespace-nowrap">交換Pt</th>
+                    <th className="p-4 font-bold whitespace-nowrap text-right">操作</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100 text-sm text-gray-900">
-                  {redemptions.map(req => {
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-900 font-normal">
+                  {filteredRedemptions.map(req => {
                     const staff = staffs.find(s => s.id === req.staff_id);
                     const shop = shops.find(s => s.id === req.shop_id);
                     const status = REDEEM_STATUS_OPTIONS.find(s => s.value === req.status) || REDEEM_STATUS_OPTIONS[3];
 
                     return (
                       <tr key={req.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="p-4 font-mono text-gray-500 text-xs">{new Date(req.created_at).toLocaleString('ja-JP')}</td>
-                        <td className="p-4">
+                        <td className="p-4 whitespace-nowrap">{new Date(req.created_at).toLocaleString('ja-JP')}</td>
+                        <td className="p-4 whitespace-nowrap">
                           <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${status.bgColor} ${status.color}`}>
                             {status.label}
                           </span>
                         </td>
-                        <td className="p-4">
-                          <div className="flex flex-col">
-                            <span>{staff?.name || '不明'}</span>
-                            <span className="text-xs text-gray-400">{shop?.name || '不明'}</span>
-                          </div>
-                        </td>
-                        <td className="p-4 font-mono font-bold">{Number(req.points_consumed).toLocaleString()}</td>
-                        <td className="p-4">
-                          {req.gift_url ? (
-                            <a href={req.gift_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1 text-xs">
-                              URLを開く <LinkIcon className="w-3 h-3"/>
-                            </a>
-                          ) : <span className="text-gray-400 text-xs">-</span>}
-                        </td>
-                        <td className="p-4 text-right">
-                          <button onClick={() => alert(JSON.stringify(req.error_details || 'エラー詳細はありません', null, 2))} className="text-gray-500 hover:text-gray-900 text-xs font-bold">
-                            ログ確認
+                        <td className="p-4 whitespace-nowrap">{staff?.name || '不明'}</td>
+                        <td className="p-4 whitespace-nowrap">{shop?.name || '不明'}</td>
+                        <td className="p-4 whitespace-nowrap font-bold font-mono">{Number(req.points_consumed).toLocaleString()}</td>
+                        <td className="p-4 text-right whitespace-nowrap">
+                          <button onClick={() => { setEditingRedeem(req); setIsRedeemEditMode(false); setIsRedeemModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                            Detail
                           </button>
                         </td>
                       </tr>
@@ -572,88 +639,97 @@ export default function AdminDashboard() {
                   })}
                 </tbody>
               </table>
-              {redemptions.length === 0 && <div className="p-10 text-center text-gray-400 font-bold">ポイント交換履歴がありません</div>}
+              {filteredRedemptions.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">ポイント交換履歴がありません</div>}
             </div>
           </div>
         )}
 
-        {/* Users */}
+        {/* ユーザー・店舗管理 */}
         {activeTab === 'users' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-end mb-4">
-              <p className="text-sm text-gray-500 font-bold">登録されている店舗と、そこに所属するメンバーを管理します。</p>
-            </div>
-
-            {shops.map(shop => {
-              const shopStaffs = staffs.filter(s => s.shop_id === shop.id && !s.is_deleted)
-              const isExpanded = expandedShopId === shop.id
-              const category = categories.find(c => c.id === shop.category_id)
-
-              return (
-                <div key={shop.id} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                  <div 
-                    onClick={() => setExpandedShopId(isExpanded ? null : shop.id)}
-                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center shrink-0">
-                        <Building className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-base flex items-center gap-2">
-                          {shop.name} <span className="text-xs font-mono text-gray-400 font-normal">No.{shop.shop_number}</span>
-                        </h3>
-                        <p className="text-xs text-gray-500 mt-1 font-normal">
-                          オーナー: {shop.owner_email} / 所属: {shopStaffs.length}名 / {category?.label || 'カテゴリ未設定'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); openShopEditModal(shop.id); }} 
-                        className="text-xs font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg transition-colors"
-                      >
-                        店舗を編集
-                      </button>
-                      <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          <div>
+            {/* 検索 */}
+            <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
+              <button onClick={() => setIsShopFilterOpen(!isShopFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
+                <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
+                {activeShopFilterCount > 0 && <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full text-xs">{activeShopFilterCount}件適用中</span>}
+              </button>
+              
+              {isShopFilterOpen && (
+                <div className="p-5 border-t border-gray-200 bg-white">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 text-sm font-normal">
+                    <div><label className="block text-gray-500 mb-1.5">店舗名</label><input type="text" value={shopFilters.shop_name} onChange={(e) => setShopFilters({...shopFilters, shop_name: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                    <div><label className="block text-gray-500 mb-1.5">店舗コード</label><input type="text" placeholder="例: A1B2C3" value={shopFilters.invite_token} onChange={(e) => setShopFilters({...shopFilters, invite_token: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
+                    <div>
+                      <label className="block text-gray-500 mb-1.5">カテゴリ</label>
+                      <select value={shopFilters.category_id} onChange={(e) => setShopFilters({...shopFilters, category_id: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none bg-white rounded-lg focus:ring-2 focus:ring-blue-100">
+                        <option value="">すべて</option>
+                        {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                      </select>
                     </div>
                   </div>
-
-                  {isExpanded && (
-                    <div className="border-t border-gray-100 bg-gray-50/50 p-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {shopStaffs.map(staff => (
-                          <div key={staff.id} className="bg-white p-4 border border-gray-200 rounded-lg flex flex-col gap-3 shadow-sm">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <div className="w-8 h-8 bg-gray-100 text-gray-600 rounded-full flex items-center justify-center text-xs font-bold">
-                                  {staff.name.charAt(0)}
-                                </div>
-                                <div>
-                                  <p className="text-sm font-bold text-gray-900">{staff.name}</p>
-                                  <p className="text-[10px] text-gray-500 font-mono">{staff.email}</p>
-                                </div>
-                              </div>
-                              {staff.email === shop.owner_email && <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">オーナー</span>}
-                            </div>
-                            <div className="flex gap-2">
-                              <button onClick={() => handleCopyUrl(staff.secret_token, 'staff')} className="flex-1 py-1.5 bg-gray-50 border border-gray-200 text-gray-700 text-xs font-bold rounded flex items-center justify-center gap-1.5 hover:bg-gray-100 transition-colors">
-                                <LinkIcon className="w-3 h-3" /> マイページURL
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="mt-4 flex justify-end">
-                        <button onClick={() => handleCopyUrl(shop.invite_token, 'invite')} className="text-xs font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                          <LinkIcon className="w-3 h-3" /> この店舗のスタッフ招待URLをコピー
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                  <div className="flex gap-2 justify-end pt-4 border-t border-gray-100">
+                    <button onClick={handleClearShopFilters} className="px-5 py-2 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">クリア</button>
+                    <button onClick={handleShopFilter} className="px-5 py-2 text-sm font-bold text-white bg-gray-900 hover:bg-black rounded-lg flex items-center gap-2 transition-colors"><Search className="w-4 h-4"/> 検索する</button>
+                  </div>
                 </div>
-              )
-            })}
+              )}
+            </div>
+
+            {/* サマリー */}
+            <div className="flex justify-between items-center mb-4 px-1">
+              <div className="text-sm font-bold text-gray-900">検索結果 {filteredShops.length} 店舗該当しました</div>
+              <div className="text-sm font-bold text-gray-900">所属メンバー合計 {totalFilteredMembers} 名</div>
+            </div>
+            <hr className="mb-6 border-gray-300" />
+
+            {/* リスト */}
+            <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
+                    <th className="p-4 font-bold whitespace-nowrap">店舗名</th>
+                    <th className="p-4 font-bold whitespace-nowrap">店舗コード</th>
+                    <th className="p-4 font-bold whitespace-nowrap">カテゴリ</th>
+                    <th className="p-4 font-bold whitespace-nowrap">オーナー名</th>
+                    <th className="p-4 font-bold whitespace-nowrap">メンバー数</th>
+                    <th className="p-4 font-bold whitespace-nowrap">総獲得Pt</th>
+                    <th className="p-4 font-bold whitespace-nowrap">総交換Pt</th>
+                    <th className="p-4 font-bold whitespace-nowrap text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm text-gray-900 font-normal">
+                  {filteredShops.map(shop => {
+                    const shopStaffs = staffs.filter(s => s.shop_id === shop.id && !s.is_deleted)
+                    const owner = shopStaffs.find(s => s.role === 'owner')
+                    const category = categories.find(c => c.id === shop.category_id)
+                    
+                    const shopReferrals = referrals.filter(r => r.shop_id === shop.id)
+                    const shopEarned = shopReferrals.reduce((sum, r) => sum + getReferralPoints(r), 0)
+                    
+                    const shopRedeems = redemptions.filter(r => r.shop_id === shop.id && r.status === 'completed')
+                    const shopRedeemed = shopRedeems.reduce((sum, r) => sum + Number(r.points_consumed), 0)
+
+                    return (
+                      <tr key={shop.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="p-4 whitespace-nowrap">{shop.name}</td>
+                        <td className="p-4 whitespace-nowrap font-mono">{shop.invite_token}</td>
+                        <td className="p-4 whitespace-nowrap">{category?.label || '未設定'}</td>
+                        <td className="p-4 whitespace-nowrap">{owner?.name || shop.owner_email}</td>
+                        <td className="p-4 whitespace-nowrap font-mono">{shopStaffs.length}</td>
+                        <td className="p-4 whitespace-nowrap font-mono font-bold text-emerald-600">{shopEarned.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-mono font-bold text-blue-600">{shopRedeemed.toLocaleString()}</td>
+                        <td className="p-4 text-right whitespace-nowrap">
+                          <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
+                            Detail
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              {filteredShops.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">条件に一致する店舗がありません</div>}
+            </div>
           </div>
         )}
 
@@ -846,17 +922,24 @@ export default function AdminDashboard() {
       {/* =========================================
           モーダル類
       ========================================= */}
-      {/* 詳細情報・成果編集モーダル */}
+
+      {/* --- 成果詳細・編集モーダル --- */}
       {isRefModalOpen && editingRef && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900">詳細情報・成果編集</h3>
-              <button onClick={() => setIsRefModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+              <h3 className="text-lg font-bold text-gray-900">成果情報 Detail</h3>
+              <div className="flex items-center gap-2">
+                {!isRefEditMode && (
+                  <button onClick={() => setIsRefEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
+                    <Edit2 className="w-4 h-4"/> 編集
+                  </button>
+                )}
+                <button onClick={() => setIsRefModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+              </div>
             </div>
             
             <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
-              
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">発生日時</label>
                 <div className="col-span-2 text-gray-900 text-sm font-mono">{new Date(editingRef.created_at).toLocaleString('ja-JP')}</div>
@@ -886,65 +969,58 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">担当スタッフ</label>
                 <div className="col-span-2 text-gray-900 text-sm">
-                  {staffs.find(s => s.id === editingRef.staff_id)?.name || '不明'}
+                  {getStaffName(editingRef.staff_id)}
                 </div>
               </div>
 
-              {/* 紹介URL (読取専用) */}
               <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">紹介URL</label>
                 <div className="col-span-2">
-                  <div className="flex items-center gap-2 text-blue-600 text-xs break-all bg-white p-2 border border-gray-200 rounded">
+                  <div className="flex items-center gap-2 text-gray-900 text-xs break-all bg-white p-2 border border-gray-200 rounded">
                     <span>https://duacel.net/welcome/ref_{staffs.find(s => s.id === editingRef.staff_id)?.referral_code}</span>
-                    <button onClick={() => {
-                      navigator.clipboard.writeText(`https://duacel.net/welcome/ref_${staffs.find(s => s.id === editingRef.staff_id)?.referral_code}`);
-                      alert('URLをコピーしました');
-                    }} className="shrink-0 text-gray-400 hover:text-blue-600"><Copy className="w-3 h-3"/></button>
                   </div>
                 </div>
               </div>
 
-              {/* 編集可能: 獲得ポイント */}
-              <div className="grid grid-cols-3 gap-3 items-center">
-                <label className="text-gray-900 text-sm font-bold">獲得ポイント</label>
-                <div className="col-span-2 flex items-center gap-2">
-                  <input 
-                    type="number"
-                    className="border border-gray-300 p-2 rounded w-full text-gray-900 text-sm font-mono outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
-                    value={editingRef.total_points || 0} 
-                    onChange={(e) => setEditingRef({...editingRef, total_points: Number(e.target.value)})} 
-                  />
-                  <span className="text-gray-900 text-sm">pt</span>
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">獲得ポイント</label>
+                <div className="col-span-2 text-gray-900 text-sm font-mono font-bold">
+                  {isRefEditMode ? (
+                    <input 
+                      type="number"
+                      className="border border-gray-300 p-2 rounded w-full outline-none focus:ring-2 focus:ring-blue-100 bg-white" 
+                      value={editingRef.total_points || 0} 
+                      onChange={(e) => setEditingRef({...editingRef, total_points: Number(e.target.value)})} 
+                    />
+                  ) : (
+                    <span>{Number(editingRef.total_points).toLocaleString()} pt</span>
+                  )}
                 </div>
               </div>
 
-            </div>
-
-            {/* 編集可能: ステータス更新 */}
-            <div className="space-y-4 mb-8">
-              {editingRef.status === 'cancel' || editingRef.status === 'issued' ? (
-                <div className="bg-gray-100 border border-gray-300 rounded-xl p-4 text-sm text-gray-600 font-bold text-center">
-                  {editingRef.status === 'cancel' ? 'キャンセル済（ステータス変更不可）' : '分配済（ステータス変更不可）'}
+              <div className="grid grid-cols-3 gap-3 items-center">
+                <label className="text-gray-500 text-sm font-bold">ステータス</label>
+                <div className="col-span-2 text-gray-900 text-sm font-bold">
+                  {isRefEditMode ? (
+                    <select 
+                      value={editingRef.status} 
+                      onChange={(e) => setEditingRef({...editingRef, status: e.target.value, cancel_reason: e.target.value !== 'cancel' ? '' : editingRef.cancel_reason})} 
+                      className="w-full border border-gray-300 rounded-lg p-2 outline-none bg-white focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="pending">仮計上</option>
+                      <option value="confirmed">報酬確定</option>
+                      <option value="cancel">キャンセル (没収)</option>
+                    </select>
+                  ) : (
+                    <span>{REF_STATUS_OPTIONS.find(o => o.value === editingRef.status)?.label}</span>
+                  )}
                 </div>
-              ) : (
-                <div>
-                  <label className="block text-sm text-gray-900 mb-2 font-bold">ステータス更新</label>
-                  <select 
-                    value={editingRef.status} 
-                    onChange={(e) => setEditingRef({...editingRef, status: e.target.value, cancel_reason: e.target.value !== 'cancel' ? '' : editingRef.cancel_reason})} 
-                    className="w-full border border-gray-300 rounded-lg p-3 text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-100"
-                  >
-                    <option value="pending">仮計上</option>
-                    <option value="confirmed">報酬確定</option>
-                    <option value="cancel">キャンセル (没収)</option>
-                  </select>
-                </div>
-              )}
+              </div>
 
-              {editingRef.status === 'cancel' && (
+              {isRefEditMode && editingRef.status === 'cancel' && (
                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
-                  <label className="flex items-center gap-1 text-sm text-red-600 font-bold mb-2 mt-4"><AlertTriangle className="w-4 h-4"/>キャンセル事由</label>
-                  <select value={editingRef.cancel_reason || ''} onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})} className="w-full border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-800 outline-none rounded-lg">
+                  <label className="flex items-center gap-1 text-sm text-red-600 font-bold mb-2 mt-2"><AlertTriangle className="w-4 h-4"/>キャンセル事由</label>
+                  <select value={editingRef.cancel_reason || ''} onChange={(e) => setEditingRef({...editingRef, cancel_reason: e.target.value})} className="w-full border border-red-300 bg-red-50 p-2 text-sm font-bold text-red-800 outline-none rounded-lg">
                     <option value="">選択してください</option>
                     {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
@@ -952,36 +1028,192 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setIsRefModalOpen(false)} className="px-5 py-2.5 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
-              <button onClick={() => handleRefModalSave(editingRef)} disabled={isProcessing} className="px-5 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
-                {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 更新を保存
-              </button>
-            </div>
+            {isRefEditMode ? (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsRefEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+                <button onClick={() => handleRefModalSave(editingRef)} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsRefModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* 店舗情報の編集モーダル */}
+      {/* --- 店舗詳細・編集モーダル --- */}
       {isShopModalOpen && editingShop && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="text-lg font-bold text-gray-900 mb-6">店舗情報の編集 (No.{editingShop.shop_number})</h3>
-            <div className="space-y-4 mb-8 text-sm font-normal">
-              <div><label className="block text-gray-500 mb-1.5 font-bold">店舗名</label><input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
-              <div><label className="block text-gray-500 mb-1.5 font-bold">電話番号</label><input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none focus:ring-2 focus:ring-blue-100 font-bold" /></div>
-              <div>
-                <label className="block text-gray-500 mb-1.5 font-bold">設定カテゴリ</label>
-                <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded-lg p-3 outline-none bg-white focus:ring-2 focus:ring-blue-100 font-bold">
-                  <option value="">未設定</option>
-                  {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">店舗情報 Detail</h3>
+              <div className="flex items-center gap-2">
+                {!isShopEditMode && (
+                  <button onClick={() => setIsShopEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
+                    <Edit2 className="w-4 h-4"/> 編集
+                  </button>
+                )}
+                <button onClick={() => setIsShopModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
               </div>
             </div>
-            <div className="flex gap-3 justify-end">
-              <button onClick={() => setIsShopModalOpen(false)} className="px-5 py-2.5 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button onClick={() => handleShopModalSave(editingShop)} disabled={isProcessing} className="px-5 py-2.5 bg-gray-900 text-white font-bold rounded-lg hover:bg-black transition-colors disabled:opacity-50">保存</button>
+            
+            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">店舗名</label>
+                <div className="col-span-2 text-gray-900 text-sm font-bold">
+                  {isShopEditMode ? (
+                    <input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 font-bold bg-white" />
+                  ) : (
+                    editingShop.name
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">店舗コード</label>
+                <div className="col-span-2 text-gray-900 text-sm font-mono">{editingShop.invite_token}</div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">電話番号</label>
+                <div className="col-span-2 text-gray-900 text-sm">
+                  {isShopEditMode ? (
+                    <input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
+                  ) : (
+                    editingShop.phone || '未登録'
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">カテゴリ</label>
+                <div className="col-span-2 text-gray-900 text-sm">
+                  {isShopEditMode ? (
+                    <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none bg-white focus:ring-2 focus:ring-blue-100">
+                      <option value="">未設定</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                  ) : (
+                    categories.find(c => c.id === editingShop.category_id)?.label || '未設定'
+                  )}
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-3 items-start">
+                <label className="text-gray-500 text-sm font-bold">所属メンバー</label>
+                <div className="col-span-2 space-y-2">
+                  {staffs.filter(s => s.shop_id === editingShop.id && !s.is_deleted).map(staff => (
+                    <div key={staff.id} className="p-2 border border-gray-200 bg-white rounded flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-gray-900">{staff.name}</span>
+                        {staff.role === 'owner' && <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">オーナー</span>}
+                      </div>
+                      <span className="text-xs text-gray-500 font-mono">ref_{staff.referral_code}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
+
+            {isShopEditMode ? (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsShopEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+                <button onClick={() => handleShopModalSave(editingShop)} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsShopModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- ポイント交換 詳細・編集モーダル --- */}
+      {isRedeemModalOpen && editingRedeem && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">ポイント交換 Detail</h3>
+              <div className="flex items-center gap-2">
+                {!isRedeemEditMode && (
+                  <button onClick={() => setIsRedeemEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
+                    <Edit2 className="w-4 h-4"/> 編集
+                  </button>
+                )}
+                <button onClick={() => setIsRedeemModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">申請日時</label>
+                <div className="col-span-2 text-gray-900 text-sm font-mono">{new Date(editingRedeem.created_at).toLocaleString('ja-JP')}</div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">店舗 / スタッフ</label>
+                <div className="col-span-2 text-gray-900 text-sm">
+                  {getShopByShopId(editingRedeem.shop_id)?.name || '不明'} / {getStaffName(editingRedeem.staff_id)}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">交換ポイント</label>
+                <div className="col-span-2 text-gray-900 text-sm font-mono font-bold">{Number(editingRedeem.points_consumed).toLocaleString()} pt</div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">ギフトURL</label>
+                <div className="col-span-2 text-gray-900 text-sm break-all">
+                  {isRedeemEditMode ? (
+                    <input type="text" value={editingRedeem.gift_url || ''} onChange={(e) => setEditingRedeem({...editingRedeem, gift_url: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white font-mono text-xs" placeholder="https://" />
+                  ) : (
+                    editingRedeem.gift_url ? (
+                      <a href={editingRedeem.gift_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{editingRedeem.gift_url}</a>
+                    ) : '未発行'
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">ステータス</label>
+                <div className="col-span-2 text-gray-900 text-sm font-bold">
+                  {isRedeemEditMode ? (
+                    <select value={editingRedeem.status} onChange={(e) => setEditingRedeem({...editingRedeem, status: e.target.value})} className="w-full border border-gray-300 rounded-lg p-2 outline-none bg-white focus:ring-2 focus:ring-blue-100">
+                      {REDEEM_STATUS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  ) : (
+                    <span>{REDEEM_STATUS_OPTIONS.find(o => o.value === editingRedeem.status)?.label}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-start">
+                <label className="text-gray-500 text-sm font-bold">エラーログ</label>
+                <div className="col-span-2 text-gray-500 text-xs font-mono bg-white p-2 border border-gray-200 rounded h-24 overflow-y-auto whitespace-pre-wrap">
+                  {editingRedeem.error_details ? JSON.stringify(editingRedeem.error_details, null, 2) : 'なし'}
+                </div>
+              </div>
+            </div>
+
+            {isRedeemEditMode ? (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsRedeemEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+                <button onClick={() => handleRedeemModalSave(editingRedeem)} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsRedeemModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
+              </div>
+            )}
           </div>
         </div>
       )}
