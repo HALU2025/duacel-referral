@@ -5,8 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { 
   RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Link as LinkIcon,
-  BarChart3, Users, Store, Gift, Settings, ChevronDown,
-  Building, LogOut, Shield, Edit2, CheckCircle2, Copy, Eye
+  BarChart3, Users, Gift, Settings, ChevronDown,
+  Building, LogOut, Shield, Edit2, CheckCircle2, Copy 
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createAdminUserAction } from '@/app/actions/admin'
@@ -15,6 +15,8 @@ import { clearAdminSessionCookie } from '@/app/actions/admin-auth'
 // ==========================================
 // 1. 定数・型定義
 // ==========================================
+type TabType = 'referrals' | 'redemptions' | 'users' | 'settings' | 'admins';
+
 const REF_STATUS_OPTIONS = [
   { value: 'pending', label: '仮計上', bgColor: 'bg-amber-100', color: 'text-amber-800', border: 'border-amber-200' },
   { value: 'confirmed', label: '報酬確定', bgColor: 'bg-emerald-100', color: 'text-emerald-800', border: 'border-emerald-200' },
@@ -37,7 +39,7 @@ const CANCEL_REASONS = [
   'その他'
 ]
 
-const PAGE_TITLES: Record<string, { label: string, icon: any }> = {
+const PAGE_TITLES: Record<TabType, { label: string, icon: JSX.Element }> = {
   referrals: { label: '成果一覧', icon: <BarChart3 className="w-5 h-5" /> },
   redemptions: { label: 'ポイント交換管理', icon: <Gift className="w-5 h-5" /> },
   users: { label: 'ユーザー・店舗管理', icon: <Users className="w-5 h-5" /> },
@@ -51,7 +53,7 @@ export default function AdminDashboard() {
   // ==========================================
   // 2. ステート管理
   // ==========================================
-  const [activeTab, setActiveTab] = useState<'referrals' | 'redemptions' | 'users' | 'settings' | 'admins'>('referrals')
+  const [activeTab, setActiveTab] = useState<TabType>('referrals')
   
   const [referrals, setReferrals] = useState<any[]>([])
   const [redemptions, setRedemptions] = useState<any[]>([])
@@ -66,7 +68,7 @@ export default function AdminDashboard() {
   const [authError, setAuthError] = useState('')
   const [currentUserId, setCurrentUserId] = useState('')
 
-  // --- 検索・フィルター用 ---
+  // 検索・フィルター用
   const [refFilters, setRefFilters] = useState({ order_number: '', customer_number: '', shop_number: '', status: '', date_start: '', date_end: '' })
   const [filteredReferrals, setFilteredReferrals] = useState<any[]>([])
   const [isRefFilterOpen, setIsRefFilterOpen] = useState(false)
@@ -79,7 +81,7 @@ export default function AdminDashboard() {
   const [filteredShops, setFilteredShops] = useState<any[]>([])
   const [isShopFilterOpen, setIsShopFilterOpen] = useState(false)
 
-  // --- モーダル・UI用 ---
+  // モーダル・UI用
   const [isRefModalOpen, setIsRefModalOpen] = useState(false)
   const [editingRef, setEditingRef] = useState<any>(null)
   const [isRefEditMode, setIsRefEditMode] = useState(false)
@@ -94,7 +96,6 @@ export default function AdminDashboard() {
 
   const [editingCategories, setEditingCategories] = useState<any[]>([])
 
-  // --- その他設定用 ---
   const [isEditingSettings, setIsEditingSettings] = useState(false)
   const [showAddAdminForm, setShowAddAdminForm] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
@@ -153,16 +154,24 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // ヘルパー関数
+  // 高速化：ポイント計算の事前処理
   // ==========================================
+  const oldestRefMap = useMemo(() => {
+    const map = new Map<string, string>();
+    const validRefs = [...referrals].filter(r => r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    validRefs.forEach(r => {
+      if (!map.has(r.shop_id)) map.set(r.shop_id, r.id);
+    });
+    return map;
+  }, [referrals]);
+
   const getShopByShopId = (shopId: string) => shops.find(s => s.id === shopId)
-  
   const getStaffName = (staffId: string) => staffs.find(s => s.id === staffId)?.name || '不明'
 
   const getReferralPoints = (ref: any) => {
     const shop = getShopByShopId(ref.shop_id);
     const refTxs = pointTransactions.filter(tx => tx.referral_id === ref.id);
-    const isOldest = referrals.filter(r => r.shop_id === ref.shop_id && r.status !== 'cancel').sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0]?.id === ref.id;
+    const isOldest = oldestRefMap.get(ref.shop_id) === ref.id;
     const isFirstTime = ref.status !== 'cancel' && (refTxs.length > 0 ? refTxs.some(tx => tx.metadata?.is_bonus) : isOldest);
     const category = categories.find(r => r.id === shop?.category_id);
     const standardPt = Number(category?.reward_points) || 0;
@@ -178,7 +187,7 @@ export default function AdminDashboard() {
     if (refFilters.order_number) result = result.filter(r => r.order_number?.includes(refFilters.order_number))
     if (refFilters.customer_number) result = result.filter(r => r.customer_name?.includes(refFilters.customer_number))
     if (refFilters.shop_number) {
-      const targetShop = shops.find(s => String(s.invite_token) === refFilters.shop_number) // invite_tokenで検索
+      const targetShop = shops.find(s => String(s.invite_token) === refFilters.shop_number) 
       if (targetShop) result = result.filter(r => r.shop_id === targetShop.id)
       else result = []
     }
@@ -326,7 +335,6 @@ export default function AdminDashboard() {
     setIsProcessing(false)
   }
 
-  // 管理者設定・ポイント設定などの関数
   const handleAddAdmin = async (e: React.FormEvent) => {
     e.preventDefault()
     if (newAdminPassword.length < 6) { alert('パスワードは6文字以上にしてください。'); return; }
@@ -425,13 +433,13 @@ export default function AdminDashboard() {
         </div>
         
         <nav className="flex md:flex-col gap-1 p-4 overflow-x-auto md:overflow-x-visible">
-          {Object.entries(PAGE_TITLES).map(([id, item]) => (
+          {(Object.keys(PAGE_TITLES) as TabType[]).map((id) => (
             <button 
               key={id} 
-              onClick={() => setActiveTab(id as any)} 
+              onClick={() => setActiveTab(id)} 
               className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-bold whitespace-nowrap transition-colors ${activeTab === id ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'}`}
             >
-              {item.icon} {item.label}
+              {PAGE_TITLES[id].icon} {PAGE_TITLES[id].label}
             </button>
           ))}
         </nav>
@@ -464,7 +472,6 @@ export default function AdminDashboard() {
         {/* 成果一覧 */}
         {activeTab === 'referrals' && (
           <div>
-            {/* 検索 */}
             <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setIsRefFilterOpen(!isRefFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
@@ -497,14 +504,12 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* サマリー */}
             <div className="flex justify-between items-center mb-4 px-1">
               <div className="text-sm font-bold text-gray-900">検索結果 {filteredReferrals.length} 件該当しました</div>
               <div className="text-sm font-bold text-gray-900">総獲得ポイント {totalFilteredPoints.toLocaleString()} pt</div>
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            {/* リスト */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
@@ -560,7 +565,6 @@ export default function AdminDashboard() {
         {/* ポイント交換管理 */}
         {activeTab === 'redemptions' && (
           <div>
-            {/* 検索 */}
             <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setIsRedeemFilterOpen(!isRedeemFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
@@ -592,14 +596,12 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* サマリー */}
             <div className="flex justify-between items-center mb-4 px-1">
               <div className="text-sm font-bold text-gray-900">検索結果 {filteredRedemptions.length} 件該当しました</div>
               <div className="text-sm font-bold text-gray-900">総交換ポイント {totalFilteredRedeemedPoints.toLocaleString()} pt</div>
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            {/* リスト */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
@@ -647,7 +649,6 @@ export default function AdminDashboard() {
         {/* ユーザー・店舗管理 */}
         {activeTab === 'users' && (
           <div>
-            {/* 検索 */}
             <div className="bg-white border border-gray-200 rounded-xl mb-12 shadow-sm overflow-hidden transition-all">
               <button onClick={() => setIsShopFilterOpen(!isShopFilterOpen)} className="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50 transition-colors text-sm font-bold text-gray-900 text-left">
                 <span className="flex items-center gap-2"><Filter className="w-4 h-4" /> 検索・絞り込み</span>
@@ -675,14 +676,12 @@ export default function AdminDashboard() {
               )}
             </div>
 
-            {/* サマリー */}
             <div className="flex justify-between items-center mb-4 px-1">
               <div className="text-sm font-bold text-gray-900">検索結果 {filteredShops.length} 店舗該当しました</div>
               <div className="text-sm font-bold text-gray-900">所属メンバー合計 {totalFilteredMembers} 名</div>
             </div>
             <hr className="mb-6 border-gray-300" />
 
-            {/* リスト */}
             <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto shadow-sm">
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
@@ -923,7 +922,7 @@ export default function AdminDashboard() {
           モーダル類
       ========================================= */}
 
-      {/* --- 成果詳細・編集モーダル --- */}
+      {/* --- 成果 Detail モーダル --- */}
       {isRefModalOpen && editingRef && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
@@ -976,7 +975,7 @@ export default function AdminDashboard() {
               <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
                 <label className="text-gray-500 text-sm font-bold">紹介URL</label>
                 <div className="col-span-2">
-                  <div className="flex items-center gap-2 text-gray-900 text-xs break-all bg-white p-2 border border-gray-200 rounded">
+                  <div className="flex items-center gap-2 text-gray-900 text-xs break-all bg-white p-2 border border-gray-200 rounded font-mono">
                     <span>https://duacel.net/welcome/ref_{staffs.find(s => s.id === editingRef.staff_id)?.referral_code}</span>
                   </div>
                 </div>
@@ -1044,97 +1043,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- 店舗詳細・編集モーダル --- */}
-      {isShopModalOpen && editingShop && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900">店舗情報 Detail</h3>
-              <div className="flex items-center gap-2">
-                {!isShopEditMode && (
-                  <button onClick={() => setIsShopEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
-                    <Edit2 className="w-4 h-4"/> 編集
-                  </button>
-                )}
-                <button onClick={() => setIsShopModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
-              </div>
-            </div>
-            
-            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
-              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">店舗名</label>
-                <div className="col-span-2 text-gray-900 text-sm font-bold">
-                  {isShopEditMode ? (
-                    <input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 font-bold bg-white" />
-                  ) : (
-                    editingShop.name
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">店舗コード</label>
-                <div className="col-span-2 text-gray-900 text-sm font-mono">{editingShop.invite_token}</div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">電話番号</label>
-                <div className="col-span-2 text-gray-900 text-sm">
-                  {isShopEditMode ? (
-                    <input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
-                  ) : (
-                    editingShop.phone || '未登録'
-                  )}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">カテゴリ</label>
-                <div className="col-span-2 text-gray-900 text-sm">
-                  {isShopEditMode ? (
-                    <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none bg-white focus:ring-2 focus:ring-blue-100">
-                      <option value="">未設定</option>
-                      {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                    </select>
-                  ) : (
-                    categories.find(c => c.id === editingShop.category_id)?.label || '未設定'
-                  )}
-                </div>
-              </div>
-              
-              <div className="grid grid-cols-3 gap-3 items-start">
-                <label className="text-gray-500 text-sm font-bold">所属メンバー</label>
-                <div className="col-span-2 space-y-2">
-                  {staffs.filter(s => s.shop_id === editingShop.id && !s.is_deleted).map(staff => (
-                    <div key={staff.id} className="p-2 border border-gray-200 bg-white rounded flex flex-col gap-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-sm text-gray-900">{staff.name}</span>
-                        {staff.role === 'owner' && <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded">オーナー</span>}
-                      </div>
-                      <span className="text-xs text-gray-500 font-mono">ref_{staff.referral_code}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {isShopEditMode ? (
-              <div className="flex gap-3 justify-end">
-                <button onClick={() => setIsShopEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-                <button onClick={() => handleShopModalSave(editingShop)} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
-                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-3 justify-end">
-                <button onClick={() => setIsShopModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* --- ポイント交換 詳細・編集モーダル --- */}
+      {/* --- ポイント交換 Detail モーダル --- */}
       {isRedeemModalOpen && editingRedeem && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
@@ -1212,6 +1121,98 @@ export default function AdminDashboard() {
             ) : (
               <div className="flex gap-3 justify-end">
                 <button onClick={() => setIsRedeemModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* --- 店舗 Detail モーダル --- */}
+      {isShopModalOpen && editingShop && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xl shadow-2xl my-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">店舗情報 Detail</h3>
+              <div className="flex items-center gap-2">
+                {!isShopEditMode && (
+                  <button onClick={() => setIsShopEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
+                    <Edit2 className="w-4 h-4"/> 編集
+                  </button>
+                )}
+                <button onClick={() => setIsShopModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+              </div>
+            </div>
+            
+            <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">店舗名</label>
+                <div className="col-span-2 text-gray-900 text-sm font-bold">
+                  {isShopEditMode ? (
+                    <input type="text" value={editingShop.name} onChange={(e) => setEditingShop({...editingShop, name: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
+                  ) : (
+                    editingShop.name
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">店舗コード (URL共通)</label>
+                <div className="col-span-2 text-gray-900 text-sm font-mono">
+                  {editingShop.invite_token}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">電話番号</label>
+                <div className="col-span-2 text-gray-900 text-sm">
+                  {isShopEditMode ? (
+                    <input type="tel" value={editingShop.phone || ''} onChange={(e) => setEditingShop({...editingShop, phone: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" />
+                  ) : (
+                    editingShop.phone || '未登録'
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">カテゴリ</label>
+                <div className="col-span-2 text-gray-900 text-sm">
+                  {isShopEditMode ? (
+                    <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none bg-white focus:ring-2 focus:ring-blue-100">
+                      <option value="">未設定</option>
+                      {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                  ) : (
+                    categories.find(c => c.id === editingShop.category_id)?.label || '未設定'
+                  )}
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-3 items-start">
+                <label className="text-gray-500 text-sm font-bold">所属メンバー</label>
+                <div className="col-span-2 space-y-2 max-h-40 overflow-y-auto">
+                  {staffs.filter(s => s.shop_id === editingShop.id && !s.is_deleted).map(staff => (
+                    <div key={staff.id} className="p-2 border border-gray-200 bg-white rounded flex flex-col gap-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-gray-900">{staff.name}</span>
+                        {staff.role === 'owner' && <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-bold">オーナー</span>}
+                      </div>
+                      <span className="text-xs text-gray-500 font-mono">ref_{staff.referral_code}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {isShopEditMode ? (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsShopEditMode(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+                <button onClick={() => handleShopModalSave(editingShop)} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                  {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-3 justify-end">
+                <button onClick={() => setIsShopModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
               </div>
             )}
           </div>
