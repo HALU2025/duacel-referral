@@ -464,7 +464,7 @@ export default function MemberMagicPage() {
     }
   }
 
-  // ★ 追加：LINE連携を実行する関数
+// ★ 修正版：LINE連携を実行する関数
   const handleConnectLine = async () => {
     setIsLiffLoading(true)
     try {
@@ -472,13 +472,17 @@ export default function MemberMagicPage() {
       if (!liffId) throw new Error('LIFF IDが設定されていません')
 
       await liff.init({ liffId })
+      
+      // 未ログインの場合は、現在のURLをリダイレクト先に指定してログイン画面へ
       if (!liff.isLoggedIn()) {
         liff.login({ redirectUri: window.location.href })
-        return
+        return // ここで処理が中断され、LINEの画面へ遷移します
       }
 
+      // ログイン済みの場合はプロフィールを取得
       const liffProfile = await liff.getProfile()
       
+      // データベースを更新
       const { error } = await supabase
         .from('staffs')
         .update({
@@ -492,6 +496,7 @@ export default function MemberMagicPage() {
 
       alert('LINEとの連携が完了しました！')
       window.location.reload() // データ再取得のためにリロード
+      
     } catch (err: any) {
       alert('LINE連携に失敗しました: ' + err.message)
     } finally {
