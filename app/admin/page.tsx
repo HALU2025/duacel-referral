@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, ReactNode } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { 
-  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, 
+  RefreshCw, Loader2, Search, Filter, AlertTriangle, X, Plus, Link as LinkIcon,
   BarChart3, Users, Gift, Settings, ChevronDown, Trash2, ArrowRight,
   Building, LogOut, Shield, Edit2, CheckCircle2 
 } from 'lucide-react'
@@ -43,7 +43,7 @@ const PAGE_TITLES: Record<TabType, { label: string, icon: ReactNode }> = {
   referrals: { label: '成果一覧', icon: <BarChart3 className="w-5 h-5" /> },
   redemptions: { label: 'ポイント交換管理', icon: <Gift className="w-5 h-5" /> },
   users: { label: 'ユーザー・店舗管理', icon: <Users className="w-5 h-5" /> },
-  settings: { label: 'ポイント設定', icon: <Settings className="w-5 h-5" /> },
+  settings: { label: 'ランク設定', icon: <Settings className="w-5 h-5" /> },
   admins: { label: '管理者設定', icon: <Shield className="w-5 h-5" /> }
 }
 
@@ -96,9 +96,12 @@ export default function AdminDashboard() {
   const [editingCategory, setEditingCategory] = useState<any>(null)
   const [isCategoryEditMode, setIsCategoryEditMode] = useState(false)
 
-  // ランクアップ設定用ステート
   const [isRankUpEditMode, setIsRankUpEditMode] = useState(false)
   const [editingRankUps, setEditingRankUps] = useState<any[]>([])
+
+  // デフォルトランク設定用ステート
+  const [isDefaultRankModalOpen, setIsDefaultRankModalOpen] = useState(false)
+  const [editingDefaultRankId, setEditingDefaultRankId] = useState<string>('')
 
   const [showAddAdminForm, setShowAddAdminForm] = useState(false)
   const [showPasswordForm, setShowPasswordForm] = useState(false)
@@ -145,7 +148,8 @@ export default function AdminDashboard() {
         recurring_rules: c.recurring_rules || [],
         upgrade_condition_type: c.upgrade_condition_type || 'count',
         upgrade_condition_value: c.upgrade_condition_value || 0,
-        next_category_id: c.next_category_id || null
+        next_category_id: c.next_category_id || null,
+        is_default: c.is_default || false
       }))
       setCategories(safeCategories); 
     }
@@ -382,12 +386,12 @@ export default function AdminDashboard() {
   }
 
   // ==========================================
-  // カテゴリ設定・自動ランクアップのハンドラー
+  // ランク設定モーダルのハンドラー
   // ==========================================
   const openNewCategoryModal = () => {
     setEditingCategory({
       id: `new_${Date.now()}`,
-      label: '新規カテゴリ',
+      label: '新規ランク',
       description: '',
       reward_points: 0,
       signup_bonus_enabled: false,
@@ -430,7 +434,7 @@ export default function AdminDashboard() {
   }
 
   const handleCategoryModalSave = async () => {
-    if (!editingCategory.label) { alert('カテゴリ名を入力してください。'); return; }
+    if (!editingCategory.label) { alert('ランク名を入力してください。'); return; }
     
     setIsProcessing(true)
     const dataToSave = {
@@ -458,10 +462,15 @@ export default function AdminDashboard() {
   const handleDeleteCategory = async (id: string) => {
     const usedCount = shops.filter(s => s.category_id === id).length;
     if (usedCount > 0) {
-      alert(`このカテゴリは現在 ${usedCount} 店舗で使用されているため、削除できません。\n先に該当店舗のカテゴリを変更してください。`);
+      alert(`このランクは現在 ${usedCount} 店舗で使用されているため、削除できません。\n先に該当店舗のランクを変更してください。`);
       return;
     }
-    if (!confirm('このカテゴリを完全に削除してよろしいですか？\nこの操作は取り消せません。')) return;
+    if (categories.find(c => c.id === id)?.is_default) {
+      alert(`デフォルトに設定されているランクは削除できません。\n先に別のランクをデフォルトに設定してください。`);
+      return;
+    }
+
+    if (!confirm('このランクを完全に削除してよろしいですか？\nこの操作は取り消せません。')) return;
 
     setIsProcessing(true);
     const { error } = await supabase.from('shop_categories').delete().eq('id', id);
@@ -514,6 +523,26 @@ export default function AdminDashboard() {
     setIsRankUpEditMode(false)
     setIsProcessing(false)
   }
+
+  // デフォルトランク設定の保存
+  const handleDefaultRankSave = async () => {
+    if (!confirm('デフォルトランクを変更すると、今後の新規登録店舗すべてにこのランクの報酬設定が適用されます。\n本当に変更してよろしいですか？')) return;
+
+    setIsProcessing(true);
+    
+    // 全ての is_default を false にリセット
+    await supabase.from('shop_categories').update({ is_default: false }).not('id', 'is', null);
+    
+    // 選択されたものを true に設定
+    if (editingDefaultRankId) {
+      await supabase.from('shop_categories').update({ is_default: true }).eq('id', editingDefaultRankId);
+    }
+
+    await fetchData();
+    setIsDefaultRankModalOpen(false);
+    setIsProcessing(false);
+  }
+
 
   if (authError) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-red-600 text-sm font-bold">{authError}</div>
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-900 text-sm"><Loader2 className="w-6 h-6 animate-spin"/></div>
@@ -771,7 +800,7 @@ export default function AdminDashboard() {
                     <div><label className="block text-gray-500 mb-1.5">店舗名</label><input type="text" value={shopFilters.shop_name} onChange={(e) => setShopFilters({...shopFilters, shop_name: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
                     <div><label className="block text-gray-500 mb-1.5">店舗コード</label><input type="text" placeholder="例: A1B2C3" value={shopFilters.invite_token} onChange={(e) => setShopFilters({...shopFilters, invite_token: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none rounded-lg focus:ring-2 focus:ring-blue-100" /></div>
                     <div>
-                      <label className="block text-gray-500 mb-1.5">カテゴリ</label>
+                      <label className="block text-gray-500 mb-1.5">ランク</label>
                       <select value={shopFilters.category_id} onChange={(e) => setShopFilters({...shopFilters, category_id: e.target.value})} className="w-full border border-gray-300 px-3 py-2 outline-none bg-white rounded-lg focus:ring-2 focus:ring-blue-100">
                         <option value="">すべて</option>
                         {categories.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
@@ -798,7 +827,7 @@ export default function AdminDashboard() {
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
                     <th className="p-4 font-bold whitespace-nowrap">店舗名</th>
                     <th className="p-4 font-bold whitespace-nowrap">店舗コード</th>
-                    <th className="p-4 font-bold whitespace-nowrap">カテゴリ</th>
+                    <th className="p-4 font-bold whitespace-nowrap">ランク</th>
                     <th className="p-4 font-bold whitespace-nowrap">オーナー名</th>
                     <th className="p-4 font-bold whitespace-nowrap">メンバー数</th>
                     <th className="p-4 font-bold whitespace-nowrap">総獲得Pt</th>
@@ -825,8 +854,8 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-normal">{category?.label || '未設定'}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{owner?.name || shop.owner_email}</td>
                         <td className="p-4 whitespace-nowrap font-normal">{shopStaffs.length}</td>
-                        <td className="p-4 whitespace-nowrap font-normal">{shopEarned.toLocaleString()}</td>
-                        <td className="p-4 whitespace-nowrap font-normal">{shopRedeemed.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal text-emerald-600">{shopEarned.toLocaleString()}</td>
+                        <td className="p-4 whitespace-nowrap font-normal text-blue-600">{shopRedeemed.toLocaleString()}</td>
                         <td className="p-4 text-right whitespace-nowrap">
                           <button onClick={() => { setEditingShop(shop); setIsShopEditMode(false); setIsShopModalOpen(true); }} className="text-gray-900 border border-gray-300 hover:bg-gray-100 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors shadow-sm">
                             詳細
@@ -842,12 +871,12 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* ポイント設定 */}
+        {/* ランク設定 */}
         {activeTab === 'settings' && (
           <div>
-            {/* カテゴリ一覧セクション */}
+            {/* ランク一覧セクション */}
             <div className="flex justify-between items-center mb-4 px-1">
-              <div className="text-lg font-bold text-gray-900">カテゴリ一覧 (登録数: {categories.length}件)</div>
+              <div className="text-sm font-bold text-gray-900">登録ランク数: {categories.length}件</div>
               <button onClick={openNewCategoryModal} className="flex items-center gap-1 text-sm font-bold bg-gray-900 text-white hover:bg-black px-4 py-2 rounded-lg transition-colors">
                 <Plus className="w-4 h-4"/> 新規作成
               </button>
@@ -858,7 +887,7 @@ export default function AdminDashboard() {
               <table className="w-full text-left border-collapse whitespace-nowrap">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200 text-gray-900 text-sm tracking-wider">
-                    <th className="p-4 font-bold whitespace-nowrap">カテゴリ名</th>
+                    <th className="p-4 font-bold whitespace-nowrap">ランク名</th>
                     <th className="p-4 font-bold whitespace-nowrap">基本報酬</th>
                     <th className="p-4 font-bold whitespace-nowrap">登録報酬</th>
                     <th className="p-4 font-bold whitespace-nowrap">回数別報酬</th>
@@ -873,6 +902,7 @@ export default function AdminDashboard() {
                         <td className="p-4 whitespace-nowrap font-normal">
                           <div className="flex items-center gap-2">
                             <span className="text-gray-900 font-bold">{cat.label}</span>
+                            {cat.is_default && <span className="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[10px] font-bold tracking-widest">👑 デフォルト</span>}
                             <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">({shopCount} 店舗)</span>
                           </div>
                         </td>
@@ -897,7 +927,27 @@ export default function AdminDashboard() {
                   })}
                 </tbody>
               </table>
-              {categories.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">カテゴリが登録されていません</div>}
+              {categories.length === 0 && <div className="p-10 text-center text-gray-500 font-bold">ランクが登録されていません</div>}
+            </div>
+
+            {/* デフォルトランク設定セクション */}
+            <div className="flex justify-between items-center mb-4 px-1">
+              <div className="text-lg font-bold text-gray-900">新規店舗のデフォルトランク</div>
+              <button onClick={() => { setEditingDefaultRankId(categories.find(c => c.is_default)?.id || ''); setIsDefaultRankModalOpen(true); }} className="flex items-center gap-1 text-sm font-bold bg-gray-100 text-gray-600 hover:bg-gray-200 px-4 py-2 rounded-lg transition-colors">
+                <Edit2 className="w-4 h-4"/> 編集
+              </button>
+            </div>
+            <hr className="mb-6 border-gray-300" />
+            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between mb-12">
+              <div>
+                <span className="text-xs font-bold text-gray-500 block mb-1">現在のデフォルト設定</span>
+                <div className="text-gray-900 font-bold text-base">
+                  {categories.find(c => c.is_default)?.label || '未設定'}
+                </div>
+              </div>
+              <div className="text-sm text-gray-500">
+                ※新規登録された店舗には、自動的にこのランクが適用されます。
+              </div>
             </div>
 
             {/* 自動ランクアップ経路セクション */}
@@ -978,7 +1028,7 @@ export default function AdminDashboard() {
                             </div>
                           </div>
                           <div>
-                            <p className="text-xs font-bold text-gray-500 mb-1">昇格先カテゴリ</p>
+                            <p className="text-xs font-bold text-gray-500 mb-1">昇格先ランク</p>
                             <select 
                               value={cat.next_category_id || ''} 
                               onChange={(e) => handleRankUpFieldChange(cat.id, 'next_category_id', e.target.value)}
@@ -1136,6 +1186,15 @@ export default function AdminDashboard() {
                 <label className="text-gray-500 text-sm font-bold">担当スタッフ</label>
                 <div className="col-span-2 text-gray-900 text-sm">
                   {getStaffName(editingRef.staff_id)}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 items-start border-b border-gray-200 pb-2">
+                <label className="text-gray-500 text-sm font-bold">紹介URL</label>
+                <div className="col-span-2">
+                  <div className="flex items-center gap-2 text-gray-900 text-xs break-all bg-white p-2 border border-gray-200 rounded">
+                    <span>https://duacel.net/welcome/ref_{staffs.find(s => s.id === editingRef.staff_id)?.referral_code}</span>
+                  </div>
                 </div>
               </div>
 
@@ -1332,7 +1391,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">カテゴリ</label>
+                <label className="text-gray-500 text-sm font-bold">ランク</label>
                 <div className="col-span-2 text-gray-900 text-sm">
                   {isShopEditMode ? (
                     <select value={editingShop.category_id || ''} onChange={(e) => setEditingShop({...editingShop, category_id: e.target.value})} className="w-full border border-gray-300 rounded p-2 outline-none bg-white focus:ring-2 focus:ring-blue-100">
@@ -1377,12 +1436,12 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- ポイントカテゴリ 詳細・編集モーダル --- */}
+      {/* --- ランク 詳細・編集モーダル --- */}
       {isCategoryModalOpen && editingCategory && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-auto">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900">カテゴリ情報 詳細</h3>
+              <h3 className="text-lg font-bold text-gray-900">ランク情報 詳細</h3>
               <div className="flex items-center gap-2">
                 {!isCategoryEditMode && (
                   <button onClick={() => setIsCategoryEditMode(true)} className="flex items-center gap-1 text-sm font-bold text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded transition-colors">
@@ -1396,7 +1455,7 @@ export default function AdminDashboard() {
             <div className="bg-gray-50 border border-gray-200 p-5 rounded-xl text-sm mb-6 space-y-4 text-gray-900 font-normal">
               
               <div className="grid grid-cols-3 gap-3 items-center border-b border-gray-200 pb-2">
-                <label className="text-gray-500 text-sm font-bold">カテゴリ名</label>
+                <label className="text-gray-500 text-sm font-bold">ランク名</label>
                 <div className="col-span-2 text-gray-900 text-sm font-bold">
                   {isCategoryEditMode ? (
                     <input type="text" value={editingCategory.label} onChange={(e) => handleCategoryFieldChange('label', e.target.value)} className="w-full border border-gray-300 rounded p-2 outline-none focus:ring-2 focus:ring-blue-100 bg-white" placeholder="例: 通常サロン" />
@@ -1474,7 +1533,7 @@ export default function AdminDashboard() {
                         )}
                       </div>
                       <button onClick={handleAddRuleSingle} className="flex items-center justify-center w-full gap-1 py-2 border border-dashed border-blue-300 rounded text-xs font-bold text-blue-600 hover:bg-blue-50 transition-colors">
-                        <Plus className="w-3 h-3" /> ルールを追加
+                        <Plus className="w-3 h-3" /> 報酬を追加
                       </button>
                     </div>
                   ) : (
@@ -1514,6 +1573,37 @@ export default function AdminDashboard() {
                 <button onClick={() => setIsCategoryModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">閉じる</button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- デフォルトランク設定 モーダル --- */}
+      {isDefaultRankModalOpen && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-gray-900">デフォルトランクの変更</h3>
+              <button onClick={() => setIsDefaultRankModalOpen(false)} className="text-gray-400 hover:bg-gray-100 p-2 rounded-full transition-colors"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="mb-6">
+              <p className="text-sm text-gray-600 mb-4 font-normal">新規登録された店舗に自動適用されるランクを選択してください。</p>
+              <select 
+                value={editingDefaultRankId} 
+                onChange={(e) => setEditingDefaultRankId(e.target.value)} 
+                className="w-full border border-gray-300 rounded-lg p-3 text-sm font-bold outline-none bg-white focus:ring-2 focus:ring-blue-100 text-gray-900"
+              >
+                <option value="">未設定にする</option>
+                {categories.map(c => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setIsDefaultRankModalOpen(false)} className="px-5 py-2 font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+              <button onClick={handleDefaultRankSave} disabled={isProcessing} className="px-5 py-2 bg-gray-900 text-white font-bold rounded-lg hover:bg-black disabled:opacity-50 transition-colors flex items-center gap-2">
+                {isProcessing && <Loader2 className="w-4 h-4 animate-spin"/>} 保存する
+              </button>
+            </div>
           </div>
         </div>
       )}
