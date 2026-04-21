@@ -513,7 +513,7 @@ const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'qr' | 'info' | 's
     }
   }
 
-// ★ 3. ボタンを押した時の処理（ログイン画面に飛ばすだけ）
+
   const handleConnectLine = () => {
     if (!liffInitialized) return alert('LINE連携の準備中です。数秒待ってから再度お試しください。')
     
