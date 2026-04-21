@@ -521,9 +521,9 @@ const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'qr' | 'info' | 's
       // ① ブラウザに「今いる場所（/m/L0P0など）」をこっそり覚えさせる
       sessionStorage.setItem('liff_redirect', window.location.pathname)
       
-      // ② LINEには、コンソールで登録した「待合室のURL」を正確に指定して飛ばす
-      const callbackUrl = window.location.origin + '/lineapp/callback'
-      liff.login({ redirectUri: callbackUrl })
+      // ② LINEには、コンソールで登録した「魔法のドア（/lineapp/login）」を正確に指定して飛ばす
+      const loginUrl = window.location.origin + '/lineapp/login'
+      liff.login({ redirectUri: loginUrl })
     }
   }
 

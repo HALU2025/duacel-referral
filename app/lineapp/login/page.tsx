@@ -1,19 +1,18 @@
 'use client'
 
-import { useEffect, useState, Suspense } from 'react' // ★ Suspenseを追加
+import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import liff from '@line/liff'
 import { Loader2, AlertTriangle } from 'lucide-react'
 
-// 中身の処理を別コンポーネントとして切り出す
 function LoginContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const loginAndRedirect = async () => {
+    const processLiff = async () => {
       try {
         const liffId = process.env.NEXT_PUBLIC_LIFF_ID
         if (!liffId) throw new Error('LIFF IDが設定されていません')
@@ -21,13 +20,21 @@ function LoginContent() {
         // 1. LIFF初期化
         await liff.init({ liffId })
 
-        // 2. LINEログインチェック
+        // 2. 未ログインならLINEログイン画面へ
         if (!liff.isLoggedIn()) {
           liff.login({ redirectUri: window.location.href })
           return
         }
 
-        // 3. LINEプロフィールからIDを取得
+        // ★ 追加：緑のボタンから来た場合（ブラウザのメモがある場合）は、マイページへ戻す！
+        const redirectTo = sessionStorage.getItem('liff_redirect')
+        if (redirectTo) {
+          sessionStorage.removeItem('liff_redirect')
+          window.location.replace(redirectTo)
+          return
+        }
+
+        // 3. リッチメニューから来た場合：LINEプロフィールを取得して自動ログイン
         const profile = await liff.getProfile()
         const lineUserId = profile.userId
 
@@ -45,10 +52,10 @@ function LoginContent() {
           return
         }
 
-        // 5. 転送先のタブ情報を取得 (URLパラメータ ?tab=stats など)
+        // 5. 転送先のタブ情報を取得
         const targetTab = searchParams.get('tab') || 'qr'
 
-        // 6. マイページの「カギ」をセッションに保存（PIN入力をスキップするため）
+        // 6. マイページの「カギ」をセッションに保存（PIN入力をスキップ）
         sessionStorage.setItem(`duacel_auth_${staff.secret_token}`, 'true')
 
         // 7. 本人のマイページへ転送！
@@ -56,11 +63,11 @@ function LoginContent() {
 
       } catch (err: any) {
         console.error('Login Error:', err)
-        setError('自動ログインに失敗しました。')
+        setError('自動ログインに失敗しました。詳細: ' + err.message)
       }
     }
 
-    loginAndRedirect()
+    processLiff()
   }, [router, searchParams])
 
   return (
@@ -82,7 +89,6 @@ function LoginContent() {
   )
 }
 
-// ★ 大枠のページコンポーネント（ここでSuspenseを使ってエラーを回避）
 export default function LineLoginPage() {
   return (
     <Suspense fallback={<div className="fixed inset-0 flex flex-col items-center justify-center bg-[#fffef2]"><Loader2 className="w-8 h-8 animate-spin text-[#1a1a1a]" /></div>}>
