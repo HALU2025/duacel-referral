@@ -46,9 +46,8 @@ export default function PortalPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
+  // ★ 変更: セットアップは全2ステップに短縮
   const [[setupStep, direction], setStepDirection] = useState([1, 0])
-  const [phone, setPhone] = useState('') 
-  const [otp, setOtp] = useState('')
   const [shopName, setShopName] = useState('')
   const [ownerName, setOwnerName] = useState('')
   const [setupPin, setSetupPin] = useState('')
@@ -96,59 +95,52 @@ export default function PortalPage() {
   const goNextSetup = (step: number) => { setErrorMessage(''); setStepDirection([step, 1]) }
   const goBackSetup = () => { setErrorMessage(''); setStepDirection([setupStep - 1, -1]) }
 
-const handleSendSetupOtp = async () => {
+  const handleProfileSubmit = () => {
     setErrorMessage(''); 
-    if (phone.replace(/\D/g, '').length < 10) return setErrorMessage('有効な電話番号をご入力ください。');
-    
+    if (!shopName.trim()) return setErrorMessage('店舗名をご入力ください。'); 
+    if (!ownerName.trim()) return setErrorMessage('管理者名をご入力ください。'); 
+    goNextSetup(2); // ステップ2へ
+  }
+
+  // ★ 変更: SMS認証を撤廃し、名前とPINだけで即登録させる
+  const handleRegisterShopAndOwner = async () => {
+    setErrorMessage(''); 
+    if (setupPin.length !== 4) return setErrorMessage('4桁の暗証番号を設定してください。')
     setIsLoading(true); 
-    try { 
-      const formattedPhone = formatPhoneNumber(phone);
-
-      // ★ 1. SMSを送る前に、この電話番号がすでに登録されていないかチェック！
-      const { data: existingStaff, error: checkError } = await supabase
-        .from('staffs')
-        .select('id')
-        .eq('phone', formattedPhone)
-        .maybeSingle();
-
-      if (checkError) throw checkError;
-
-      if (existingStaff) {
-        setErrorMessage('この電話番号はすでに登録されています。管理者のログイン画面からアクセスしてください。');
-        setIsLoading(false);
-        return; // ここで処理をストップ！
-      }
-
-      // ★ 2. 重複がなければ、安心してSMS認証コードを送信
-      const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone }); 
-      if (error) throw error; 
+    
+    try {
+      // 1. ショップの作成 (Authを通さず直接作成)
+      const { data: newShop, error: shopErr } = await supabase.from('shops').insert([{ 
+        name: shopName.trim(), 
+        invite_token: token 
+      }]).select('id').single(); 
       
-      goNextSetup(2); 
+      if (shopErr) throw shopErr;
+
+      const secretToken = generateSecureToken();
+      
+      // 2. オーナー(初期発起人)の作成
+      const { error: staffErr } = await supabase.from('staffs').insert([{ 
+        shop_id: newShop.id, 
+        name: ownerName.trim(), 
+        role: 'owner', 
+        referral_code: generateReferralCode(), 
+        secret_token: secretToken, 
+        security_pin: setupPin, 
+        is_deleted: false, 
+        is_team_pool_eligible: true 
+      }]); 
+      
+      if (staffErr) throw staffErr;
+
+      // 3. 顔パスログイン状態にしてマイページへ飛ばす
+      sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true'); 
+      router.replace(`/m/${secretToken}`);
     } catch (err: any) { 
-      setErrorMessage('SMSの送信に失敗しました。'); 
+      setErrorMessage(err.message); 
     } finally { 
       setIsLoading(false); 
     }
-  }
-
-  const handleVerifySetupOtp = async () => {
-    setErrorMessage(''); if (otp.length !== 6) return setErrorMessage('6桁の認証コードをご入力ください。')
-    setIsLoading(true); try { const { error } = await supabase.auth.verifyOtp({ phone: formatPhoneNumber(phone), token: otp, type: 'sms' }); if (error) throw error; goNextSetup(3); } catch (err) { setErrorMessage('認証コードが正しくないか、有効期限切れです。'); } finally { setIsLoading(false); }
-  }
-
-  const handleProfileSubmit = () => {
-    setErrorMessage(''); if (!shopName.trim()) return setErrorMessage('店舗名をご入力ください。'); if (!ownerName.trim()) return setErrorMessage('管理者名をご入力ください。'); goNextSetup(4);
-  }
-
-  const handleRegisterShopAndOwner = async () => {
-    setErrorMessage(''); if (setupPin.length !== 4) return setErrorMessage('4桁の暗証番号を設定してください。')
-    setIsLoading(true); try {
-      const { data: { user } } = await supabase.auth.getUser(); if (!user) throw new Error('認証エラーです。');
-      const { data: newShop, error: shopErr } = await supabase.from('shops').insert([{ name: shopName.trim(), owner_id: user.id, invite_token: token }]).select('id').single(); if (shopErr) throw shopErr;
-      const secretToken = generateSecureToken();
-      const { error: staffErr } = await supabase.from('staffs').insert([{ id: user.id, shop_id: newShop.id, name: ownerName.trim(), phone: formatPhoneNumber(phone), role: 'owner', referral_code: generateReferralCode(), secret_token: secretToken, security_pin: setupPin, is_deleted: false, is_team_pool_eligible: true }]); if (staffErr) throw staffErr;
-      sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true'); router.replace(`/m/${secretToken}`);
-    } catch (err: any) { setErrorMessage(err.message); } finally { setIsLoading(false); }
   }
 
   const handlePinChange = (index: number, value: string) => {
@@ -197,7 +189,8 @@ const handleSendSetupOtp = async () => {
             <div className="absolute top-8 left-0 right-0 flex flex-col items-center justify-center z-40 bg-gradient-to-b from-[#fffef2] via-[#fffef2] to-transparent pb-4">
               <h1 className="text-xl font-serif tracking-[0.2em] text-[#1a1a1a]">Duacel.</h1>
               <div className="flex justify-center gap-2 mt-4">
-                {Array.from({ length: 4 }).map((_, i) => (
+                {/* ★ 変更: 全2ステップ用にプログレスバーを修正 */}
+                {Array.from({ length: 2 }).map((_, i) => (
                   <div key={i} className={`h-1 rounded-full transition-all duration-700 ${setupStep === i + 1 ? 'w-8 bg-[#1a1a1a]' : setupStep > i + 1 ? 'w-3 bg-[#999999]' : 'w-3 bg-[#e6e2d3]'}`} />
                 ))}
               </div>
@@ -209,25 +202,9 @@ const handleSendSetupOtp = async () => {
               <AnimatePresence mode="wait" custom={direction}>
                 <motion.div key={setupStep} custom={direction} variants={swipeVariants} initial="enter" animate="center" exit="exit" transition={{ type: "tween", duration: 0.4 }} className="flex flex-col h-full px-8 pb-12 overflow-y-auto">
                   {errorMessage && <div className="mb-6 p-4 bg-[#fcf0f0] text-[#8a3c3c] text-[11px] flex gap-2 animate-in fade-in shrink-0"><ShieldAlert className="w-4 h-4" /> {errorMessage}</div>}
+                  
+                  {/* ★ ステップ1: 店舗プロファイル (以前のステップ3) */}
                   {setupStep === 1 && (
-                    <div className="flex flex-col h-full justify-center">
-                      <div className="mb-10 text-center"><h2 className="text-xl font-bold tracking-widest uppercase">System Setup</h2><p className="text-[11px] text-[#666666] mt-4">管理者の携帯電話番号を入力してください。</p></div>
-                      <div className="space-y-6 mt-4">
-                        <div className="relative"><Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#999999]" /><input type="tel" placeholder="090-0000-0000" value={phone} onChange={e => setPhone(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-[#f5f2e6] border-none text-base outline-none" /></div>
-                        <button onClick={handleSendSetupOtp} disabled={isLoading || phone.length < 10} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] font-bold text-[11px] tracking-widest uppercase flex justify-center items-center gap-3">{isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}</button>
-                      </div>
-                    </div>
-                  )}
-                  {setupStep === 2 && (
-                    <div className="flex flex-col h-full justify-center">
-                      <div className="mb-10 text-center"><h2 className="text-xl font-bold tracking-widest uppercase">Verification</h2><p className="text-[11px] text-[#666666] mt-4"><span className="font-bold text-[#1a1a1a] text-sm block mb-2">{phone}</span>に届いたコードを入力</p></div>
-                      <div className="space-y-6 mt-4">
-                        <div className="relative"><KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#999999]" /><input type="text" inputMode="numeric" maxLength={6} placeholder="000000" value={otp} onChange={e => setOtp(e.target.value.replace(/[^0-9]/g, ''))} className="w-full pl-12 pr-4 py-5 bg-[#f5f2e6] border-none text-2xl tracking-[0.4em] text-center font-mono outline-none" /></div>
-                        <button onClick={handleVerifySetupOtp} disabled={isLoading || otp.length !== 6} className="w-full py-5 bg-[#1a1a1a] text-[#fffef2] font-bold text-[11px] tracking-widest uppercase flex justify-center items-center gap-3">{isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify <ArrowRight className="w-4 h-4" /></>}</button>
-                      </div>
-                    </div>
-                  )}
-                  {setupStep === 3 && (
                     <div className="flex flex-col h-full justify-center">
                       <div className="mb-8 text-center"><h2 className="text-xl font-bold tracking-widest uppercase">Shop Profile</h2><p className="text-[11px] text-[#666666] mt-4">店舗名と管理者名を入力してください。</p></div>
                       <div className="space-y-5">
@@ -237,7 +214,9 @@ const handleSendSetupOtp = async () => {
                       </div>
                     </div>
                   )}
-                  {setupStep === 4 && (
+                  
+                  {/* ★ ステップ2: セキュリティPIN (以前のステップ4) */}
+                  {setupStep === 2 && (
                     <div className="flex flex-col h-full justify-center">
                       <div className="mb-10 text-center"><h2 className="text-xl font-bold tracking-widest uppercase">Security PIN</h2><p className="text-[11px] text-[#666666] mt-4">4桁の暗証番号を設定してください。</p></div>
                       <div className="space-y-6 mt-4">
@@ -325,6 +304,7 @@ const handleSendSetupOtp = async () => {
               <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} className="bg-[#fffef2] p-8 w-full max-w-md mx-auto relative shadow-2xl">
                 <button onClick={() => { setIsAdminAuthOpen(false); setAdminAuthStep(1); }} className="absolute top-4 right-4 p-3 text-[#999999]"><X className="w-6 h-6" /></button>
                 <h3 className="text-lg font-bold mb-6 uppercase tracking-widest">Admin Login</h3>
+                <p className="text-[10px] text-[#8a3c3c] font-bold mb-4">※ダッシュボードへのログインには、マイページからの電話番号連携が必要です。</p>
                 {adminAuthStep === 1 ? (
                   <div className="space-y-4"><div className="relative"><Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#999999]" /><input type="tel" placeholder="090-0000-0000" value={adminPhone} onChange={e => setAdminPhone(e.target.value)} className="w-full pl-12 pr-4 py-4 bg-[#f5f2e6] border-none text-sm outline-none" /></div><button onClick={handleSendAdminOtp} disabled={isLoading || adminPhone.length < 10} className="w-full py-4 bg-[#1a1a1a] text-[#fffef2] font-bold text-[11px] tracking-widest uppercase">{isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'SMSを送信'}</button></div>
                 ) : (
