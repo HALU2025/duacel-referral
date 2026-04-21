@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { QRCodeCanvas } from 'qrcode.react'
 import { motion, AnimatePresence } from 'framer-motion' 
 import Cropper from 'react-easy-crop'
