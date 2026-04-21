@@ -136,8 +136,25 @@ export default function MemberMagicPage() {
   const [unreadReferrals, setUnreadReferrals] = useState<any[]>([])
   const [currentUnreadIndex, setCurrentUnreadIndex] = useState(0)
 
-  // ★ 追加：LINE連携ローディング用ステート
+  // ★ LINE連携用ステート
   const [isLiffLoading, setIsLiffLoading] = useState(false)
+  const [liffInitialized, setLiffInitialized] = useState(false)
+
+  // ★ 1. ページを開いた瞬間にLINEの準備（初期化）をする
+  useEffect(() => {
+    const initLiff = async () => {
+      try {
+        const liffId = process.env.NEXT_PUBLIC_LIFF_ID
+        if (liffId) {
+          await liff.init({ liffId })
+          setLiffInitialized(true)
+        }
+      } catch (error) {
+        console.error('LIFF Init Error:', error)
+      }
+    }
+    initLiff()
+  }, [])
 
   const MOCK_PRODUCTS = [
     { id: 1, name: 'Duacel スカルプセラム (店販用)', price: 8800, ptPrice: 8000, icon: <Sparkles className="w-6 h-6 text-[#999999]" />, desc: 'お客様への店販用に最適なスカルプセラムです。店内でのお試し用にもご利用いただけます。' },
@@ -276,6 +293,35 @@ export default function MemberMagicPage() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [staff?.shop_id]);
+
+  // ★ 2. LINEログインから戻ってきた時の「自動連携」処理
+  useEffect(() => {
+    const autoConnect = async () => {
+      // 「LIFFの準備完了」＆「未連携」＆「LINEログイン済み(戻ってきた直後)」なら自動発動
+      if (liffInitialized && staff && !staff.line_user_id && liff.isLoggedIn()) {
+        setIsLiffLoading(true)
+        try {
+          const liffProfile = await liff.getProfile()
+          const { error } = await supabase
+            .from('staffs')
+            .update({
+              line_user_id: liffProfile.userId,
+              line_display_name: liffProfile.displayName,
+              line_picture_url: liffProfile.pictureUrl
+            })
+            .eq('id', staff.id)
+
+          if (error) throw error
+          window.location.reload() // 成功したら画面をリロードしてバッジを表示！
+        } catch (err) {
+          console.error(err)
+        } finally {
+          setIsLiffLoading(false)
+        }
+      }
+    }
+    autoConnect()
+  }, [liffInitialized, staff])
 
   const handleCopy = (url: string) => {
     navigator.clipboard.writeText(url)
@@ -464,43 +510,14 @@ export default function MemberMagicPage() {
     }
   }
 
-// ★ 修正版：LINE連携を実行する関数
-  const handleConnectLine = async () => {
-    setIsLiffLoading(true)
-    try {
-      const liffId = process.env.NEXT_PUBLIC_LIFF_ID
-      if (!liffId) throw new Error('LIFF IDが設定されていません')
-
-      await liff.init({ liffId })
-      
-      // 未ログインの場合は、現在のURLをリダイレクト先に指定してログイン画面へ
-      if (!liff.isLoggedIn()) {
-        liff.login({ redirectUri: window.location.href })
-        return // ここで処理が中断され、LINEの画面へ遷移します
-      }
-
-      // ログイン済みの場合はプロフィールを取得
-      const liffProfile = await liff.getProfile()
-      
-      // データベースを更新
-      const { error } = await supabase
-        .from('staffs')
-        .update({
-          line_user_id: liffProfile.userId,
-          line_display_name: liffProfile.displayName,
-          line_picture_url: liffProfile.pictureUrl
-        })
-        .eq('id', staff.id)
-
-      if (error) throw error
-
-      alert('LINEとの連携が完了しました！')
-      window.location.reload() // データ再取得のためにリロード
-      
-    } catch (err: any) {
-      alert('LINE連携に失敗しました: ' + err.message)
-    } finally {
-      setIsLiffLoading(false)
+  // ★ 3. ボタンを押した時の処理（ログイン画面に飛ばすだけ）
+  const handleConnectLine = () => {
+    if (!liffInitialized) return alert('LINE連携の準備中です。数秒待ってから再度お試しください。')
+    
+    if (!liff.isLoggedIn()) {
+      // パラメータを取り除いた綺麗なURLをリダイレクト先に指定
+      const cleanUrl = window.location.origin + window.location.pathname
+      liff.login({ redirectUri: cleanUrl })
     }
   }
 
