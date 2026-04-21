@@ -89,7 +89,10 @@ export default function MemberMagicPage() {
   const [isResetting, setIsResetting] = useState(false)
   const [resetResult, setResetResult] = useState<{success?: boolean, message: string} | null>(null)
 
-  const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'qr' | 'info' | 'settings'>('qr')
+  // URLの ?tab=... を読み取って初期タブを決める
+const searchParams = useSearchParams()
+const initialTab = (searchParams.get('tab') as any) || 'qr'
+const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'qr' | 'info' | 'settings'>(initialTab)
   const [staff, setStaff] = useState<any>(null)
   const [shop, setShop] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
