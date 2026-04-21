@@ -1,7 +1,6 @@
 // app/api/webhooks/ecforce/route.ts
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
-// ★ 追加: さきほど作ったLINE通知エンジンをインポート
 import { sendLineNotification } from '@/lib/line'
 
 // ==========================================
@@ -12,23 +11,28 @@ async function processWebhookData(referralCode: string | null, orderNumber: stri
     return NextResponse.json({ error: '紹介コードが含まれていません' }, { status: 400 })
   }
 
-  // "S001_ST001" を shop_id と staff_id に分割
-  const [shopId, staffId] = referralCode.split('_')
+  // ★ 1. まず紹介コードから、そのスタッフの正式なID(UUID)と店舗IDを探し出す！
+  const { data: staff, error: staffError } = await supabase
+    .from('staffs')
+    .select('id, shop_id, line_user_id, name')
+    .eq('referral_code', referralCode)
+    .maybeSingle()
 
-  if (!shopId || !staffId) {
-    return NextResponse.json({ error: '無効な紹介コードのフォーマットです' }, { status: 400 })
+  if (staffError || !staff) {
+    console.error(`❌ スタッフが見つかりません: ${referralCode}`)
+    return NextResponse.json({ error: '無効な紹介コードです' }, { status: 400 })
   }
 
   // 受注番号がない場合はタイムスタンプで仮生成
   const finalOrderNumber = orderNumber || `ORD-${Date.now()}`
 
-  // データベース（referrals）に「仮計上」として登録
+  // ★ 2. 見つけ出した正式なUUIDを使って、データベースに登録
   const { error } = await supabase.from('referrals').insert([{
-    shop_id: shopId,
-    staff_id: staffId,
-    referral_code: referralCode,
+    shop_id: staff.shop_id,    // 本物のUUID
+    staff_id: staff.id,        // 本物のUUID
+    referral_code: referralCode, // ref_buZtsB7P などをそのまま保存
     order_number: finalOrderNumber,
-    customer_id: customerId, // 顧客IDを保存
+    customer_id: customerId,
     status: 'pending',
     is_staff_rewarded: false
   }])
@@ -40,17 +44,10 @@ async function processWebhookData(referralCode: string | null, orderNumber: stri
 
   console.log(`✅ 成果を記録しました: 紹介コード[${referralCode}] / 注文[${finalOrderNumber}] / 顧客ID[${customerId || 'なし'}]`)
 
-  // ▼▼▼ ★ 追加: LINE通知の処理 ▼▼▼
+  // ★ 3. LINE通知の処理
   try {
-    // 紹介元のスタッフ情報を取得（LINE IDを取り出す）
-    const { data: staff } = await supabase
-      .from('staffs')
-      .select('line_user_id, name')
-      .eq('id', staffId) // 分割したstaffIdで検索
-      .maybeSingle()
-
-    // スタッフが存在し、かつLINE連携済み(line_user_idがある)場合のみ通知を送る
-    if (staff && staff.line_user_id) {
+    // スタッフがLINE連携済み(line_user_idがある)場合のみ通知を送る
+    if (staff.line_user_id) {
       const message = `🎉 新しい紹介が発生しました！\n\nお客様のご注文が確認されました。\n状態: 仮計上（確定待ち）\n\n商品のお届けが完了すると、報酬ポイントとして確定します！\n\n▼マイページで詳細を確認する\nhttps://duacel.net/lineapp/login`
 
       const isSuccess = await sendLineNotification(staff.line_user_id, message)
@@ -62,7 +59,6 @@ async function processWebhookData(referralCode: string | null, orderNumber: stri
     console.error('❌ LINE通知処理でエラーが発生しました:', err)
     // 通知が失敗しても、成果自体は記録できているので処理は続行する
   }
-  // ▲▲▲ ここまで追加 ▲▲▲
 
   return NextResponse.json({ success: true, message: '成果を記録しました' }, { status: 200 })
 }
