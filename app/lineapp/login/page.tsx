@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react' // ★ Suspenseを追加
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import liff from '@line/liff'
 import { Loader2, AlertTriangle } from 'lucide-react'
 
-export default function LineLoginPage() {
+// 中身の処理を別コンポーネントとして切り出す
+function LoginContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [error, setError] = useState<string | null>(null)
@@ -78,5 +79,14 @@ export default function LineLoginPage() {
         </>
       )}
     </div>
+  )
+}
+
+// ★ 大枠のページコンポーネント（ここでSuspenseを使ってエラーを回避）
+export default function LineLoginPage() {
+  return (
+    <Suspense fallback={<div className="fixed inset-0 flex flex-col items-center justify-center bg-[#fffef2]"><Loader2 className="w-8 h-8 animate-spin text-[#1a1a1a]" /></div>}>
+      <LoginContent />
+    </Suspense>
   )
 }
