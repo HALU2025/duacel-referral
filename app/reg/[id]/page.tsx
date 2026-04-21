@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
 
 import { 
-  User, Mail, ArrowRight, ArrowLeft, CheckCircle2, 
+  User, ArrowRight, ArrowLeft, CheckCircle2, 
   Loader2, X, Sparkles, UserPlus, QrCode, Smartphone, 
   ChevronRight, Apple, Share, Zap, Coins, Star, Gift, Lock
 } from 'lucide-react'
@@ -17,41 +17,25 @@ const generateSecureToken = () => {
   return Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
-// ★追加：お客様に渡す紹介URL用のランダムコード（ref_ + 8桁）
+// お客様に渡す紹介URL用のランダムコード（ref_ + 8桁）
 const generateReferralCode = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return 'ref_' + Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
 const swipeVariants = {
-  enter: (direction: number) => ({
-    x: direction > 0 ? 300 : -300,
-    opacity: 0,
-    scale: 0.95,
-  }),
-  center: {
-    zIndex: 1,
-    x: 0,
-    opacity: 1,
-    scale: 1,
-  },
-  exit: (direction: number) => ({
-    zIndex: 0,
-    x: direction < 0 ? 300 : -300,
-    opacity: 0,
-    scale: 0.95,
-  })
+  enter: (direction: number) => ({ x: direction > 0 ? 300 : -300, opacity: 0, scale: 0.95 }),
+  center: { zIndex: 1, x: 0, opacity: 1, scale: 1 },
+  exit: (direction: number) => ({ zIndex: 0, x: direction < 0 ? 300 : -300, opacity: 0, scale: 0.95 })
 }
 
 export default function MemberJoinPage() {
   const params = useParams()
-  // URLパラメータは invite_token になります
   const inviteToken = params.id as string 
   const router = useRouter()
 
   const [shop, setShop] = useState<any>(null)
   const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
   const [pin, setPin] = useState('') 
   
   const [isLoading, setIsLoading] = useState(false)
@@ -69,56 +53,23 @@ export default function MemberJoinPage() {
     setStepDirection([onboardingStep + newDirection, newDirection])
   }
 
-  // --- 店舗情報の取得（invite_token から逆引き検索） ---
+  // --- 店舗情報の取得 ---
   useEffect(() => {
     const fetchShop = async () => {
-      // invite_tokenを使って店舗を特定し、実際のshop.id（UUID）を取得する
-      const { data, error } = await supabase
-        .from('shops')
-        .select('id, name')
-        .eq('invite_token', inviteToken)
-        .single()
-        
-      if (data) {
-        setShop(data)
-      }
+      const { data } = await supabase.from('shops').select('id, name').eq('invite_token', inviteToken).single()
+      if (data) setShop(data)
       setIsPageLoading(false)
     }
     if (inviteToken) fetchShop()
   }, [inviteToken])
 
-  // --- LocalStorageによる復元 ---
-  useEffect(() => {
-    if (!shop?.id) return;
-    const savedKey = `duacel_member_onboarding_${shop.id}`;
-    const savedData = localStorage.getItem(savedKey);
-    if (savedData) {
-      const data = JSON.parse(savedData);
-      setName(data.name);
-      setMagicLinkUrl(data.magicLinkUrl);
-      setIsReturningUser(data.isReturningUser);
-      setStepDirection([data.onboardingStep || 1, 0]);
-    }
-  }, [shop?.id]);
-
+  // --- デバイス判定 ---
   useEffect(() => {
     const ua = navigator.userAgent.toLowerCase()
     if (/iphone|ipad|ipod/.test(ua)) setDeviceType('ios')
     else if (/android/.test(ua)) setDeviceType('android')
     else setDeviceType('desktop')
   }, [])
-
-  useEffect(() => {
-    if (magicLinkUrl && shop?.id) {
-      const savedKey = `duacel_member_onboarding_${shop.id}`;
-      const savedData = localStorage.getItem(savedKey);
-      if (savedData) {
-        const data = JSON.parse(savedData);
-        data.onboardingStep = onboardingStep;
-        localStorage.setItem(savedKey, JSON.stringify(data));
-      }
-    }
-  }, [onboardingStep, magicLinkUrl, shop?.id]);
 
   // --- 登録処理 ---
   const handleRegister = async (e: React.FormEvent) => {
@@ -133,27 +84,14 @@ export default function MemberJoinPage() {
     }
 
     try {
-      // 1. 既存ユーザーチェック
-      const { data: existingStaff } = await supabase
-        .from('staffs').select('id').eq('shop_id', shop.id).eq('email', email).maybeSingle()
-
-      if (existingStaff) {
-        // ★ おかえりなさい処理を削除し、エラーで弾くように変更
-        setErrorMessage('このメールアドレスは既に登録されています。')
-        setIsLoading(false)
-        return
-      }
-
-      // 2. 新規登録処理
-      // ★修正：連番IDを作る処理を全削除し、安全なランダム文字列を生成
       const secureToken = generateSecureToken()
       const publicReferralCode = generateReferralCode()
 
-      // DBに保存（★ id は指定しない＝Supabaseが自動でUUIDを発行する）
+      // DBに保存（メールアドレスは null として保存）
       const { error: insertError } = await supabase.from('staffs').insert([{
         shop_id: shop.id, 
         name: name, 
-        email: email,
+        email: null,
         referral_code: publicReferralCode, 
         secret_token: secureToken,
         security_pin: pin, 
@@ -169,8 +107,7 @@ export default function MemberJoinPage() {
         isReturningUser: false,
         onboardingStep: 1
       };
-      localStorage.setItem(`duacel_member_onboarding_${shop.id}`, JSON.stringify(onboardingData));
-
+      
       setTimeout(() => {
         setMagicLinkUrl(onboardingData.magicLinkUrl)
         setIsLoading(false)
@@ -183,7 +120,6 @@ export default function MemberJoinPage() {
   }
 
   const goToMyPage = () => {
-    localStorage.removeItem(`duacel_member_onboarding_${shop?.id}`);
     router.push(magicLinkUrl);
   }
 
@@ -203,7 +139,7 @@ export default function MemberJoinPage() {
             </div>
             <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 opacity-80">{shop.name}</p>
             <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">メンバー登録</h1>
-            <p className="text-sm text-gray-500 mt-2 leading-relaxed">アカウント情報を入力して、<br/>専用ページを発行しましょう。</p>
+            <p className="text-sm text-gray-500 mt-2 leading-relaxed">お名前と暗証番号だけで<br/>すぐに始められます。</p>
           </div>
 
           <form onSubmit={handleRegister} className="bg-white p-6 sm:p-8 rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 space-y-5">
@@ -213,15 +149,6 @@ export default function MemberJoinPage() {
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><User className="w-5 h-5" /></div>
                   <input required placeholder="例: 山田 太郎" value={name} onChange={e => setName(e.target.value)} disabled={isLoading}
-                    className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">連絡先メールアドレス <span className="text-red-500 ml-1">*</span></label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400"><Mail className="w-5 h-5" /></div>
-                  <input required type="email" placeholder="example@email.com" value={email} onChange={e => setEmail(e.target.value)} disabled={isLoading}
                     className="w-full pl-11 pr-4 py-3 bg-gray-50/50 border border-gray-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all outline-none" />
                 </div>
               </div>
@@ -290,17 +217,13 @@ export default function MemberJoinPage() {
                   <div className="relative mb-10">
                     <motion.div animate={{ rotate: 360 }} transition={{ duration: 15, repeat: Infinity, ease: "linear" }} className="absolute -inset-6 bg-gradient-to-tr from-emerald-200 to-indigo-200 rounded-full opacity-50 blur-2xl" />
                     <div className="relative w-32 h-32 bg-white border border-gray-50 rounded-[2rem] flex items-center justify-center shadow-2xl">
-                      {isReturningUser ? <Sparkles className="w-16 h-16 text-emerald-500" /> : <CheckCircle2 className="w-16 h-16 text-emerald-500" />}
+                      <CheckCircle2 className="w-16 h-16 text-emerald-500" />
                     </div>
                   </div>
                   <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] mb-3">{shop.name}</p>
-                  <h2 className="text-3xl font-black text-gray-900 leading-tight mb-4">
-                    {isReturningUser ? 'おかえりなさい！' : '発行完了しました！'}
-                  </h2>
+                  <h2 className="text-3xl font-black text-gray-900 leading-tight mb-4">発行完了しました！</h2>
                   <p className="text-sm text-gray-500 font-bold leading-relaxed mb-auto">
-                    {isReturningUser 
-                      ? `${name}さんの専用ページは準備万端です。\nさっそく活動を再開しましょう。` 
-                      : `${name}さんの専用ページができました。\nお客様に紹介して、\nインセンティブを獲得しましょう。`}
+                    {name}さんの専用ページができました。<br/>お客様に紹介して、<br/>インセンティブを獲得しましょう。
                   </p>
                 </div>
               )}
@@ -335,37 +258,18 @@ export default function MemberJoinPage() {
                     <Smartphone className="w-10 h-10" />
                     <Star className="w-5 h-5 text-yellow-400 absolute -top-2 -right-2 animate-pulse drop-shadow-lg" />
                   </div>
-                  <h3 className="text-xl font-black text-gray-900 mb-4">1秒でQRを出すために</h3>
+                  <h3 className="text-xl font-black text-gray-900 mb-4">マイページへのアクセス</h3>
                   <p className="text-xs text-gray-500 font-bold leading-relaxed mb-6">
-                    接客中にサッと提示できるよう、<br/>
-                    <strong className="text-indigo-600">スマートフォンのホーム画面</strong>に<br/>
-                    追加しておきましょう。
+                    マイページを開いたら、<br/>
+                    <strong className="text-indigo-600">「LINEと連携する」</strong>ボタンを押して<br/>
+                    いつでも一瞬で開けるようにしましょう！
                   </p>
 
-                  {deviceType === 'ios' ? (
-                    <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 shadow-inner mb-auto">
-                      <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Apple className="w-4 h-4" /> やり方 (iPhone)</p>
-                      <ol className="text-[11px] text-gray-600 space-y-3 font-bold">
-                        <li className="flex items-center gap-3">
-                          <span className="w-7 h-7 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-500 shadow-sm"><Share className="w-4 h-4" /></span>
-                          Safari下の「共有」ボタンをタップ
-                        </li>
-                        <li className="flex items-center gap-3">
-                          <span className="w-7 h-7 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-gray-500 font-black shadow-sm">+</span>
-                          「ホーム画面に追加」を選択
-                        </li>
-                      </ol>
-                    </div>
-                  ) : (
-                    <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 shadow-inner mb-auto">
-                      <p className="text-xs font-bold text-gray-800 flex items-center gap-2"><Smartphone className="w-4 h-4" /> やり方 (Android / PC)</p>
-                      <p className="text-[11px] text-gray-600 font-bold leading-relaxed">
-                        ブラウザのメニュー（︙）を開き、<br/>
-                        <strong className="text-gray-900">「アプリをインストール」</strong> または<br/>
-                        <strong className="text-gray-900">「ホーム画面に追加」</strong> を選択してください。
-                      </p>
-                    </div>
-                  )}
+                  <div className="bg-gray-50 rounded-2xl p-5 w-full text-left space-y-4 border border-gray-100 shadow-inner mb-auto">
+                    <p className="text-[11px] text-gray-600 font-bold leading-relaxed">
+                      連携すると、お客様が購入してくれた時に<strong className="text-gray-900">LINEへ直接通知</strong>が届くようになります✨
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -395,7 +299,7 @@ export default function MemberJoinPage() {
                         <ChevronRight className="w-5 h-5" />
                       </div>
                     </button>
-                    <p className="text-[10px] text-gray-400 font-bold mt-4">※ホーム画面に追加してから開くのがおすすめです</p>
+                    <p className="text-[10px] text-gray-400 font-bold mt-4">※マイページで必ずLINE連携を行ってください</p>
                   </div>
                 </div>
               )}
