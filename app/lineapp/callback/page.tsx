@@ -6,17 +6,14 @@ import { Loader2 } from 'lucide-react'
 export default function LiffCallbackPage() {
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search)
-      // LINEがくっつけてくれた「元のURL」のメモを取り出す
-      const liffState = params.get('liff.state')
+      // 1. ブラウザがこっそり覚えていた「元の場所（/m/L0P0など）」を取り出す
+      const redirectTo = sessionStorage.getItem('liff_redirect') || '/'
       
-      if (liffState) {
-        // メモがあれば、元のページ（/m/xxxx など）へ即座に転送
-        window.location.replace(liffState)
-      } else {
-        // 万が一メモがなければ、安全のためにトップページへ戻す
-        window.location.replace('/')
-      }
+      // 2. 使い終わったメモはお掃除しておく
+      sessionStorage.removeItem('liff_redirect')
+
+      // 3. 元のマイページへ瞬時に転送！
+      window.location.replace(redirectTo)
     }
   }, [])
 
