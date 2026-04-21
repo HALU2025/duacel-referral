@@ -510,14 +510,17 @@ export default function MemberMagicPage() {
     }
   }
 
-  // ★ 3. ボタンを押した時の処理（ログイン画面に飛ばすだけ）
+// ★ 3. ボタンを押した時の処理（ログイン画面に飛ばすだけ）
   const handleConnectLine = () => {
     if (!liffInitialized) return alert('LINE連携の準備中です。数秒待ってから再度お試しください。')
     
     if (!liff.isLoggedIn()) {
-      // パラメータを取り除いた綺麗なURLをリダイレクト先に指定
-      const cleanUrl = window.location.origin + window.location.pathname
-      liff.login({ redirectUri: cleanUrl })
+      // ① ブラウザに「今いる場所（/m/L0P0など）」をこっそり覚えさせる
+      sessionStorage.setItem('liff_redirect', window.location.pathname)
+      
+      // ② LINEには、コンソールで登録した「待合室のURL」を正確に指定して飛ばす
+      const callbackUrl = window.location.origin + '/lineapp/callback'
+      liff.login({ redirectUri: callbackUrl })
     }
   }
 
