@@ -96,9 +96,39 @@ export default function PortalPage() {
   const goNextSetup = (step: number) => { setErrorMessage(''); setStepDirection([step, 1]) }
   const goBackSetup = () => { setErrorMessage(''); setStepDirection([setupStep - 1, -1]) }
 
-  const handleSendSetupOtp = async () => {
-    setErrorMessage(''); if (phone.replace(/\D/g, '').length < 10) return setErrorMessage('有効な電話番号をご入力ください。')
-    setIsLoading(true); try { const { error } = await supabase.auth.signInWithOtp({ phone: formatPhoneNumber(phone) }); if (error) throw error; goNextSetup(2); } catch (err) { setErrorMessage('SMSの送信に失敗しました。'); } finally { setIsLoading(false); }
+const handleSendSetupOtp = async () => {
+    setErrorMessage(''); 
+    if (phone.replace(/\D/g, '').length < 10) return setErrorMessage('有効な電話番号をご入力ください。');
+    
+    setIsLoading(true); 
+    try { 
+      const formattedPhone = formatPhoneNumber(phone);
+
+      // ★ 1. SMSを送る前に、この電話番号がすでに登録されていないかチェック！
+      const { data: existingStaff, error: checkError } = await supabase
+        .from('staffs')
+        .select('id')
+        .eq('phone', formattedPhone)
+        .maybeSingle();
+
+      if (checkError) throw checkError;
+
+      if (existingStaff) {
+        setErrorMessage('この電話番号はすでに登録されています。管理者のログイン画面からアクセスしてください。');
+        setIsLoading(false);
+        return; // ここで処理をストップ！
+      }
+
+      // ★ 2. 重複がなければ、安心してSMS認証コードを送信
+      const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone }); 
+      if (error) throw error; 
+      
+      goNextSetup(2); 
+    } catch (err: any) { 
+      setErrorMessage('SMSの送信に失敗しました。'); 
+    } finally { 
+      setIsLoading(false); 
+    }
   }
 
   const handleVerifySetupOtp = async () => {
