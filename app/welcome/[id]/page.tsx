@@ -65,32 +65,31 @@ export default function WelcomeTestPage() {
   const handleSimulateCV = async () => {
     setIsSimulating(true)
     const orderNum = `SUB-${Math.floor(1000 + Math.random() * 9000)}`
-    const customerName = `ゲスト ${Math.floor(100 + Math.random() * 900)}様`
+    const customerId = `CUST-${Math.floor(100 + Math.random() * 900)}`
 
-    const { data: latestShop } = await supabase.from('shops').select('ratio_individual, ratio_team, ratio_owner').eq('id', shop.id).single()
+    try {
+      // ★ 修正：直接DBに書き込むのではなく、先ほど作ったWebhook（API）を呼び出す！
+      const res = await fetch('/api/webhooks/ecforce', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          r: referralCode,
+          order_id: orderNum,
+          customer_id: customerId
+        })
+      })
 
-    const indRatio = latestShop?.ratio_individual ?? 100
-    const teamRatio = latestShop?.ratio_team ?? 0
-    const ownerRatio = latestShop?.ratio_owner ?? 0
-
-    const { error } = await supabase.from('referrals').insert([{
-      shop_id: shop.id,
-      staff_id: staff.id,
-      status: 'pending', // 初回は仮計上（配達前）
-      order_number: orderNum,
-      customer_name: customerName,
-      recurring_count: 1, // 定期1回目
-      snapshot_ratio_individual: indRatio,
-      snapshot_ratio_team: teamRatio,
-      snapshot_ratio_owner: ownerRatio
-    }])
-
-    if (!error) {
-      await loadData()
-      alert('【テスト】購入が完了し、ダッシュボードに「仮計上」としてデータが飛びました！\n下部のテストツールから「お届け完了」をシミュレートしてください。')
-    } else {
-      alert('エラーが発生しました。')
+      if (res.ok) {
+        await loadData()
+        alert('【テスト】購入が完了し、Webhook経由でデータが計上されました！\nスマホにLINE通知が届いているか確認してください✨')
+      } else {
+        const errorData = await res.json()
+        alert('エラーが発生しました: ' + (errorData.error || '不明なエラー'))
+      }
+    } catch (err) {
+      alert('通信エラーが発生しました。')
     }
+    
     setIsSimulating(false)
   }
 
@@ -126,7 +125,7 @@ export default function WelcomeTestPage() {
       staff_id: staff.id,
       status: 'confirmed', // 2回目以降は即確定
       order_number: orderNum,
-      customer_name: originalLog.customer_name,
+      customer_id: originalLog.customer_id, // customer_name から customer_id に変更
       recurring_count: originalLog.recurring_count + 1, 
       snapshot_ratio_individual: indRatio,
       snapshot_ratio_team: teamRatio,
@@ -141,8 +140,6 @@ export default function WelcomeTestPage() {
   if (!staff || !shop) return <div className="fixed inset-0 flex items-center justify-center bg-gray-100 text-gray-500 text-sm font-semibold">ページが見つかりません。</div>
 
   const basePoints = category?.reward_points || 0
-
-  // ★ 追加：このURLが「店舗公式（オーナー）」のコードかどうかを判定
   const isOfficial = staff.role === 'owner';
 
   return (
@@ -164,15 +161,12 @@ export default function WelcomeTestPage() {
 
         <main className="flex-1 overflow-y-auto">
           
-          {/* ★ 変更：Hero Profile (公式と個人で出し分け) */}
           <div className="p-6 flex flex-col items-center text-center border-b border-gray-50 bg-gray-50/30">
             {isOfficial ? (
-              // 店舗公式の場合のアイコン
               <div className="w-20 h-20 rounded-full bg-gray-900 flex items-center justify-center text-white shadow-md border-4 border-white mb-4">
                 <Store className="w-8 h-8 text-amber-100" />
               </div>
             ) : (
-              // 個人スタッフの場合のアイコン（画像があれば画像、なければグラデ）
               <div className={`w-20 h-20 rounded-full flex items-center justify-center text-white font-bold text-3xl shadow-md border-4 border-white mb-4 overflow-hidden ${!staff.avatar_url ? `bg-gradient-to-tr ${getGradient(staff.name)}` : 'bg-gray-100'}`}>
                 {staff.avatar_url ? (
                   <img src={staff.avatar_url} alt={staff.name} className="w-full h-full object-cover" />
@@ -183,7 +177,6 @@ export default function WelcomeTestPage() {
             )}
             
             {isOfficial ? (
-              // 店舗公式のテキスト
               <>
                 <h2 className="text-lg font-bold text-gray-900 mb-1">{shop.name}</h2>
                 <p className="text-xs font-semibold text-gray-500 tracking-widest uppercase">Official Online Store</p>
@@ -192,7 +185,6 @@ export default function WelcomeTestPage() {
                 </p>
               </>
             ) : (
-              // 個人のテキスト
               <>
                 <h2 className="text-lg font-bold text-gray-900 mb-1">{staff.name} <span className="text-xs font-medium text-gray-500">からの招待</span></h2>
                 <p className="text-xs text-gray-500 leading-relaxed max-w-[280px] mt-2">
@@ -202,7 +194,6 @@ export default function WelcomeTestPage() {
             )}
           </div>
 
-          {/* Product (Subscription) Card */}
           <div className="p-5">
             <div className="bg-gray-900 rounded-3xl p-6 text-white relative overflow-hidden shadow-lg">
               <div className="absolute right-0 top-0 p-4 opacity-10">
@@ -288,7 +279,10 @@ export default function WelcomeTestPage() {
                                 )}
                                 <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">定期 {log.recurring_count}回目</span>
                               </div>
-                              <p className="text-xs font-bold text-gray-900">{log.customer_name}</p>
+                              {/* ★ 変更：Webhook経由だとcustomer_nameがないため、IDを表示 */}
+                              <p className="text-xs font-bold text-gray-900">
+                                {log.customer_name || (log.customer_id ? `顧客ID: ${log.customer_id}` : 'ゲスト')}
+                              </p>
                             </div>
                             <div className="text-right">
                               <p className="text-[9px] text-gray-400 font-semibold mb-0.5">担当枠: +{staffExpectedPoints}pt</p>
