@@ -6,10 +6,8 @@ import { supabase } from '@/lib/supabase'
 import liff from '@line/liff'
 import { Loader2, AlertTriangle, Sparkles } from 'lucide-react'
 
-// --- ヘルパー関数 ---
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  // マイページのURLになる推測不可能なトークン（16文字）
   return Array.from({ length: 16 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
 
@@ -30,19 +28,20 @@ function LoginContent() {
         const liffId = process.env.NEXT_PUBLIC_LIFF_ID
         if (!liffId) throw new Error('LIFF IDが設定されていません')
 
-        // 1. LIFF初期化
+        // ※ LINE公式アカウントのID (@から始まるやつ) を設定してください！
+        const LINE_BOT_ID = process.env.NEXT_PUBLIC_LINE_BOT_ID || '@your_bot_id'
+
         await liff.init({ liffId })
 
-        // 2. 未ログインならLINEログイン画面へ
         if (!liff.isLoggedIn()) {
           liff.login({ redirectUri: window.location.href })
           return
         }
 
-        // 3. LINEプロフィールを取得
         setStatusText('プロフィール情報を取得中...')
         const profile = await liff.getProfile()
         const lineUserId = profile.userId
+        const token = searchParams.get('token')
 
         // ==========================================
         // 🚪 A. 既存ユーザーのログイン処理
@@ -56,25 +55,27 @@ function LoginContent() {
         if (dbError) throw dbError
 
         if (existingStaff) {
-          // 既に登録されている場合は、そのままマイページへ！
           sessionStorage.setItem(`duacel_auth_${existingStaff.secret_token}`, 'true')
-          router.replace(`/m/${existingStaff.secret_token}`)
+          
+          // ★ 変更：QR（トークンあり）から来たならトークルームへ、それ以外（リッチメニュー）ならマイページへ
+          if (token) {
+            window.location.href = `https://line.me/R/ti/p/${LINE_BOT_ID}`
+          } else {
+            router.replace(`/m/${existingStaff.secret_token}`)
+          }
           return
         }
 
         // ==========================================
-        // ✨ B. 新規ユーザーの自動登録処理（魔法のドア）
+        // ✨ B. 新規ユーザーの自動登録処理
         // ==========================================
-        setStatusText('アカウントを自動作成中...')
+        setStatusText('アカウントを作成中...')
         
-        // 招待トークンがURLにあるか確認（p/[token] から引き継がれる）
-        const token = searchParams.get('token')
         if (!token) {
           setError('招待QRコードからアクセスしてください。')
           return
         }
 
-        // 店舗がすでに作られているかチェック
         let shopId = ''
         const { data: existingShop } = await supabase
           .from('shops')
@@ -83,31 +84,24 @@ function LoginContent() {
           .maybeSingle()
 
         if (existingShop) {
-          // すでに誰かがこのQRで店舗を作っていたら、それに相乗りする
           shopId = existingShop.id
         } else {
-          // 誰も店舗を作っていなければ（1人目なら）、「未設定」で仮の店舗を自動作成！
           const { data: newShop, error: shopErr } = await supabase
             .from('shops')
-            .insert([{ 
-              name: '店舗名未設定', 
-              invite_token: token 
-            }])
+            .insert([{ name: '店舗名未設定', invite_token: token }])
             .select('id')
             .single()
-            
           if (shopErr) throw shopErr
           shopId = newShop.id
         }
 
-        // LINEの情報を使って、スタッフを「メンバー（平社員）」として自動登録！
         const secretToken = generateSecureToken()
         const { error: staffErr } = await supabase
           .from('staffs')
           .insert([{ 
             shop_id: shopId, 
-            name: profile.displayName, // LINEの表示名をそのまま使う
-            role: 'member',            // 最初は全員ただのメンバー！
+            name: profile.displayName,
+            role: 'member',
             referral_code: generateReferralCode(), 
             secret_token: secretToken, 
             line_user_id: profile.userId,
@@ -116,14 +110,14 @@ function LoginContent() {
             avatar_url: profile.pictureUrl,
             is_deleted: false, 
             is_team_pool_eligible: true 
-            // ※ security_pin はDBのデフォルト('0000')が勝手に入ります
           }])
 
         if (staffErr) throw staffErr
 
-        // 登録完了！顔パス状態にしてマイページへジャンプ！
         sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true')
-        router.replace(`/m/${secretToken}`)
+        
+        // ★ 変更：新規登録後もトークルームへジャンプさせる！
+        window.location.href = `https://line.me/R/ti/p/${LINE_BOT_ID}`
 
       } catch (err: any) {
         console.error('Login Error:', err)

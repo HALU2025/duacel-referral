@@ -6,7 +6,6 @@ import { useParams, useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion' 
 import { Loader2, Users, ArrowRight, CheckCircle2, MessageCircle, Sparkles } from 'lucide-react'
 
-// ※ 実際のLIFF IDに書き換えてください
 const LIFF_ID = process.env.NEXT_PUBLIC_LIFF_ID || 'YOUR_LIFF_ID'
 
 export default function PortalPage() {
@@ -21,14 +20,12 @@ export default function PortalPage() {
     const checkState = async () => {
       if (!token) return
 
-      // 1. ログイン済みなら即マイページへ（顔パス）
       const existingSession = localStorage.getItem('duacel_session')
       if (existingSession) {
         router.replace(`/m/${existingSession}`)
         return
       }
 
-      // 2. トークンから店舗情報を取得
       const { data: shopData } = await supabase
         .from('shops')
         .select('id, name')
@@ -57,22 +54,22 @@ export default function PortalPage() {
     )
   }
 
+  // ★ 追加：「店舗名未設定」の場合は綺麗なテキストに置き換える
+  const displayName = shop?.name === '店舗名未設定' ? 'この店舗' : `「${shop?.name}」`
+
   return (
     <div className="fixed inset-0 bg-[#fffef2] flex flex-col justify-center items-center p-4 sm:p-6 font-sans text-[#333333] overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-[#e6e2d3] flex flex-col h-[85vh] max-h-[700px]">
         
-        {/* --- ヘッダー部分 --- */}
         <div className="pt-10 pb-6 px-8 bg-[#fffef2] border-b border-[#e6e2d3] flex flex-col items-center text-center shrink-0">
           <h1 className="text-2xl font-serif tracking-[0.2em] text-[#1a1a1a] mb-2">Duacel.</h1>
           <p className="text-[10px] font-bold text-[#999999] tracking-widest uppercase">Partner Program</p>
         </div>
 
-        {/* --- メインコンテンツ --- */}
         <div className="flex-1 p-8 overflow-y-auto flex flex-col justify-center relative">
           <AnimatePresence mode="wait">
             
             {shop ? (
-              // 【パターンB】すでに誰かが店名を登録している場合
               <motion.div 
                 key="join"
                 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
@@ -83,7 +80,7 @@ export default function PortalPage() {
                 </div>
                 <p className="text-[11px] font-bold text-gray-400 tracking-widest uppercase mb-2">Duacelパートナー</p>
                 <h2 className="text-xl font-bold text-gray-900 mb-6 leading-tight">
-                  <span className="text-indigo-600">「{shop.name}」</span><br/>のメンバーとして<br/>参加しますか？
+                  <span className="text-indigo-600">{displayName}</span><br/>のメンバーとして<br/>参加しますか？
                 </h2>
                 <div className="bg-gray-50 rounded-2xl p-5 text-left w-full space-y-3 border border-gray-100 mb-8">
                   <p className="flex items-center gap-2 text-xs font-bold text-gray-700"><CheckCircle2 className="w-4 h-4 text-emerald-500"/> LINE追加で1秒スタート</p>
@@ -92,7 +89,6 @@ export default function PortalPage() {
                 </div>
               </motion.div>
             ) : (
-              // 【パターンA】最初の1人目の場合（仰々しさを排除！）
               <motion.div 
                 key="new"
                 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
@@ -116,7 +112,6 @@ export default function PortalPage() {
           </AnimatePresence>
         </div>
 
-        {/* --- フッター（アクションボタン） --- */}
         <div className="p-6 bg-[#fffef2] border-t border-[#e6e2d3] shrink-0">
           <button 
             onClick={handleLineLogin}
