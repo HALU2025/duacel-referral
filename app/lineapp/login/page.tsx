@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import liff from '@line/liff'
 import { Loader2, AlertTriangle, Sparkles } from 'lucide-react'
 
+// --- ヘルパー関数 ---
 const generateSecureToken = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return Array.from({ length: 16 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -15,6 +16,9 @@ const generateReferralCode = () => {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   return 'ref_' + Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
 }
+
+// ★ LINE公式アカウントのID
+const LINE_BOT_ID = '@980zdibk'
 
 function LoginContent() {
   const router = useRouter()
@@ -28,16 +32,16 @@ function LoginContent() {
         const liffId = process.env.NEXT_PUBLIC_LIFF_ID
         if (!liffId) throw new Error('LIFF IDが設定されていません')
 
-        // ※ LINE公式アカウントのID (@から始まるやつ) を設定してください！
-        const LINE_BOT_ID = process.env.NEXT_PUBLIC_LINE_BOT_ID || '@980zdibk'
-
+        // 1. LIFF初期化
         await liff.init({ liffId })
 
+        // 2. 未ログインならLINEログイン画面へ
         if (!liff.isLoggedIn()) {
           liff.login({ redirectUri: window.location.href })
           return
         }
 
+        // 3. LINEプロフィールを取得
         setStatusText('プロフィール情報を取得中...')
         const profile = await liff.getProfile()
         const lineUserId = profile.userId
@@ -57,31 +61,73 @@ function LoginContent() {
         if (existingStaff) {
           sessionStorage.setItem(`duacel_auth_${existingStaff.secret_token}`, 'true')
           
-          // ★ 変更：QR（トークンあり）から来たならトークルームへ、それ以外（リッチメニュー）ならマイページへ
           if (token) {
+            setStatusText('トークルームへ移動します...')
             window.location.href = `https://line.me/R/ti/p/${LINE_BOT_ID}`
           } else {
+            setStatusText('マイページを開きます...')
             router.replace(`/m/${existingStaff.secret_token}`)
           }
           return
         }
 
-// ==========================================
+        // ==========================================
         // ✨ B. 新規ユーザーの自動登録処理
         // ==========================================
         setStatusText('アカウントを作成中...')
         
-        // ... (中略: shopId の取得や staffs への insert 処理はそのまま) ...
+        if (!token) {
+          setError('招待QRコードからアクセスしてください。')
+          return
+        }
+
+        // 店舗がすでに作られているかチェック
+        let shopId = ''
+        const { data: existingShop } = await supabase
+          .from('shops')
+          .select('id, name')
+          .eq('invite_token', token)
+          .maybeSingle()
+
+        if (existingShop) {
+          shopId = existingShop.id
+        } else {
+          // 誰も店舗を作っていなければ「未設定」で作成
+          const { data: newShop, error: shopErr } = await supabase
+            .from('shops')
+            .insert([{ name: '店舗名未設定', invite_token: token }])
+            .select('id')
+            .single()
+            
+          if (shopErr) throw shopErr
+          shopId = newShop.id
+        }
+
+        // スタッフを登録！
+        const secretToken = generateSecureToken()
+        const { error: staffErr } = await supabase
+          .from('staffs')
+          .insert([{ 
+            shop_id: shopId, 
+            name: profile.displayName,
+            role: 'member',
+            referral_code: generateReferralCode(), 
+            secret_token: secretToken, 
+            line_user_id: profile.userId,
+            line_display_name: profile.displayName,
+            line_picture_url: profile.pictureUrl,
+            avatar_url: profile.pictureUrl,
+            is_deleted: false, 
+            is_team_pool_eligible: true 
+          }])
 
         if (staffErr) throw staffErr
 
         sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true')
         
-        // ★ 追加：登録完了後、サーバー(API)経由でLINEに歓迎メッセージを送る
+        // ★ 登録完了後、サーバー(API)経由でLINEに歓迎メッセージを送る
         setStatusText('連携メッセージを送信中...')
         try {
-          // ※ newShopの変数がない場合は既存shopの名前を使うなど、適宜 shopName を取得するロジックに合わせてください。
-          // 簡単にするため、店舗名が分からない場合は一旦 '店舗名未設定' としておきます。
           const displayShopName = existingShop ? existingShop.name : '店舗名未設定';
 
           await fetch('/api/line/send-welcome', {
@@ -89,17 +135,17 @@ function LoginContent() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
               lineUserId: profile.userId,
-              shopName: displayShopName // 店舗名もメッセージに含める
+              shopName: displayShopName
             })
           })
         } catch (fetchErr) {
-          console.error('歓迎メッセージの送信に失敗しましたが、登録は完了しています', fetchErr)
+          console.error('メッセージ送信エラー（登録は完了）', fetchErr)
         }
 
         // メッセージ送信後、トークルームへジャンプ！
-        setStatusText('トークルームへ移動します...')
+        setStatusText('登録完了！トークルームへ移動します...')
         setTimeout(() => {
-          window.location.href = `https://line.me/R/ti/p/@980zdibk` // IDは直書きのままでOK
+          window.location.href = `https://line.me/R/ti/p/${LINE_BOT_ID}`
         }, 500)
 
       } catch (err: any) {
