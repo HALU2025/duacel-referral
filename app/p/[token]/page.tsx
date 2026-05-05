@@ -41,8 +41,9 @@ export default function PortalPage() {
     checkState()
   }, [token, router])
 
-  const handleLineLogin = () => {
-    const liffUrl = `https://liff.line.me/${LIFF_ID}?token=${token}`
+const handleLineLogin = () => {
+    // 新しいドメイン（miniapp.line.me）と本番用IDを直接指定！
+    const liffUrl = `https://miniapp.line.me/2009841778-MVVi0glN?token=${token}`
     window.location.href = liffUrl
   }
 

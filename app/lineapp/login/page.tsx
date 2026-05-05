@@ -29,10 +29,7 @@ function LoginContent() {
   useEffect(() => {
     const processLiff = async () => {
       try {
-        const liffId = process.env.NEXT_PUBLIC_LIFF_ID
-        if (!liffId) throw new Error('LIFF IDが設定されていません')
-
-        // 1. LIFF初期化
+        const liffId = '2009841778-MVVi0glN' // 本番用IDを直書き！
         await liff.init({ liffId })
 
         // 2. 未ログインならLINEログイン画面へ
