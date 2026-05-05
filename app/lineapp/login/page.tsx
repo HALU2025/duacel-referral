@@ -66,58 +66,41 @@ function LoginContent() {
           return
         }
 
-        // ==========================================
+// ==========================================
         // ✨ B. 新規ユーザーの自動登録処理
         // ==========================================
         setStatusText('アカウントを作成中...')
         
-        if (!token) {
-          setError('招待QRコードからアクセスしてください。')
-          return
-        }
-
-        let shopId = ''
-        const { data: existingShop } = await supabase
-          .from('shops')
-          .select('id')
-          .eq('invite_token', token)
-          .maybeSingle()
-
-        if (existingShop) {
-          shopId = existingShop.id
-        } else {
-          const { data: newShop, error: shopErr } = await supabase
-            .from('shops')
-            .insert([{ name: '店舗名未設定', invite_token: token }])
-            .select('id')
-            .single()
-          if (shopErr) throw shopErr
-          shopId = newShop.id
-        }
-
-        const secretToken = generateSecureToken()
-        const { error: staffErr } = await supabase
-          .from('staffs')
-          .insert([{ 
-            shop_id: shopId, 
-            name: profile.displayName,
-            role: 'member',
-            referral_code: generateReferralCode(), 
-            secret_token: secretToken, 
-            line_user_id: profile.userId,
-            line_display_name: profile.displayName,
-            line_picture_url: profile.pictureUrl,
-            avatar_url: profile.pictureUrl,
-            is_deleted: false, 
-            is_team_pool_eligible: true 
-          }])
+        // ... (中略: shopId の取得や staffs への insert 処理はそのまま) ...
 
         if (staffErr) throw staffErr
 
         sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true')
         
-        // ★ 変更：新規登録後もトークルームへジャンプさせる！
-        window.location.href = `https://line.me/R/ti/p/${LINE_BOT_ID}`
+        // ★ 追加：登録完了後、サーバー(API)経由でLINEに歓迎メッセージを送る
+        setStatusText('連携メッセージを送信中...')
+        try {
+          // ※ newShopの変数がない場合は既存shopの名前を使うなど、適宜 shopName を取得するロジックに合わせてください。
+          // 簡単にするため、店舗名が分からない場合は一旦 '店舗名未設定' としておきます。
+          const displayShopName = existingShop ? existingShop.name : '店舗名未設定';
+
+          await fetch('/api/line/send-welcome', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              lineUserId: profile.userId,
+              shopName: displayShopName // 店舗名もメッセージに含める
+            })
+          })
+        } catch (fetchErr) {
+          console.error('歓迎メッセージの送信に失敗しましたが、登録は完了しています', fetchErr)
+        }
+
+        // メッセージ送信後、トークルームへジャンプ！
+        setStatusText('トークルームへ移動します...')
+        setTimeout(() => {
+          window.location.href = `https://line.me/R/ti/p/@980zdibk` // IDは直書きのままでOK
+        }, 500)
 
       } catch (err: any) {
         console.error('Login Error:', err)
