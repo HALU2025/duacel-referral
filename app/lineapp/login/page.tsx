@@ -29,7 +29,7 @@ function LoginContent() {
         if (!liffId) throw new Error('LIFF IDが設定されていません')
 
         // ※ LINE公式アカウントのID (@から始まるやつ) を設定してください！
-        const LINE_BOT_ID = process.env.NEXT_PUBLIC_LINE_BOT_ID || '@your_bot_id'
+        const LINE_BOT_ID = process.env.NEXT_PUBLIC_LINE_BOT_ID || '@980zdibk'
 
         await liff.init({ liffId })
 
