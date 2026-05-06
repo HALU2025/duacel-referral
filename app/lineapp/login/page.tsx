@@ -122,8 +122,7 @@ function LoginContent() {
 
         sessionStorage.setItem(`duacel_auth_${secretToken}`, 'true')
         
-        // ★ 登録完了後、サーバー(API)経由でLINEに歓迎メッセージを送る
-// ★ デバッグ用：エラー原因をスマホにポップアップ表示させる！
+// ★ デバッグ用（改良版）：エラーを正確に読み取る
         setStatusText('連携メッセージを送信中...')
         try {
           const displayShopName = existingShop ? existingShop.name : '店舗名未設定';
@@ -138,11 +137,10 @@ function LoginContent() {
           })
 
           if (!res.ok) {
-            // 失敗した場合は、エラーの詳細をスマホ画面にアラートで出す！
-            const errorData = await res.json()
-            alert(`【送信エラー】\nステータス: ${res.status}\n理由: ${JSON.stringify(errorData)}`)
+            // ★修正：JSONではなく、そのまま文字として読み取る（ズッコケ防止）
+            const errorText = await res.text()
+            alert(`【送信エラー】\nステータス: ${res.status}\n中身: ${errorText.substring(0, 100)}...`)
           } else {
-            // 成功したかどうかもアラートで確認！
             alert('✅ APIからのメッセージ送信指令が成功しました！')
           }
         } catch (fetchErr: any) {
