@@ -47,6 +47,9 @@ function LoginContent() {
         // ==========================================
         // 🚪 A. 既存ユーザーのログイン処理
         // ==========================================
+// ==========================================
+        // 🚪 A. 既存ユーザーのログイン処理
+        // ==========================================
         const { data: existingStaff, error: dbError } = await supabase
           .from('staffs')
           .select('secret_token')
@@ -59,9 +62,14 @@ function LoginContent() {
           sessionStorage.setItem(`duacel_auth_${existingStaff.secret_token}`, 'true')
           
           if (token) {
-            setStatusText('トークルームへ移動します...')
-            window.location.href = `https://line.me/R/ti/p/${LINE_BOT_ID}`
+            // ★ 修正：QRコードを読んで来たけど、すでに登録済みだった場合
+            setStatusText('すでに連携済みです✨ マイページを開きます...')
+            // メッセージを1.5秒だけ見せてから、マイページへ直接移動する
+            setTimeout(() => {
+              router.replace(`/m/${existingStaff.secret_token}`)
+            }, 1500)
           } else {
+            // 普通にLINEのメニュー等から来た場合
             setStatusText('マイページを開きます...')
             router.replace(`/m/${existingStaff.secret_token}`)
           }
